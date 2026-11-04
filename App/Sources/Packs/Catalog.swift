@@ -112,7 +112,7 @@ enum ModelCatalog {
                     summary: "Works on most iPhones from 2020 on. About 1.1 GB.", size: 1_110_000_000,
                     url: URL(string: "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf")!),
         CatalogItem(id: "Qwen3-4B-Instruct-2507-Q4_K_M.gguf", kind: .model, title: "Qwen3 4B (better answers)",
-                    summary: "Needs an iPhone with 8 GB of memory (iPhone 15 Pro or newer). About 2.5 GB.", size: 2_500_000_000,
+                    summary: "Needs an iPhone with 6 GB of memory or more (tested on iPhone 15). About 2.5 GB.", size: 2_500_000_000,
                     url: URL(string: "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf")!),
     ]
 }
