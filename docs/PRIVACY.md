@@ -76,6 +76,28 @@ You can preview exactly what a file would contain on the map (Layers ›
 Coverage › What sharing would publish). If you contribute a file to a public
 coverage map, it becomes public.
 
+## Apple Watch
+
+The Pocket Nomad watch app has no accounts, analytics or servers either.
+
+- **Location on the watch.** The watch asks for location "while using the
+  app" to show your heading and coordinates on its compass screen, and to add
+  the watch's position to a mesh SOS, only when you send one. Location stays
+  on the watch unless you send that SOS.
+- **SOS light and first-aid steps** work on the watch alone. The first-aid
+  steps come from the same guides the phone ships, built into the watch app;
+  nothing is downloaded.
+- **Talking to your iPhone.** The watch and phone talk directly over Apple's
+  WatchConnectivity link between your own devices. The phone gives the watch
+  your recent mesh messages and whether a radio is connected, so you can read
+  them on your wrist; the watch keeps them only in memory.
+- **Nothing leaves except what you send.** The watch never sends anything to
+  the mesh on its own. A mesh SOS (after you confirm it) or a reply (when you
+  tap a quick reply, or confirm dictated text) goes to your iPhone, which
+  sends it through your radio exactly like a message typed on the phone, as
+  described under Bluetooth and mesh radios above. Dictation uses Apple's
+  speech recognition, under Apple's privacy policy.
+
 ## Network connections
 
 The app works with no connection. It only connects when you ask it to:

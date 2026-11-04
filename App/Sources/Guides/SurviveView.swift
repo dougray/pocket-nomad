@@ -6,13 +6,12 @@ struct SurviveView: View {
     @State private var showSettings = LaunchScreen.parts()?.0 == "settings"
     @State private var path = NavigationPath()
 
-
     var body: some View {
         NavigationStack(path: $path) {
             ScrollView {
                 if query.isEmpty {
                     // Keeps lines and tiles a readable size on iPad.
-                    home.frame(maxWidth: 820).frame(maxWidth: .infinity)
+                    SurviveHome().frame(maxWidth: 820).frame(maxWidth: .infinity)
                 } else {
                     SearchResultsList(hits: hits, emptyText: "No guides match “\(query)”.")
                         .padding(.horizontal)
@@ -20,11 +19,7 @@ struct SurviveView: View {
             }
             .navigationTitle("Survive")
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search guides and library")
-            .task(id: query) {
-                guard !query.isEmpty else { hits = []; return }
-                try? await Task.sleep(for: .milliseconds(200))
-                hits = await SearchService.shared.searchArticles(query, limit: 25)
-            }
+            .articleSearch(query, into: $hits, limit: 25, delay: .milliseconds(200))
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showSettings = true } label: { Image(systemName: "gearshape") }
@@ -32,13 +27,13 @@ struct SurviveView: View {
                 }
             }
             .sheet(isPresented: $showSettings) { SettingsView() }
-            .navigationDestination(for: Guide.self) { GuideReaderView(guide: $0) }
-            .navigationDestination(for: GuideCategory.self) { GuideListView(category: $0) }
-            .navigationDestination(for: SourceRef.self) { SourceView(ref: $0) }
-            .navigationDestination(for: ToolKind.self) { $0.destination }
+            .nomadDestinations()
             .onAppear(perform: openLaunchScreen)
         }
     }
+
+    static let allEmergencies = GuideCategory(id: "emergencies", title: "All Emergencies", symbol: "exclamationmark.triangle.fill",
+                                              summary: nil, guides: GuideStore.urgent)
 
     private func openLaunchScreen() {
         guard path.isEmpty, let (kind, arg) = LaunchScreen.parts() else { return }
@@ -50,16 +45,17 @@ struct SurviveView: View {
         default: break
         }
     }
+}
 
+/// The Survive home: emergency guides, tools and guide categories. Its links push
+/// in the enclosing stack (the Survive tab on iPhone, the detail column on iPad).
+struct SurviveHome: View {
     /// The most common life-threatening first-aid topics, kept to one screen.
     private var emergencies: [Guide] {
         Array(GuideStore.urgent.filter { GuideStore.categories.first?.guides.contains($0) ?? false }.prefix(10))
     }
 
-    static let allEmergencies = GuideCategory(id: "emergencies", title: "All Emergencies", symbol: "exclamationmark.triangle.fill",
-                                              summary: nil, guides: GuideStore.urgent)
-
-    private var home: some View {
+    var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             if !GuideStore.urgent.isEmpty {
                 section("Emergency") {
@@ -79,7 +75,7 @@ struct SurviveView: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    NavigationLink(value: Self.allEmergencies) {
+                    NavigationLink(value: SurviveView.allEmergencies) {
                         Label("All emergencies (\(GuideStore.urgent.count))", systemImage: "list.bullet")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Theme.accent)
@@ -130,25 +126,50 @@ struct SurviveView: View {
     }
 }
 
+extension View {
+    /// The screens a guide, tool or search hit opens.
+    func nomadDestinations() -> some View {
+        navigationDestination(for: Guide.self) { GuideReaderView(guide: $0) }
+            .navigationDestination(for: GuideCategory.self) { GuideListView(category: $0) }
+            .navigationDestination(for: SourceRef.self) { SourceView(ref: $0) }
+            .navigationDestination(for: ToolKind.self) { $0.destination }
+    }
+
+    /// Searches the guides and every book as `query` changes, after a short pause for typing.
+    func articleSearch(_ query: String, into hits: Binding<[SearchHit]>, limit: Int, delay: Duration) -> some View {
+        task(id: query) {
+            guard !query.isEmpty else { hits.wrappedValue = []; return }
+            try? await Task.sleep(for: delay)
+            hits.wrappedValue = await SearchService.shared.searchArticles(query, limit: limit)
+        }
+    }
+}
+
 struct GuideListView: View {
     let category: GuideCategory
 
     var body: some View {
         List(category.guides) { guide in
-            NavigationLink(value: guide) {
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack {
-                        if guide.urgent == true {
-                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.danger)
-                        }
-                        Text(guide.title).font(.headline)
-                    }
-                    Text(guide.summary).font(.subheadline).foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 4)
-            }
+            NavigationLink(value: guide) { GuideRow(guide: guide) }
         }
         .navigationTitle(category.title)
+    }
+}
+
+struct GuideRow: View {
+    let guide: Guide
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                if guide.urgent == true {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.danger)
+                }
+                Text(guide.title).font(.headline)
+            }
+            Text(guide.summary).font(.subheadline).foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
     }
 }
 
@@ -191,7 +212,7 @@ struct SearchResultsList: View {
                 Text(emptyText).foregroundStyle(.secondary).padding(.top, 24)
             }
             ForEach(hits) { hit in
-                NavigationLink(value: hit.ref) {
+                DetailLink(value: hit.ref) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(hit.sourceName.uppercased()).font(.caption2.weight(.semibold)).foregroundStyle(Theme.accent)
                         Text(hit.title).font(.headline).foregroundStyle(.primary)

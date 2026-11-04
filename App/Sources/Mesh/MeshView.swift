@@ -10,6 +10,16 @@ enum MeshRoute: Hashable {
     case chat(MeshConversation)
     case nodes
     case info
+
+    /// The screen for this route; `open` follows a link from it (a node to its chat).
+    @MainActor @ViewBuilder
+    func destination(open: @escaping (MeshRoute) -> Void) -> some View {
+        switch self {
+        case .chat(let c): MeshChatView(conversation: c)
+        case .nodes: MeshNodeListView { open(.chat(.direct($0))) }
+        case .info: MeshInfoView()
+        }
+    }
 }
 
 struct MeshView: View {
@@ -51,7 +61,7 @@ struct MeshView: View {
                     directThreads
                     sosButton
 
-                    NavigationLink(value: MeshRoute.info) {
+                    DetailLink(value: MeshRoute.info) {
                         Label("What is a mesh radio?", systemImage: "questionmark.circle")
                     }
                     .buttonStyle(MeshBigButtonStyle(filled: false))
@@ -70,11 +80,7 @@ struct MeshView: View {
                 }
             }
             .navigationDestination(for: MeshRoute.self) { route in
-                switch route {
-                case .chat(let c): MeshChatView(conversation: c)
-                case .nodes: MeshNodeListView { path.append(.chat(.direct($0))) }
-                case .info: MeshInfoView()
-                }
+                route.destination { path.append($0) }
             }
             .sheet(isPresented: $showDevices) { MeshDevicesSheet() }
             .sheet(isPresented: $showCoverage) { CoverageSettingsView() }
@@ -111,7 +117,7 @@ struct MeshView: View {
     }
 
     private var channelTile: some View {
-        NavigationLink(value: MeshRoute.chat(.channel(0))) {
+        DetailLink(value: MeshRoute.chat(.channel(0))) {
             tileRow(symbol: "bubble.left.and.bubble.right.fill",
                     title: mesh.radio.primaryChannelName.isEmpty ? "Channel chat" : "Channel: \(mesh.radio.primaryChannelName)",
                     subtitle: lastLine(.channel(0)) ?? "Talk to everyone on the primary channel",
@@ -131,7 +137,7 @@ struct MeshView: View {
     }
 
     private var nodesTile: some View {
-        NavigationLink(value: MeshRoute.nodes) {
+        DetailLink(value: MeshRoute.nodes) {
             tileRow(symbol: "person.3.fill",
                     title: "Nodes (\(mesh.sortedNodes.count))",
                     subtitle: "Radios your radio has heard",
@@ -147,7 +153,7 @@ struct MeshView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Direct messages").font(.headline).foregroundStyle(.secondary)
                 ForEach(threads, id: \.node.num) { t in
-                    NavigationLink(value: MeshRoute.chat(.direct(t.node.num))) {
+                    DetailLink(value: MeshRoute.chat(.direct(t.node.num))) {
                         HStack(spacing: 12) {
                             MeshNodeBadge(node: t.node, size: 44)
                             VStack(alignment: .leading, spacing: 2) {

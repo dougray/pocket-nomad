@@ -10,6 +10,7 @@ struct MeshChatView: View {
     let conversation: MeshConversation
     @State private var mesh = MeshService.shared
     @State private var draft = ""
+    @State private var blocking: MeshNode?
     @FocusState private var focused: Bool
 
     private var thread: [MeshMessage] { mesh.messages(in: conversation) }
@@ -29,6 +30,11 @@ struct MeshChatView: View {
                                    sender: m.isOutgoing || m.from == 0 ? nil : mesh.node(m.from),
                                    showSender: isChannel)
                             .id(m.id)
+                            .contextMenu {
+                                if !m.isOutgoing && m.from != 0 {
+                                    Button("Block Sender", systemImage: "hand.raised", role: .destructive) { blocking = mesh.node(m.from) }
+                                }
+                            }
                     }
                 }
                 .padding(16)
@@ -48,6 +54,7 @@ struct MeshChatView: View {
         .safeAreaInset(edge: .bottom) { composer }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        .meshBlockConfirmation($blocking)
     }
 
     private var isChannel: Bool {

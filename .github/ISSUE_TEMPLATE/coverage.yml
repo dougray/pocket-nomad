@@ -1,0 +1,40 @@
+name: Coverage map contribution
+description: Send a coverage file exported from Pocket Nomad for the public mesh coverage map.
+title: "Coverage: "
+labels: ["coverage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for mapping the mesh. Export the file in the app with **Mesh › Coverage map › Share**, then attach it below.
+        If GitHub won't accept a `.geojson` file, rename it to `.txt` or zip it. Please don't edit it.
+
+        **Everything here is public:** this issue, your username, the file and the hexagons on the map, permanently.
+        Steps and details: [CONTRIBUTING-COVERAGE.md](https://github.com/dougray/pocket-nomad/blob/main/CONTRIBUTING-COVERAGE.md).
+  - type: textarea
+    id: file
+    attributes:
+      label: Coverage file
+      description: Drag the exported file here. Don't paste names, addresses or node IDs.
+      placeholder: Attach the .geojson (or .txt / .zip) file
+    validations:
+      required: true
+  - type: dropdown
+    id: firmware
+    attributes:
+      label: Firmware
+      options:
+        - Meshtastic
+        - MeshCore
+        - Both
+    validations:
+      required: false
+  - type: checkboxes
+    id: consent
+    attributes:
+      label: Publishing
+      options:
+        - label: I previewed the file in the app (Layers › Coverage › What sharing would publish) and I'm happy for it to become public on the coverage map.
+          required: true
+        - label: I set a private zone for places I don't want on the map, such as my home.
+          required: true

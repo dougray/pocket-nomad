@@ -6,7 +6,9 @@ What is planned next, roughly in order. Done work lives in the git history.
 
 - **Mesh map and coverage scanner (steps 1–3 below): built.** Nodes on the map,
   the scanner, and opt-in sharing with on-phone privacy filtering are in the
-  app; needs real radios to test. Step 4 (public map site) is next.
+  app; needs real radios to test. Step 4 (public map site): built at
+  `docs/coverage/` with `tools/coverage-merge.py` and CONTRIBUTING-COVERAGE.md;
+  no contributions merged yet, so it shows an empty map (demo data is a toggle).
 
 - **MeshCore radios.** The Mesh tab detects whether a paired radio runs Meshtastic
   or MeshCore and speaks the right protocol, so the same chats, node list and SOS
@@ -35,11 +37,18 @@ What is planned next, roughly in order. Done work lives in the git history.
    Meshtastic/MeshCore and date. Contributors submit their filtered file by
    pull request or issue, by hand. No server, nothing automatic, nothing hosted
    on the NAS.
+   **Status: built** (docs/coverage/, served at www.pocketnomad.us/coverage/).
+   OpenFreeMap tiles, firmware and month filters, a made-up demo that is off
+   by default. A maintainer validates and merges submissions with
+   `tools/coverage-merge.py` (strict: only the five allowed properties on grid
+   hexagons). Next: first real contributions once radios are tested.
 
 ### iPad design
 
-The app runs on iPad today with the iPhone layout, kept to a readable width. A real
-iPad design would use the space:
+Built on branch `ipad-design` (regular-width iPad only; iPhone and narrow iPad
+windows keep the tab layout): a sidebar of sections and books with a list column
+and a detail column per section, a Go menu (Cmd-1…5, Cmd-F search, Cmd-Shift-S SOS
+light) and multiple windows. Screenshots: `docs/appstore/ipad-new-*.png`. The plan was:
 
 - Sidebar navigation (Survive, Ask, Library, Map, Mesh) instead of a tab bar.
 - Survive: guide list beside the open guide (split view).
@@ -49,6 +58,11 @@ iPad design would use the space:
 - Keyboard shortcuts for search and SOS, and Stage Manager / multiple windows.
 
 ### Apple Watch app
+
+**Built (branch watch-app):** SOS light, mesh SOS via the phone, compass and
+position, urgent first-aid steps, messages with quick replies, SOS and compass
+complications. Needs a test on a real watch with a real radio. Checklists are
+still to do.
 
 A companion for when the phone is in a pack or a pocket:
 

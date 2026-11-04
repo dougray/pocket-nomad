@@ -15,6 +15,7 @@ targets:
     platform: iOS
     sources:
       - path: App/Sources
+      - path: Shared
       - path: App/Assets.xcassets
       - path: App/PrivacyInfo.xcprivacy
         buildPhase: resources
@@ -33,6 +34,7 @@ targets:
       - package: NomadKit
         product: NomadSearch
       - package: MapLibre
+      - target: NomadPocketWatch
     postCompileScripts:
       - name: Embed llama.framework (device only)
         script: "\"$PROJECT_DIR/tools/embed-llama.sh\""
@@ -48,7 +50,7 @@ targets:
           UIImageName: Logo
           UIImageRespectsSafeAreaInsets: false
         UIApplicationSceneManifest:
-          UIApplicationSupportsMultipleScenes: false
+          UIApplicationSupportsMultipleScenes: true
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         UIFileSharingEnabled: true
@@ -89,6 +91,68 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         GENERATE_INFOPLIST_FILE: NO
         ENABLE_USER_SCRIPT_SANDBOXING: NO
+  NomadPocketWatch:
+    type: application
+    platform: watchOS
+    deploymentTarget: "10.0"
+    sources:
+      - path: Watch/Sources
+      - path: Shared
+      - path: Watch/Assets.xcassets
+      # The same guide HTML the phone ships; the watch reads the urgent ones' steps from it.
+      - path: App/Resources/Guides
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - target: NomadPocketWatchWidgets
+    configFiles:
+      Debug: Config/Shared.xcconfig
+      Release: Config/Shared.xcconfig
+    info:
+      path: Watch/Info.plist
+      properties:
+        CFBundleDisplayName: Pocket Nomad
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: org.nomadpocket.NomadPocket
+        CFBundleURLTypes:
+          - CFBundleURLName: org.nomadpocket.NomadPocket.watchkitapp
+            CFBundleURLSchemes: [nomadpocket-watch]
+        NSLocationWhenInUseUsageDescription: Pocket Nomad shows your heading and coordinates on the watch, and can add the watch's location to a mesh SOS that you choose to send. Your location never leaves the watch unless you send it.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.nomadpocket.NomadPocket.watchkitapp
+        TARGETED_DEVICE_FAMILY: 4
+        WATCHOS_DEPLOYMENT_TARGET: "10.0"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+  NomadPocketWatchWidgets:
+    type: app-extension
+    platform: watchOS
+    deploymentTarget: "10.0"
+    sources:
+      - path: Watch/Widgets
+    configFiles:
+      Debug: Config/Shared.xcconfig
+      Release: Config/Shared.xcconfig
+    info:
+      path: Watch/Widgets/Info.plist
+      properties:
+        CFBundleDisplayName: Pocket Nomad
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.nomadpocket.NomadPocket.watchkitapp.widgets
+        TARGETED_DEVICE_FAMILY: 4
+        WATCHOS_DEPLOYMENT_TARGET: "10.0"
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
   NomadPocketTests:
     type: bundle.unit-test
     platform: iOS

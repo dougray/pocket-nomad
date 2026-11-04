@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 
 struct LibraryView: View {
     @Environment(ContentStore.self) private var content
+    @Environment(\.detailNavigator) private var navigator
     @State private var query = ""
     @State private var hits: [SearchHit] = []
     @State private var showPacks = LaunchScreen.parts()?.0 == "packs"
@@ -27,11 +28,8 @@ struct LibraryView: View {
             }
             .navigationTitle("Library")
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search every book")
-            .task(id: query) {
-                guard !query.isEmpty else { hits = []; return }
-                try? await Task.sleep(for: .milliseconds(250))
-                hits = await SearchService.shared.searchArticles(query, limit: 30)
-            }
+            .focusSearchOnRequest()
+            .articleSearch(query, into: $hits, limit: 30, delay: .milliseconds(250))
             .toolbar {
                 Button { showPacks = true } label: { Label("Get content", systemImage: "arrow.down.circle") }
             }
@@ -41,7 +39,8 @@ struct LibraryView: View {
             .onChange(of: content.books.count) {
                 // Debug launch `-screen book` opens the first book once it has loaded.
                 // -screen book opens the first book; -screen book:<text> the first whose file name contains it.
-                if let launch = LaunchScreen.parts(), launch.0 == "book", path.isEmpty,
+                // On iPad the split view opens it instead (PadRootView).
+                if navigator == nil, let launch = LaunchScreen.parts(), launch.0 == "book", path.isEmpty,
                    let book = content.books.first(where: { launch.1.isEmpty || $0.url.lastPathComponent.contains(launch.1) }) {
                     path.append(book.id)
                 }
@@ -53,7 +52,7 @@ struct LibraryView: View {
         List {
             Section {
                 ForEach(content.books) { book in
-                    NavigationLink(value: book.id) { BookRow(book: book) }
+                    DetailLink(value: book.id) { BookRow(book: book) }
                         .swipeActions {
                             Button("Delete", role: .destructive) { Task { await content.delete(book.url) } }
                         }
@@ -116,7 +115,28 @@ struct BookHomeView: View {
     @State private var query = ""
     @State private var results: [ZIMEntryHit] = []
 
-    struct ZIMEntryHit: Identifiable, Hashable { let id: String; let title: String }
+    struct ZIMEntryHit: Identifiable, Hashable, Sendable { let id: String; let title: String }
+
+    /// Articles in the book whose titles match, off the main thread.
+    static func titleSearch(_ book: Book, _ query: String) async -> [ZIMEntryHit] {
+        let archive = book.archive
+        return await Task.detached {
+            archive.titleSearch(query, limit: 50).map { ZIMEntryHit(id: $0.path, title: $0.title) }
+        }.value
+    }
+
+    /// The book's first articles in title order, for browsing without a search.
+    static func firstArticles(_ book: Book, limit: Int) async -> [ZIMEntryHit] {
+        let archive = book.archive
+        return await Task.detached {
+            var out: [ZIMEntryHit] = []
+            archive.forEachArticle { entry in
+                if !entry.title.isEmpty { out.append(ZIMEntryHit(id: entry.path, title: entry.title)) }
+                return out.count < limit
+            }
+            return out
+        }.value
+    }
 
     var body: some View {
         if let book = content.book(id: bookID) {
@@ -134,11 +154,7 @@ struct BookHomeView: View {
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Find an article by title")
             .task(id: query) {
                 guard !query.isEmpty else { results = []; return }
-                let archive = book.archive
-                let q = query
-                results = await Task.detached {
-                    archive.titleSearch(q, limit: 50).map { ZIMEntryHit(id: $0.path, title: $0.title) }
-                }.value
+                results = await Self.titleSearch(book, query)
             }
             .toolbar {
                 if book.indexURL == nil && content.indexProgress[book.id] == nil {

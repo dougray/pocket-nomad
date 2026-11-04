@@ -124,6 +124,7 @@ final class AskEngine {
 struct AskView: View {
     @Environment(ContentStore.self) private var content
     @Environment(AppSettings.self) private var settings
+    @Environment(\.detailNavigator) private var navigator
     @State private var engine = AskEngine()
     @State private var question = ""
     @FocusState private var focused: Bool
@@ -151,6 +152,13 @@ struct AskView: View {
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: SourceRef.self) { SourceView(ref: $0) }
             .navigationDestination(for: ToolKind.self) { $0.destination }
+            // iPad: the best source opens beside the answer once it is done.
+            .onChange(of: engine.exchanges.last?.state) {
+                if let navigator, let last = engine.exchanges.last, last.state == .done, let top = last.sources.first {
+                    navigator.show(top.ref)
+                }
+            }
+            .onChange(of: navigator?.searchRequest) { if navigator?.takeSearchRequest() == true { focused = true } }
             .task {
                 if let (kind, q) = LaunchScreen.parts(), kind == "ask", !q.isEmpty, engine.exchanges.isEmpty {
                     try? await Task.sleep(for: .seconds(1))   // let the guide index load
@@ -271,7 +279,7 @@ private struct ExchangeView: View {
             }
 
             if let tool = ToolKind.related(to: exchange.question) {
-                NavigationLink(value: tool) {
+                DetailLink(value: tool) {
                     Label("Exact amounts: open \(tool.title)", systemImage: tool.symbol).font(.subheadline.weight(.semibold))
                 }
                 .buttonStyle(.borderedProminent)
@@ -301,7 +309,7 @@ private struct ExchangeView: View {
                 Text(exchange.answer.isEmpty ? "BEST MATCHES" : "SOURCES")
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 ForEach(Array(exchange.sources.enumerated()), id: \.element.id) { i, hit in
-                    NavigationLink(value: hit.ref) {
+                    DetailLink(value: hit.ref) {
                         HStack(alignment: .top, spacing: 10) {
                             Text("\(i + 1)").font(.caption.bold()).frame(width: 22, height: 22)
                                 .background(Theme.accent.opacity(0.25), in: Circle())

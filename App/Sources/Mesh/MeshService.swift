@@ -26,6 +26,8 @@ final class MeshService {
     private(set) var messages: [MeshMessage] = []
     private(set) var radio = MeshRadioInfo()
     private(set) var lastRead: [String: Date] = [:]
+    /// Radios the user blocked: their messages are dropped and they leave the node list.
+    private(set) var blocked: Set<UInt32> = []
     /// Shown when pairing is needed or went wrong.
     private(set) var pairingHint: String?
     /// One-line notice from the radio or about a failure. UI may clear it.
@@ -71,6 +73,7 @@ final class MeshService {
         static let lastDeviceID = "mesh.lastDeviceID"
         static let lastDeviceName = "mesh.lastDeviceName"
         static let autoReconnect = "mesh.autoReconnect"
+        static let blocked = "mesh.blocked"
     }
 
     init(transport: MeshTransport? = nil,
@@ -84,6 +87,7 @@ final class MeshService {
         self.autoReconnect = defaults.bool(forKey: Keys.autoReconnect)
         if let s = defaults.string(forKey: Keys.lastDeviceID) { lastDeviceID = UUID(uuidString: s) }
         lastDeviceName = defaults.string(forKey: Keys.lastDeviceName)
+        blocked = Set((defaults.array(forKey: Keys.blocked) as? [Int] ?? []).map { UInt32(truncatingIfNeeded: $0) })
 
         let snap = store.load()
         messages = snap.messages
@@ -155,8 +159,34 @@ final class MeshService {
     /// Other radios, most recently heard first.
     var sortedNodes: [MeshNode] {
         nodes.values
-            .filter { $0.num != radio.myNodeNum }
+            .filter { $0.num != radio.myNodeNum && !blocked.contains($0.num) }
             .sorted { ($0.lastHeard ?? .distantPast) > ($1.lastHeard ?? .distantPast) }
+    }
+
+    /// Blocked radios, for the list where they can be unblocked.
+    var blockedNodes: [MeshNode] {
+        blocked.map { node($0) }.sorted { $0.displayName < $1.displayName }
+    }
+
+    func isBlocked(_ num: UInt32) -> Bool { blocked.contains(num) }
+
+    /// Hides a radio on this phone: deletes its messages, drops new ones and takes it
+    /// off the node list. Nothing is sent; the other radio can't tell.
+    func block(_ num: UInt32) {
+        guard num != 0, num != radio.myNodeNum else { return }
+        blocked.insert(num)
+        messages.removeAll { $0.from == num || ($0.isOutgoing && $0.to == num) }
+        saveBlocked()
+        scheduleSave()
+    }
+
+    func unblock(_ num: UInt32) {
+        blocked.remove(num)
+        saveBlocked()
+    }
+
+    private func saveBlocked() {
+        defaults.set(blocked.map { Int($0) }, forKey: Keys.blocked)
     }
 
     func node(_ num: UInt32) -> MeshNode {
@@ -524,8 +554,9 @@ final class MeshService {
         let myNum = radio.myNodeNum
         // Drop duplicates (the radio replays its queue after a reconnect).
         if p.id != 0, messages.contains(where: { $0.packetID == p.id && $0.from == p.from }) { return }
-        // Only broadcasts and messages addressed to us (or sent by us).
+        // Only broadcasts and messages addressed to us (or sent by us), never from a blocked radio.
         guard p.to == MeshConstants.broadcastNum || p.to == myNum || p.from == myNum else { return }
+        guard !blocked.contains(p.from) else { return }
         let text = String(decoding: data.payload, as: UTF8.self)
         let date = p.rxTime != 0 ? Date(timeIntervalSince1970: TimeInterval(p.rxTime)) : Date()
         messages.append(MeshMessage(
@@ -718,6 +749,7 @@ final class MeshService {
                              senderName: String?, snr: Float?, path: UInt8) {
         // The radio's timestamp plus sender and text identify a message well enough to drop repeats.
         if messages.contains(where: { $0.packetID == timestamp && $0.from == from && $0.text == text }) { return }
+        if blocked.contains(from) { return }
         let sent = Date(timeIntervalSince1970: TimeInterval(timestamp))
         messages.append(MeshMessage(
             packetID: timestamp, from: from, to: to, channel: channel, text: text,

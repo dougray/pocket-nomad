@@ -161,6 +161,29 @@ final class CoverageTests: XCTestCase {
         XCTAssertTrue(reloaded.messages.isEmpty, "the deletion is saved")
     }
 
+    func testBlockingARadioHidesItAndPersists() {
+        let fake = FakeMeshTransport()
+        let radio = FakeMeshCoreRadio(fake)
+        let dir = FileManager.default.temporaryDirectory.appending(path: "block-mesh-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let svc = MeshService(transport: fake, store: MeshStore(directory: dir), defaults: defaults)
+        svc.start()
+        svc.connect(to: MeshDiscoveredDevice(id: UUID(), name: "R", rssi: -50, lastSeen: Date(), firmware: .meshcore))
+        fake.onEvent?(.ready(id: fake.connectedID ?? UUID(), name: "R", firmware: .meshcore))
+        radio.run()
+        guard let target = svc.sortedNodes.first else { return XCTFail("the fake radio has contacts") }
+        svc.block(target.num)
+        XCTAssertFalse(svc.sortedNodes.contains { $0.num == target.num }, "blocked radios leave the node list")
+        XCTAssertEqual(svc.blockedNodes.map(\.num), [target.num])
+        XCTAssertTrue(svc.messages.allSatisfy { $0.from != target.num })
+        svc.block(svc.myNodeNum)
+        XCTAssertFalse(svc.isBlocked(svc.myNodeNum), "can't block your own radio")
+        let reloaded = MeshService(transport: FakeMeshTransport(), store: MeshStore(directory: dir), defaults: defaults)
+        XCTAssertTrue(reloaded.isBlocked(target.num), "the block is saved")
+        reloaded.unblock(target.num)
+        XCTAssertFalse(MeshService(transport: FakeMeshTransport(), store: MeshStore(directory: dir), defaults: defaults).isBlocked(target.num))
+    }
+
     func testMeshServiceReportsLiveMeshCoreTrafficOnly() {
         let fake = FakeMeshTransport()
         let radio = FakeMeshCoreRadio(fake)

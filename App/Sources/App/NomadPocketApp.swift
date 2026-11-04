@@ -10,14 +10,21 @@ struct NomadPocketApp: App {
         MeshService.shared.onHeard = { CoverageStore.shared.record($0) }
         MeshService.shared.start()
         CoverageStore.shared.start()
+        WatchBridge.shared.start()
         #if DEBUG
-        // -screen map:demo (recordings) or map:shared (what sharing would publish)
+        // -screen map:demo (recordings) or map:shared (what sharing would publish); mesh:demo for the nodes alone
+        if let launch = LaunchScreen.parts(), launch.0 == "mesh", launch.1 == "demo" {
+            MeshService.shared.loadDemoNodes()
+        }
         if let launch = LaunchScreen.parts(), launch.0 == "map", !launch.1.isEmpty {
             MeshService.shared.loadDemoNodes()
             CoverageStore.shared.loadDemo()
             if launch.1 == "shared" { CoverageStore.shared.sharing = true }
             UserDefaults.standard.set(launch.1 == "shared" ? "shared" : "recorded", forKey: "map.coverage")
         }
+        #if canImport(llama)
+        ModelSelfTest.runIfRequested()
+        #endif
         #endif
     }
 
@@ -28,12 +35,24 @@ struct NomadPocketApp: App {
                 .environment(settings)
                 .preferredColorScheme(settings.forceDark ? .dark : nil)
                 .tint(Theme.accent)
-                .task {
-                    await GuideStore.prepareIndex()
-                    await content.refresh()
-                }
+                .task { await AppStartup.run(content) }
                 .onOpenURL { url in Task { await content.importFile(at: url) } }
         }
+        .commands { PadCommands() }
+    }
+}
+
+/// Work done once per launch, not once per window: on iPad every window shares
+/// the same stores, so a second window must not index or rescan again.
+@MainActor
+enum AppStartup {
+    private static var started = false
+
+    static func run(_ content: ContentStore) async {
+        guard !started else { return }
+        started = true
+        await GuideStore.prepareIndex()
+        await content.refresh()
     }
 }
 
@@ -43,7 +62,8 @@ enum AppTab: Hashable { case survive, ask, library, map, mesh }
 /// screenshots and quick checks: survive, ask, library, map, mesh, settings,
 /// packs, book, tool:<compass|sos|morse|water|medicalID|checklists|sun>, guide:<file>,
 /// category:<id>, query:<text> (Survive search), ask:<question>, coverage (scanner
-/// settings) and map:demo / map:shared (demo nodes and coverage around Denver).
+/// settings), mesh:demo (demo nodes) and map:demo / map:shared (demo nodes and
+/// coverage around Denver).
 enum LaunchScreen {
     static let value: String? = {
         #if DEBUG
@@ -71,46 +91,67 @@ enum LaunchScreen {
 }
 
 struct RootView: View {
-    @State private var tab: AppTab = LaunchScreen.tab
+    @Environment(\.horizontalSizeClass) private var widthClass
+    /// One per window. iPhone only uses its section; iPad's split view uses all of it.
+    @State private var nav = PadNavigator()
     @State private var showLaunchLogo = true
 
+    private var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+
     var body: some View {
-        tabs
-            .overlay {
-                // Continues the system launch screen (same logo, same place) and fades it
-                // out, so the logo dissolves into the app instead of vanishing. Never blocks taps.
-                if showLaunchLogo {
-                    ZStack {
-                        Color("LaunchBackground")
-                        Image("Logo")
+        Group {
+            // A narrow iPad window (Slide Over, a small Stage Manager window) gets the iPhone tabs.
+            if isPad && widthClass == .regular {
+                PadRootView(nav: nav)
+            } else {
+                tabs
+            }
+        }
+        .focusedSceneValue(\.padNavigator, isPad ? nav : nil)
+        .fullScreenCover(isPresented: $nav.showSOS) {
+            NavigationStack {
+                ToolKind.sos.destination
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) { Button("Done") { nav.showSOS = false } }
                     }
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-                    .transition(.opacity)
+            }
+            .tint(Theme.accent)
+        }
+        .overlay {
+            // Continues the system launch screen (same logo, same place) and fades it
+            // out, so the logo dissolves into the app instead of vanishing. Never blocks taps.
+            if showLaunchLogo {
+                ZStack {
+                    Color("LaunchBackground")
+                    Image("Logo")
                 }
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .transition(.opacity)
             }
-            .task {
-                try? await Task.sleep(for: .milliseconds(150))
-                withAnimation(.easeOut(duration: 0.35)) { showLaunchLogo = false }
-            }
+        }
+        .task {
+            try? await Task.sleep(for: .milliseconds(150))
+            withAnimation(.easeOut(duration: 0.35)) { showLaunchLogo = false }
+        }
     }
 
     private var tabs: some View {
-        TabView(selection: $tab) {
+        TabView(selection: $nav.section) {
             SurviveView()
-                .tabItem { Label("Survive", systemImage: "cross.case.fill") }
+                .tabItem { Label(AppTab.survive.title, systemImage: AppTab.survive.symbol) }
                 .tag(AppTab.survive)
             AskView()
-                .tabItem { Label("Ask", systemImage: "bubble.left.and.text.bubble.right.fill") }
+                .tabItem { Label(AppTab.ask.title, systemImage: AppTab.ask.symbol) }
                 .tag(AppTab.ask)
             LibraryView()
-                .tabItem { Label("Library", systemImage: "books.vertical.fill") }
+                .tabItem { Label(AppTab.library.title, systemImage: AppTab.library.symbol) }
                 .tag(AppTab.library)
             OfflineMapView()
-                .tabItem { Label("Map", systemImage: "map.fill") }
+                .tabItem { Label(AppTab.map.title, systemImage: AppTab.map.symbol) }
                 .tag(AppTab.map)
             MeshView()
-                .tabItem { Label("Mesh", systemImage: "antenna.radiowaves.left.and.right") }
+                .tabItem { Label(AppTab.mesh.title, systemImage: AppTab.mesh.symbol) }
                 .tag(AppTab.mesh)
         }
     }

@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: blob: https://tiles.openfreemap.org; connect-src 'self' https://tiles.openfreemap.org; worker-src blob:; child-src blob:; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Mesh Coverage Map</title>
+<meta name="description" content="A public map of where Meshtastic and MeshCore mesh radios reach, built from privacy-filtered files that Pocket Nomad users choose to share.">
+<meta property="og:title" content="Pocket Nomad mesh coverage map">
+<meta property="og:description" content="Where Meshtastic and MeshCore radios reach, from privacy-filtered files people chose to share.">
+<meta name="theme-color" content="#000000">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" crossorigin="anonymous">
+<style>
+  :root {
+    --bg: #050505; --panel: #141414; --line: #262626; --text: #f8f6f2; --muted: #a9a59d;
+    --amber: #fc9712; --orange: #fc840c; --highlight: #febb1e;
+    --radius: 16px;
+    --s1: #d7301f; --s2: #fc8d59; --s3: #fee08b; --s4: #91cf60; --s5: #1a9850; --s0: #6b6b6b;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); overflow-x: hidden;
+         font: 17px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  a { color: var(--amber); }
+  .wrap { max-width: 1200px; margin: 0 auto;
+          padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); }
+  header.top { background: radial-gradient(ellipse at 20% 0%, rgba(252,151,18,.22), transparent 60%); padding: 20px 0 18px; }
+  .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--muted); text-decoration: none; font-weight: 600; font-size: 15px; }
+  .brand img { width: 36px; height: 36px; border-radius: 9px; }
+  .brand:hover { color: var(--text); }
+  h1 { font-size: clamp(28px, 5vw, 44px); line-height: 1.1; margin: 14px 0 8px; letter-spacing: -.02em; }
+  h1 span { background: linear-gradient(180deg, var(--amber), var(--orange)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lede { color: var(--muted); max-width: 44em; margin: 0; }
+
+  .explore { display: grid; grid-template-columns: 1fr; gap: 14px; padding-bottom: 28px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; min-width: 0; }
+  .panel h2 { font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--amber); margin: 0 0 8px; }
+  .panel + .panel { margin-top: 0; }
+  .controls { display: grid; gap: 16px; }
+  .seg { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .seg button { font: inherit; font-size: 14px; background: transparent; color: var(--muted); border: 0; padding: 9px 4px; cursor: pointer; min-width: 0; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: linear-gradient(180deg, var(--amber), var(--orange)); color: #000; font-weight: 600; }
+  .months { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  label.small { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  select { width: 100%; font: inherit; font-size: 15px; color: var(--text); background: #0d0d0d; border: 1px solid var(--line);
+           border-radius: 10px; padding: 8px 10px; }
+  select:disabled { opacity: .5; }
+  .toggle { display: flex; gap: 10px; align-items: flex-start; font-size: 15px; color: var(--muted); cursor: pointer; }
+  .toggle input { accent-color: var(--amber); width: 18px; height: 18px; margin: 2px 0 0; flex: none; }
+  .stats { font-size: 14px; color: var(--muted); margin: 0; }
+  .stats b { color: var(--text); }
+  .legend { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 14px; color: var(--muted); }
+  .legend li { display: flex; align-items: center; gap: 10px; }
+  .legend i { width: 22px; height: 14px; border-radius: 4px; flex: none; border: 1px solid rgba(255,255,255,.18); }
+  .legend .note { font-size: 13px; margin-top: 4px; }
+
+  .mapbox { position: relative; min-width: 0; height: 62vh; min-height: 360px; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); background: #111; }
+  #map { position: absolute; inset: 0; }
+  .banner { position: absolute; left: 10px; right: 10px; top: 10px; z-index: 2; pointer-events: none; display: flex; justify-content: center; }
+  .banner span { pointer-events: auto; background: rgba(5,5,5,.88); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; font-size: 14px; color: var(--muted); text-align: center; max-width: 30em; }
+  .banner.demo span { border-color: var(--amber); color: var(--text); }
+  .banner[hidden] { display: none; }
+
+  section { padding: 40px 0; border-top: 1px solid var(--line); }
+  section h2 { font-size: 26px; margin: 0 0 6px; }
+  section h2 + p.sub { color: var(--muted); margin: 0 0 20px; }
+  .grid { display: grid; gap: 14px; grid-template-columns: 1fr; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; min-width: 0; }
+  .card h3 { margin: 0 0 6px; font-size: 18px; }
+  .card p, .card li { color: var(--muted); font-size: 15.5px; }
+  .card p { margin: 0; }
+  .card ol, .card ul { margin: 6px 0 0; padding-left: 20px; }
+  .card .tag { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--amber); margin-bottom: 6px; }
+  ul.check { padding-left: 0; list-style: none; margin: 0; }
+  ul.check li { padding-left: 28px; position: relative; margin: 8px 0; color: var(--muted); }
+  ul.check li::before { content: "✓"; position: absolute; left: 0; color: var(--amber); font-weight: 700; }
+  ul.check li b { color: var(--text); }
+  .callout { border-left: 3px solid var(--amber); padding: 10px 14px; background: var(--panel); border-radius: 0 12px 12px 0; color: var(--muted); font-size: 15px; margin: 18px 0 0; }
+  code { background: #1d1d1d; padding: 2px 6px; border-radius: 6px; font-size: 14px; overflow-wrap: anywhere; }
+  footer { border-top: 1px solid var(--line); padding: 28px 0 44px; color: var(--muted); font-size: 14px; }
+
+  /* MapLibre, dark */
+  .maplibregl-popup-content { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; font-size: 14px; box-shadow: 0 6px 24px rgba(0,0,0,.5); }
+  .maplibregl-popup-tip { border-top-color: var(--panel) !important; border-bottom-color: var(--panel) !important; }
+  .maplibregl-popup-close-button { color: var(--muted); font-size: 18px; padding: 0 6px; }
+  .popup dl { display: grid; grid-template-columns: auto auto; gap: 2px 12px; margin: 0; }
+  .popup dt { color: var(--muted); }
+  .popup dd { margin: 0; font-weight: 600; }
+  .maplibregl-ctrl-attrib { font-size: 11px; }
+
+  @media (min-width: 700px) {
+    .grid.two, .grid.three { grid-template-columns: 1fr 1fr; }
+  }
+  @media (min-width: 900px) {
+    .explore { grid-template-columns: 300px 1fr; align-items: stretch; }
+    .side { display: grid; gap: 14px; align-content: start; }
+    .mapbox { height: auto; min-height: 640px; }
+  }
+  @media (max-width: 899px) {
+    .side { display: contents; }
+    .side .legend-panel { order: 3; }
+    .mapbox { order: 2; }
+  }
+  @media (min-width: 1000px) {
+    .grid.three { grid-template-columns: repeat(3, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="../"><img src="../appstore/logo.png" alt="">Pocket Nomad</a>
+    <h1>Mesh <span>coverage map</span></h1>
+    <p class="lede">Where Meshtastic and MeshCore radios have been heard, from privacy-filtered files that Pocket Nomad users chose to share. Each hexagon is about 350 m across and shows the best signal anyone recorded there.</p>
+  </div>
+</header>
+
+<main>
+  <div class="wrap explore">
+    <div class="side">
+      <div class="panel controls" aria-label="Filters">
+        <div>
+          <h2 id="fw-label">Firmware</h2>
+          <div class="seg" role="group" aria-labelledby="fw-label" id="firmware">
+            <button type="button" data-fw="all" aria-pressed="true">All</button>
+            <button type="button" data-fw="meshtastic" aria-pressed="false" title="Cells where a Meshtastic radio was heard">Mesh&shy;tastic</button>
+            <button type="button" data-fw="meshcore" aria-pressed="false" title="Cells where a MeshCore radio was heard">Mesh&shy;Core</button>
+            <button type="button" data-fw="both" aria-pressed="false" title="Cells where both were heard">Both</button>
+          </div>
+        </div>
+        <div>
+          <h2>Months</h2>
+          <div class="months">
+            <div><label class="small" for="from">From</label><select id="from"></select></div>
+            <div><label class="small" for="to">To</label><select id="to"></select></div>
+          </div>
+        </div>
+        <label class="toggle"><input type="checkbox" id="demo"> <span>Show demo data instead (made up, around Denver; not real coverage)</span></label>
+        <p class="stats" id="stats" aria-live="polite">Loading…</p>
+      </div>
+      <div class="panel legend-panel">
+        <h2>Best signal (SNR)</h2>
+        <ul class="legend">
+          <li><i style="background:var(--s5)"></i>Strong: 5 dB or more</li>
+          <li><i style="background:var(--s4)"></i>Good: 0 to 5 dB</li>
+          <li><i style="background:var(--s3)"></i>Fair: −5 to 0 dB</li>
+          <li><i style="background:var(--s2)"></i>Weak: −10 to −5 dB</li>
+          <li><i style="background:var(--s1)"></i>Edge: below −10 dB</li>
+          <li><i style="background:var(--s0)"></i>Heard, no signal reading</li>
+          <li class="note">Tap a hexagon for its count, firmware and months.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="mapbox">
+      <div id="map" role="region" aria-label="Coverage map"></div>
+      <div class="banner" id="banner" hidden><span id="banner-text"></span></div>
+    </div>
+  </div>
+
+  <section id="contribute">
+    <div class="wrap">
+      <h2>Add your coverage</h2>
+      <p class="sub">There is no server and nothing is automatic. You send a file by hand; a maintainer checks it and merges it into the map.</p>
+      <div class="grid three">
+        <div class="card"><span class="tag">1 · In the app</span><h3>Record and export</h3><p>Turn on the coverage scanner, add at least one private zone, then go to <b>Mesh › Coverage map › Share</b> and save the <code>.geojson</code> file. Preview it first under <b>Layers › Coverage › What sharing would publish</b>.</p></div>
+        <div class="card"><span class="tag">2a · Pull request</span><h3>Add the file on GitHub</h3><p>Fork <a href="https://github.com/dougray/pocket-nomad">the repository</a> and add your file to <code>docs/coverage/submissions/</code>. You can check it first with <code>python3 tools/coverage-merge.py --check yourfile.geojson</code>.</p></div>
+        <div class="card"><span class="tag">2b · Or an issue</span><h3>No Git needed</h3><p><a href="https://github.com/dougray/pocket-nomad/issues/new?template=coverage.yml">Open a coverage issue</a> and attach the file (rename it to <code>.txt</code> or zip it if GitHub refuses <code>.geojson</code>).</p></div>
+      </div>
+      <p class="callout"><b>Contributions are public.</b> Your file, the pull request or issue, and your GitHub username are visible to everyone, and the hexagons stay on this map. Only send a file you are happy to publish. Full steps: <a href="https://github.com/dougray/pocket-nomad/blob/main/CONTRIBUTING-COVERAGE.md">CONTRIBUTING-COVERAGE.md</a>.</p>
+    </div>
+  </section>
+
+  <section id="privacy">
+    <div class="wrap">
+      <h2>What is in a file, and what is not</h2>
+      <p class="sub">The filtering happens on your phone, before the file exists.</p>
+      <ul class="check">
+        <li><b>Only hexagons, about 350 m across,</b> on a fixed worldwide grid, so files from different people line up. No exact positions.</li>
+        <li><b>Five facts per hexagon:</b> how many times a radio was heard, the best signal, which firmware, and the first and last month.</li>
+        <li><b>No node names, IDs, messages or dates finer than a month.</b></li>
+        <li><b>Your private zones are cut out,</b> along with every hexagon that touches one.</li>
+        <li><b>The merge script rejects anything else:</b> extra fields, points, names or shapes that are not grid hexagons.</li>
+        <li><b>This page has no analytics and sets no cookies.</b> Map tiles come from OpenFreeMap; the page sends them no referrer.</li>
+      </ul>
+      <p style="margin-top:16px"><a href="../PRIVACY.html#sharing-coverage-opt-in">Pocket Nomad privacy policy</a> · <a href="data/coverage.geojson">Download the merged map (GeoJSON)</a></p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Coverage data is contributed by Pocket Nomad users. Map © <a href="https://openfreemap.org">OpenFreeMap</a>, <a href="https://openmaptiles.org">OpenMapTiles</a>, data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors. Rendered with <a href="https://maplibre.org">MapLibre</a>.</p>
+    <p><a href="../">Pocket Nomad home</a> · <a href="https://github.com/dougray/pocket-nomad">Source code</a> · <a href="../PRIVACY.html">Privacy policy</a></p>
+  </div>
+</footer>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" crossorigin="anonymous"></script>
+<script src="coverage.js"></script>
+</body>
+</html>

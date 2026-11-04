@@ -9,6 +9,7 @@ import SwiftUI
 struct MeshNodeListView: View {
     var onMessage: (UInt32) -> Void
     @State private var mesh = MeshService.shared
+    @State private var blocking: MeshNode?
 
     var body: some View {
         let nodes = mesh.sortedNodes
@@ -23,11 +24,47 @@ struct MeshNodeListView: View {
                 ForEach(nodes) { node in
                     Button { onMessage(node.num) } label: { MeshNodeRow(node: node) }
                         .buttonStyle(.plain)
+                        .contextMenu {
+                            Button("Block This Radio", systemImage: "hand.raised", role: .destructive) { blocking = node }
+                        }
+                }
+                if !mesh.blockedNodes.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Blocked").font(.headline).padding(.top, 12)
+                        ForEach(mesh.blockedNodes) { node in
+                            HStack {
+                                Text(node.displayName).foregroundStyle(.secondary)
+                                Spacer()
+                                Button("Unblock") { mesh.unblock(node.num) }
+                                    .frame(minHeight: MeshUI.minTap)
+                            }
+                            .padding(.horizontal, 14)
+                            .background(Theme.card, in: RoundedRectangle(cornerRadius: MeshUI.corner))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .padding(16)
         }
         .navigationTitle("Nodes")
+        .meshBlockConfirmation($blocking)
+    }
+}
+
+extension View {
+    /// Asks before blocking a radio. Blocking deletes its messages on this phone.
+    func meshBlockConfirmation(_ node: Binding<MeshNode?>) -> some View {
+        confirmationDialog("Block \(node.wrappedValue?.displayName ?? "this radio")?",
+                           isPresented: Binding(get: { node.wrappedValue != nil }, set: { if !$0 { node.wrappedValue = nil } }),
+                           titleVisibility: .visible) {
+            Button("Block", role: .destructive) {
+                if let n = node.wrappedValue { MeshService.shared.block(n.num) }
+                node.wrappedValue = nil
+            }
+        } message: {
+            Text("Its messages are deleted from this phone and new ones are ignored. The other person isn't told. You can unblock it from the Nodes list.")
+        }
     }
 }
 
