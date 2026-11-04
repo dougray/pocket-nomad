@@ -101,5 +101,5 @@ on the project's page, with a new effective date.
 
 ## Contact
 
-Questions about privacy: use the support link on the project's page or its App
-Store listing.
+Questions about privacy: open an issue at
+https://github.com/dougray/pocket-nomad/issues (the project's support page).
