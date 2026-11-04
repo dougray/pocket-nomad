@@ -1,0 +1,36 @@
+<h2>Do this now</h2>
+<ol>
+<li>Charge your Meshtastic device and pair it to your phone over Bluetooth in the Meshtastic app.</li>
+<li>Set the <strong>region to US</strong> (902 to 928 MHz). The radio won't transmit until a region is set.</li>
+<li>Send a test message on the default channel. Nearby nodes relay it.</li>
+<li>For your family or group, create a <strong>private channel</strong> and share its QR code with each other in advance.</li>
+<li>Put a node up high (window, roof, or hilltop) to reach much farther.</li>
+</ol>
+<div class="callout tip">Frequencies, nets, and rules here are for the <strong>United States</strong>. Other countries use different rules. Nets and local channel plans change over time, so confirm them with local radio groups when you can.</div>
+<h2>What it is</h2>
+<p>Meshtastic is free, open-source software for cheap LoRa radios. Each device ("node") can send short text messages and GPS positions to other nodes. Nodes pass messages along for each other, forming a <strong>mesh</strong> that works without cell towers or internet. You use it from a phone app, or from devices with their own screens and keyboards.</p>
+<h2>License</h2>
+<ul>
+<li>In the US, normal use on 902 to 928 MHz needs <strong>no license</strong>. Devices run under the FCC's unlicensed device rules (Part 15).</li>
+<li>Licensed hams can use a "licensed" (ham) mode. In that mode, encryption must be off and you must send your call sign, as ham rules require.</li>
+</ul>
+<h2>What to expect</h2>
+<ul>
+<li><strong>Range:</strong> often 1 to 3 miles (2 to 5 km) between handhelds on the ground. Much less inside buildings or among hills and trees. Much farther, sometimes tens of miles, between nodes on hilltops or towers with clear line of sight.</li>
+<li><strong>Messages are short</strong> and slow. Fine for "We are OK at the school, need water," not for photos or voice.</li>
+<li>Messages hop through other nodes. By default a message can take up to 3 hops.</li>
+<li>Battery life is good. Many nodes last a day or more, longer with a small solar panel.</li>
+</ul>
+<h2>Privacy</h2>
+<ul>
+<li>The default public channel uses a well-known key. <strong>Anyone</strong> with Meshtastic can read it. Use it for calling for help and meeting people.</li>
+<li>Private channels use a secret key you create. Share it only with your group.</li>
+<li>Your node may share your GPS position. Turn off or blur position sharing if you don't want that.</li>
+</ul>
+<div class="callout tip">A mesh only works if there are nodes in between. Check whether your area has an active mesh, and set up a few nodes with your neighbors before you need them.</div>
+<h3>Sources</h3>
+<ul>
+<li>Meshtastic Project documentation (meshtastic.org)</li>
+<li>Federal Communications Commission, 47 CFR Parts 95 and 97 (fcc.gov, ecfr.gov), Part 15 unlicensed devices</li>
+<li>LoRa Alliance, regional parameters (US902-928)</li>
+</ul>

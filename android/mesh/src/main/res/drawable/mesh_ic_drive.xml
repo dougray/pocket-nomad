@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Radio waves: drive mode's notification icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M12,10a2,2 0,1 0,0.001 0zM12,14l-1,8h2zM7.05,6.05A7,7 0,0 0,7.05 15.95l1.41,-1.41a5,5 0,0 1,0 -7.07zM16.95,6.05l-1.41,1.41a5,5 0,0 1,0 7.07l1.41,1.41a7,7 0,0 0,0 -9.9zM4.22,3.22A11,11 0,0 0,4.22 18.78l1.41,-1.41a9,9 0,0 1,0 -12.73zM19.78,3.22l-1.41,1.41a9,9 0,0 1,0 12.73l1.41,1.41a11,11 0,0 0,0 -15.56z"/>
+</vector>

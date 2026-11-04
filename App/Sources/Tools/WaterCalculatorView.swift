@@ -122,10 +122,10 @@ struct WaterCalculatorView: View {
 
     private var boilText: String {
         if let alt = location.location?.altitude, location.location?.verticalAccuracy ?? -1 >= 0 {
-            let high = alt > 1981 // 6,500 ft
+            let high = alt > 1524 // 5,000 ft (EPA)
             return "Bring to a rolling boil for \(high ? "3 minutes" : "1 minute"). You are at about \(Int(alt * 3.28084)) ft\(high ? ", which needs the longer boil" : "")."
         }
-        return "Bring to a rolling boil for 1 minute, or 3 minutes above 6,500 ft (1,981 m)."
+        return "Bring to a rolling boil for 1 minute, or 3 minutes above 5,000 ft (1,524 m)."
     }
 }
 

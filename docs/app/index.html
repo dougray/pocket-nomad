@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pocket Nomad</title>
+<meta name="description" content="Pocket Nomad on the web: first aid and water guides, survival tools, an offline map and mesh radio messaging. Works with no signal once installed.">
+<meta name="theme-color" content="#050505">
+<meta name="color-scheme" content="dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Pocket Nomad">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="js/mesh/mesh.css">
+<script type="module" src="app.js"></script>
+</head>
+<body>
+<header class="top">
+  <button class="back" id="back" hidden aria-label="Back">‹ Back</button>
+  <h1 id="title">Pocket Nomad</h1>
+  <span class="net" id="net" hidden>Offline</span>
+</header>
+<main id="view" tabindex="-1"></main>
+<nav class="tabs" aria-label="Sections">
+  <a href="#/survive" data-tab="survive"><span aria-hidden="true">✚</span>Survive</a>
+  <a href="#/map" data-tab="map"><span aria-hidden="true">◎</span>Map</a>
+  <a href="#/mesh" data-tab="mesh"><span aria-hidden="true">📡</span>Mesh</a>
+  <a href="#/more" data-tab="more"><span aria-hidden="true">⋯</span>More</a>
+</nav>
+<noscript><p style="padding:20px">Pocket Nomad needs JavaScript.</p></noscript>
+</body>
+</html>

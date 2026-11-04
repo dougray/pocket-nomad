@@ -1,0 +1,114 @@
+/* app.css — Pocket Nomad web app. SPDX-License-Identifier: Apache-2.0 */
+:root {
+  --bg: #050505; --panel: #151515; --panel2: #1e1e1e; --line: #2a2a2a;
+  --text: #f6f4f0; --muted: #a9a59d; --accent: #fc9712; --accent2: #fc840c;
+  --danger: #ff6b5e; --ok: #5fd38d; --warn: #ffc04d; --radius: 14px;
+  --meshtastic: #66d978; --meshcore: #408cfa;
+  --tabbar: calc(62px + env(safe-area-inset-bottom));
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 17px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+a { color: var(--accent); }
+button, input, select, textarea { font: inherit; color: inherit; }
+
+header.top {
+  position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 10px;
+  padding: calc(10px + env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left));
+  background: rgba(5,5,5,.92); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+}
+header.top h1 { font-size: 19px; margin: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.back { background: none; border: 0; color: var(--accent); font-size: 17px; padding: 6px 4px; cursor: pointer; }
+.net { font-size: 13px; color: #000; background: var(--warn); border-radius: 999px; padding: 2px 10px; font-weight: 600; }
+
+main { padding: 16px max(16px, env(safe-area-inset-right)) calc(var(--tabbar) + 24px) max(16px, env(safe-area-inset-left));
+       max-width: 860px; margin: 0 auto; outline: none; }
+main.full { padding: 0; max-width: none; }
+
+nav.tabs {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: grid; grid-template-columns: repeat(4, 1fr);
+  height: var(--tabbar); padding-bottom: env(safe-area-inset-bottom);
+  background: rgba(12,12,12,.96); backdrop-filter: blur(12px); border-top: 1px solid var(--line);
+}
+nav.tabs a { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+             color: var(--muted); text-decoration: none; font-size: 12px; font-weight: 600; }
+nav.tabs a span { font-size: 20px; line-height: 1; }
+nav.tabs a[aria-current="page"] { color: var(--accent); }
+
+h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 26px 0 10px; }
+h2:first-child { margin-top: 4px; }
+.muted { color: var(--muted); }
+.small { font-size: 14px; }
+
+.search { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); }
+.list { list-style: none; margin: 0; padding: 0; border-radius: var(--radius); overflow: hidden; background: var(--panel); }
+.list li + li { border-top: 1px solid var(--line); }
+.list a, .list .row { display: flex; align-items: center; gap: 12px; padding: 13px 16px; color: var(--text); text-decoration: none; }
+.list a::after { content: "›"; margin-left: auto; color: var(--muted); font-size: 22px; line-height: 1; }
+.list .sub { display: block; color: var(--muted); font-size: 14px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { display: inline-block; padding: 8px 14px; border-radius: 999px; background: #3a1410; color: #ffd2cc;
+        border: 1px solid #5c2018; text-decoration: none; font-weight: 600; font-size: 15px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.tile { display: flex; flex-direction: column; gap: 6px; padding: 14px; border-radius: var(--radius); background: var(--panel);
+        color: var(--text); text-decoration: none; border: 1px solid var(--line); min-height: 88px; }
+.tile b { font-size: 16px; } .tile span { font-size: 26px; }
+
+.card { background: var(--panel); border-radius: var(--radius); padding: 16px; border: 1px solid var(--line); }
+.card + .card { margin-top: 12px; }
+.big { font-size: 44px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 18px; border-radius: 12px;
+       border: 1px solid var(--line); background: var(--panel2); cursor: pointer; font-weight: 600; text-decoration: none; color: var(--text); }
+.btn.primary { background: linear-gradient(180deg, var(--accent), var(--accent2)); color: #000; border: 0; }
+.btn.danger { background: #3a1410; color: #ffd2cc; border-color: #5c2018; }
+.row-btns { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg button { border: 0; background: var(--panel); padding: 8px 14px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: #000; font-weight: 700; }
+label.field { display: block; margin: 12px 0; }
+label.field > span { display: block; color: var(--muted); font-size: 14px; margin-bottom: 4px; }
+label.field input, label.field textarea, label.field select {
+  width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel2); }
+.check { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; cursor: pointer; }
+.check input { width: 22px; height: 22px; accent-color: var(--accent); flex: none; margin-top: 2px; }
+.check.done span { color: var(--muted); text-decoration: line-through; }
+.notice { border-left: 4px solid var(--warn); background: var(--panel); padding: 12px 14px; border-radius: 10px; margin: 12px 0; }
+
+/* Guides (same look as the iOS guide reader). */
+.guide { font-size: 18px; }
+.guide h2 { font-size: 22px; text-transform: none; letter-spacing: 0; color: var(--accent); margin: 28px 0 8px; }
+.guide h3 { font-size: 19px; margin: 22px 0 6px; }
+.guide ol, .guide ul { padding-left: 1.4em; } .guide li { margin: 6px 0; }
+.guide ol > li::marker { font-weight: 700; color: var(--accent); }
+.guide table { border-collapse: collapse; width: 100%; font-size: 16px; margin: 12px 0; display: block; overflow-x: auto; }
+.guide th, .guide td { border: 1px solid #3a3a3a; padding: 6px 8px; text-align: left; vertical-align: top; }
+.guide th { background: var(--panel); }
+.guide .callout { background: var(--panel); border-left: 5px solid var(--accent); border-radius: 10px; padding: 10px 14px; margin: 14px 0; }
+.guide .callout.danger { border-color: var(--danger); } .guide .callout.warn { border-color: var(--warn); } .guide .callout.tip { border-color: var(--ok); }
+.guide .callout > :first-child { margin-top: 0; } .guide .callout > :last-child { margin-bottom: 0; }
+
+/* Signal light: the whole screen. */
+.flash { position: fixed; inset: 0; z-index: 100; background: #000; display: flex; align-items: flex-end; justify-content: center;
+         padding-bottom: calc(40px + env(safe-area-inset-bottom)); }
+.flash.on { background: #fff; }
+
+/* Compass */
+.dial { width: min(78vw, 300px); aspect-ratio: 1; margin: 10px auto 18px; border-radius: 50%; border: 2px solid var(--line);
+        position: relative; background: radial-gradient(circle, #1a1a1a, #0b0b0b); }
+.dial .rose { position: absolute; inset: 0; transition: transform .15s linear; }
+.dial .rose b { position: absolute; left: 50%; transform: translateX(-50%); font-size: 20px; }
+.dial .needle { position: absolute; left: 50%; top: 8%; width: 4px; height: 42%; margin-left: -2px; background: var(--danger); border-radius: 2px; }
+
+/* Map */
+#map { position: fixed; top: calc(52px + env(safe-area-inset-top)); left: 0; right: 0; bottom: var(--tabbar); }
+.map-panel { position: fixed; left: 12px; bottom: calc(var(--tabbar) + 12px); z-index: 5; max-width: calc(100vw - 24px);
+             background: rgba(20,20,20,.94); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font-size: 13px; }
+.map-panel .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin: 0 4px 0 0; vertical-align: -1px; }
+.map-tools { position: fixed; right: 12px; top: calc(66px + env(safe-area-inset-top)); z-index: 5; display: flex; flex-direction: column; gap: 10px; }
+.map-tools button { width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--line); background: rgba(20,20,20,.94); font-size: 20px; cursor: pointer; }
+body.map-open header.top { position: fixed; left: 0; right: 0; }
+dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 16px; max-width: min(92vw, 440px); }
+dialog::backdrop { background: rgba(0,0,0,.6); }

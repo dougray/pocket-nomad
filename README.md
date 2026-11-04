@@ -8,6 +8,22 @@ Meshtastic and MeshCore mesh messenger in one place, on iPhone, iPad and Apple W
 Inspired by [Project NOMAD](https://www.projectnomad.us), which does this as a home
 server. Pocket Nomad is an independent project and is not affiliated with it.
 
+## Platforms
+
+| | Where | Status |
+|---|---|---|
+| **iPhone, iPad, Apple Watch** | `App/`, `Watch/`, `Shared/` (SwiftUI) | Full app; App Store coming soon |
+| **Android** | `android/` (Kotlin, Jetpack Compose; `:app` + `:mesh`) | Beta APK on [Releases](https://github.com/dougray/pocket-nomad/releases); see [docs/ANDROID.md](docs/ANDROID.md) |
+| **Web app (PWA)** | `docs/app/` (plain JavaScript, no build step) | Live at [pocketnomad.us/app](https://www.pocketnomad.us/app/) |
+
+All three read the same guides from `App/Resources/Guides`. The web app copies them in with
+`python3 tools/build-pwa.py` (which also writes its offline service worker); Android copies
+them at build time. The site's platform pages and feature comparison come from
+`tools/build-site-pages.py`.
+
+Web tests: `node --test docs/app/js/tests/ docs/app/js/mesh/tests/`. Android tests:
+`cd android && JAVA_HOME=/opt/homebrew/opt/openjdk@17 ./gradlew :mesh:testDebugUnitTest :app:testDebugUnitTest`.
+
 ## What's in it
 
 | Tab | What it does | Needs a download? |

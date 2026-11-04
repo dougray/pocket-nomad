@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mesh Demo</title>
+<meta name="description" content="Pocket Nomad's Mesh tab running against a pretend radio in memory. No Bluetooth, nothing saved.">
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="mesh.css">
+<style>
+  /* Stand-ins for the tokens app.css defines. */
+  :root {
+    --bg: #0d0f12;
+    --panel: #171a1f;
+    --line: #2a2f37;
+    --text: #f2f4f7;
+    --muted: #9aa3ad;
+    --accent: #FC9712;
+    --danger: #e5484d;
+    --ok: #3dd68c;
+    --warn: #f5d90a;
+    --radius: 16px;
+  }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .demo-banner { background: var(--panel); border-bottom: 1px solid var(--line); padding: 10px 16px;
+    font-size: 14px; color: var(--muted); }
+  .demo-banner strong { color: var(--accent); }
+  .demo-feed { max-width: 720px; margin: 24px auto 40px; padding: 0 16px; box-sizing: border-box; }
+  .demo-feed h2 { font-size: 15px; color: var(--muted); margin: 0 0 8px; }
+  .demo-feed pre { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px; overflow-x: auto; font-size: 12px; margin: 0; white-space: pre-wrap; word-break: break-word; }
+</style>
+</head>
+<body>
+<div class="demo-banner"><strong>Demo</strong> · a pretend Meshtastic radio in memory. No Bluetooth, nothing saved. Tap "Find a radio".</div>
+<main id="mesh"></main>
+<section class="demo-feed" aria-label="Map feed">
+  <h2>onNodes() feed for the map</h2>
+  <pre id="feed">(waiting)</pre>
+</section>
+<script type="module">
+  import { configure, mount, onNodes } from "./index.js";
+  import { DemoRadio } from "./demo-radio.js";
+  import { MemoryStore } from "./store.js";
+
+  configure({
+    transport: new DemoRadio(),
+    store: new MemoryStore(),
+    // Made-up fix for the SOS demo.
+    location: async () => ({ latitude: 10.00012, longitude: -140.00034 }),
+  });
+  await mount(document.getElementById("mesh"));
+  const feed = document.getElementById("feed");
+  onNodes((nodes) => {
+    feed.textContent = nodes.length
+      ? nodes.map((n) => `${n.name.padEnd(16)} ${n.firmware.padEnd(10)} ${n.latitude.toFixed(5)}, ${n.longitude.toFixed(5)}  heard ${n.lastHeard ? new Date(n.lastHeard).toLocaleTimeString() : "never"}`).join("\n")
+      : "(no radios with a position yet)";
+  });
+</script>
+</body>
+</html>

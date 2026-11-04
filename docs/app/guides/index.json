@@ -1,0 +1,1086 @@
+{
+  "categories": [
+    {
+      "id": "first-aid",
+      "title": "First Aid",
+      "symbol": "cross.case.fill",
+      "summary": "Life-saving steps for injuries and medical emergencies.",
+      "guides": [
+        {
+          "id": "scene-safety",
+          "title": "Check, Call, Care",
+          "summary": "Make the scene safe, call 911, treat the worst problem first.",
+          "file": "first-aid/scene-safety.html",
+          "urgent": false,
+          "keywords": [
+            "scene safety",
+            "911",
+            "recovery position",
+            "good samaritan",
+            "emergency",
+            "first steps"
+          ]
+        },
+        {
+          "id": "cpr",
+          "title": "CPR",
+          "summary": "Not breathing: push hard and fast, 100 to 120 a minute. Adult, child, infant.",
+          "file": "first-aid/cpr.html",
+          "urgent": true,
+          "keywords": [
+            "cpr",
+            "cardiac arrest",
+            "not breathing",
+            "aed",
+            "rescue breaths",
+            "chest compressions",
+            "unconscious",
+            "infant",
+            "child"
+          ]
+        },
+        {
+          "id": "choking",
+          "title": "Choking",
+          "summary": "Can't breathe, cough, or talk: back blows and thrusts. Adult, child, infant.",
+          "file": "first-aid/choking.html",
+          "urgent": true,
+          "keywords": [
+            "choking",
+            "heimlich",
+            "abdominal thrusts",
+            "back blows",
+            "airway",
+            "infant",
+            "baby"
+          ]
+        },
+        {
+          "id": "bleeding",
+          "title": "Severe Bleeding",
+          "summary": "Press hard, pack deep wounds, tourniquet 2 to 3 in above the wound.",
+          "file": "first-aid/bleeding.html",
+          "urgent": true,
+          "keywords": [
+            "bleeding",
+            "tourniquet",
+            "hemorrhage",
+            "wound packing",
+            "stop the bleed",
+            "amputation",
+            "blood"
+          ]
+        },
+        {
+          "id": "shock",
+          "title": "Shock",
+          "summary": "Pale, cold, clammy, fast pulse: lay flat, keep warm, call 911.",
+          "file": "first-aid/shock.html",
+          "urgent": false,
+          "keywords": [
+            "shock",
+            "pale",
+            "clammy",
+            "blood loss",
+            "faint"
+          ]
+        },
+        {
+          "id": "burns",
+          "title": "Burns",
+          "summary": "Cool running water for 20 minutes. No ice or butter. When it's serious.",
+          "file": "first-aid/burns.html",
+          "urgent": true,
+          "keywords": [
+            "burn",
+            "scald",
+            "fire",
+            "chemical burn",
+            "blister",
+            "sunburn"
+          ]
+        },
+        {
+          "id": "fractures",
+          "title": "Broken Bones and Splinting",
+          "summary": "Don't straighten it. Splint the joint above and below.",
+          "file": "first-aid/fractures.html",
+          "urgent": false,
+          "keywords": [
+            "fracture",
+            "broken bone",
+            "splint",
+            "sling",
+            "dislocation"
+          ]
+        },
+        {
+          "id": "sprains",
+          "title": "Sprains and Strains",
+          "summary": "Rest, ice, compress, elevate. When to treat it as a break.",
+          "file": "first-aid/sprains.html",
+          "urgent": false,
+          "keywords": [
+            "sprain",
+            "strain",
+            "ankle",
+            "rice",
+            "twisted"
+          ]
+        },
+        {
+          "id": "head-injury",
+          "title": "Head Injury and Concussion",
+          "summary": "Danger signs that need emergency care, and concussion signs.",
+          "file": "first-aid/head-injury.html",
+          "urgent": false,
+          "keywords": [
+            "head injury",
+            "concussion",
+            "skull",
+            "unconscious",
+            "pupils",
+            "vomiting"
+          ]
+        },
+        {
+          "id": "spinal-injury",
+          "title": "Neck and Back Injury",
+          "summary": "Keep them still. Don't move them. When to log roll.",
+          "file": "first-aid/spinal-injury.html",
+          "urgent": false,
+          "keywords": [
+            "spinal",
+            "spine",
+            "neck injury",
+            "back injury",
+            "paralysis",
+            "log roll"
+          ]
+        },
+        {
+          "id": "heart-attack",
+          "title": "Heart Attack",
+          "summary": "Chest pain or pressure: call 911, chew aspirin if not allergic.",
+          "file": "first-aid/heart-attack.html",
+          "urgent": true,
+          "keywords": [
+            "heart attack",
+            "chest pain",
+            "aspirin",
+            "cardiac",
+            "angina"
+          ]
+        },
+        {
+          "id": "stroke",
+          "title": "Stroke (BE FAST)",
+          "summary": "Face droop, arm weakness, slurred speech: call 911, note the time.",
+          "file": "first-aid/stroke.html",
+          "urgent": true,
+          "keywords": [
+            "stroke",
+            "be fast",
+            "face droop",
+            "slurred speech",
+            "tia",
+            "numbness"
+          ]
+        },
+        {
+          "id": "seizures",
+          "title": "Seizures",
+          "summary": "Protect the head, don't hold them down, nothing in the mouth, time it.",
+          "file": "first-aid/seizures.html",
+          "urgent": false,
+          "keywords": [
+            "seizure",
+            "convulsion",
+            "epilepsy",
+            "fit",
+            "febrile"
+          ]
+        },
+        {
+          "id": "anaphylaxis",
+          "title": "Allergic Reaction and Anaphylaxis",
+          "summary": "Trouble breathing or swelling: use the epinephrine auto-injector now.",
+          "file": "first-aid/anaphylaxis.html",
+          "urgent": true,
+          "keywords": [
+            "anaphylaxis",
+            "allergy",
+            "epipen",
+            "epinephrine",
+            "hives",
+            "swelling",
+            "bee sting",
+            "peanut"
+          ]
+        },
+        {
+          "id": "asthma",
+          "title": "Asthma Attack",
+          "summary": "Sit up, use the rescue inhaler with a spacer, call 911 if not better.",
+          "file": "first-aid/asthma.html",
+          "urgent": true,
+          "keywords": [
+            "asthma",
+            "inhaler",
+            "wheezing",
+            "short of breath",
+            "spacer"
+          ]
+        },
+        {
+          "id": "hypothermia",
+          "title": "Hypothermia",
+          "summary": "Too cold: get dry, insulate, warm the core gently.",
+          "file": "first-aid/hypothermia.html",
+          "urgent": true,
+          "keywords": [
+            "hypothermia",
+            "cold",
+            "shivering",
+            "freezing",
+            "exposure"
+          ]
+        },
+        {
+          "id": "frostbite",
+          "title": "Frostbite",
+          "summary": "Don't rub. Rewarm in warm water only if it won't refreeze.",
+          "file": "first-aid/frostbite.html",
+          "urgent": false,
+          "keywords": [
+            "frostbite",
+            "frostnip",
+            "cold",
+            "numb fingers",
+            "toes"
+          ]
+        },
+        {
+          "id": "heat-illness",
+          "title": "Heat Exhaustion vs. Heat Stroke",
+          "summary": "Confused and hot: heat stroke. Call 911 and cool them fast.",
+          "file": "first-aid/heat-illness.html",
+          "urgent": true,
+          "keywords": [
+            "heat stroke",
+            "heat exhaustion",
+            "hyperthermia",
+            "heat cramps",
+            "overheating",
+            "sun"
+          ]
+        },
+        {
+          "id": "dehydration",
+          "title": "Dehydration and Rehydration (ORS)",
+          "summary": "Danger signs and the WHO homemade oral rehydration recipe.",
+          "file": "first-aid/dehydration.html",
+          "urgent": false,
+          "keywords": [
+            "dehydration",
+            "ors",
+            "oral rehydration",
+            "diarrhea",
+            "vomiting",
+            "electrolytes"
+          ]
+        },
+        {
+          "id": "wounds",
+          "title": "Wound Care and Infection",
+          "summary": "Clean, cover, and watch for infection. Tetanus and when to get stitches.",
+          "file": "first-aid/wounds.html",
+          "urgent": false,
+          "keywords": [
+            "wound",
+            "cut",
+            "laceration",
+            "infection",
+            "tetanus",
+            "stitches",
+            "puncture"
+          ]
+        },
+        {
+          "id": "bites-stings",
+          "title": "Bites and Stings",
+          "summary": "Animal bites and rabies, ticks, spiders, bees, scorpions, jellyfish.",
+          "file": "first-aid/bites-stings.html",
+          "urgent": false,
+          "keywords": [
+            "bite",
+            "sting",
+            "rabies",
+            "tick",
+            "spider",
+            "bee",
+            "wasp",
+            "scorpion",
+            "jellyfish",
+            "dog bite"
+          ]
+        },
+        {
+          "id": "snakebite",
+          "title": "Snakebite",
+          "summary": "Keep still, get to a hospital. Don't cut, suck, tie off, or ice.",
+          "file": "first-aid/snakebite.html",
+          "urgent": false,
+          "keywords": [
+            "snakebite",
+            "snake",
+            "rattlesnake",
+            "venom",
+            "copperhead",
+            "antivenom"
+          ]
+        },
+        {
+          "id": "poisoning",
+          "title": "Poisoning",
+          "summary": "Call Poison Control 1-800-222-1222. Carbon monoxide and overdoses.",
+          "file": "first-aid/poisoning.html",
+          "urgent": true,
+          "keywords": [
+            "poison",
+            "poison control",
+            "overdose",
+            "carbon monoxide",
+            "naloxone",
+            "narcan",
+            "swallowed",
+            "chemical"
+          ]
+        },
+        {
+          "id": "drowning",
+          "title": "Drowning",
+          "summary": "Reach, throw, don't go. CPR with rescue breaths.",
+          "file": "first-aid/drowning.html",
+          "urgent": true,
+          "keywords": [
+            "drowning",
+            "water rescue",
+            "near drowning",
+            "swimming",
+            "ice"
+          ]
+        },
+        {
+          "id": "electric-shock",
+          "title": "Electric Shock and Lightning",
+          "summary": "Turn off the power before you touch them. Downed lines and lightning.",
+          "file": "first-aid/electric-shock.html",
+          "urgent": false,
+          "keywords": [
+            "electric shock",
+            "electrocution",
+            "lightning",
+            "power line",
+            "electrical burn"
+          ]
+        },
+        {
+          "id": "eye-injuries",
+          "title": "Eye Injuries",
+          "summary": "Flush chemicals 15 to 20 minutes. Don't remove stuck objects.",
+          "file": "first-aid/eye-injuries.html",
+          "urgent": false,
+          "keywords": [
+            "eye",
+            "chemical in eye",
+            "eye injury",
+            "foreign object",
+            "flush"
+          ]
+        },
+        {
+          "id": "nosebleeds",
+          "title": "Nosebleeds",
+          "summary": "Lean forward and pinch the soft part for 10 to 15 minutes.",
+          "file": "first-aid/nosebleeds.html",
+          "urgent": false,
+          "keywords": [
+            "nosebleed",
+            "nose bleed",
+            "epistaxis"
+          ]
+        },
+        {
+          "id": "diabetic-emergencies",
+          "title": "Diabetic Emergencies",
+          "summary": "Low blood sugar: give fast sugar if they can swallow.",
+          "file": "first-aid/diabetic-emergencies.html",
+          "urgent": true,
+          "keywords": [
+            "diabetes",
+            "low blood sugar",
+            "hypoglycemia",
+            "insulin",
+            "glucose",
+            "glucagon"
+          ]
+        },
+        {
+          "id": "triage-start",
+          "title": "Mass-Casualty Triage (START)",
+          "summary": "Many hurt and few helpers: sort quickly into red, yellow, green, black.",
+          "file": "first-aid/triage-start.html",
+          "urgent": false,
+          "keywords": [
+            "triage",
+            "start",
+            "mass casualty",
+            "mci",
+            "cert",
+            "disaster"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "water-sanitation",
+      "title": "Water and Sanitation",
+      "symbol": "drop.fill",
+      "summary": "Safe water, emergency toilets, food safety, and staying healthy.",
+      "guides": [
+        {
+          "id": "making-water-safe",
+          "title": "Making Water Safe",
+          "summary": "Boil 1 minute (3 above 5,000 ft) or bleach-dose and wait 30 minutes.",
+          "file": "water-sanitation/making-water-safe.html",
+          "urgent": false,
+          "keywords": [
+            "boil",
+            "bleach",
+            "purify",
+            "disinfect water",
+            "iodine",
+            "filter",
+            "drinking water",
+            "sodis",
+            "tablets"
+          ]
+        },
+        {
+          "id": "water-storage",
+          "title": "Water Storage and Rotation",
+          "summary": "1 gallon per person per day. Containers, cleaning, and hidden water.",
+          "file": "water-sanitation/water-storage.html",
+          "urgent": false,
+          "keywords": [
+            "water storage",
+            "store water",
+            "gallon",
+            "water heater",
+            "rotation",
+            "containers"
+          ]
+        },
+        {
+          "id": "finding-water",
+          "title": "Finding Water",
+          "summary": "Where to look for water outdoors and what to avoid.",
+          "file": "water-sanitation/finding-water.html",
+          "urgent": false,
+          "keywords": [
+            "find water",
+            "rain",
+            "spring",
+            "stream",
+            "snow",
+            "survival water"
+          ]
+        },
+        {
+          "id": "emergency-toilets",
+          "title": "Emergency Toilets",
+          "summary": "Two-bucket system, bag-lined buckets, and safe disposal.",
+          "file": "water-sanitation/emergency-toilets.html",
+          "urgent": false,
+          "keywords": [
+            "toilet",
+            "bucket toilet",
+            "two bucket",
+            "sanitation",
+            "sewer",
+            "poop",
+            "human waste"
+          ]
+        },
+        {
+          "id": "cat-holes-latrines",
+          "title": "Cat Holes and Latrines",
+          "summary": "Dig 6 to 8 in deep, 200 ft from water. Trench latrines for groups.",
+          "file": "water-sanitation/cat-holes-latrines.html",
+          "urgent": false,
+          "keywords": [
+            "cat hole",
+            "latrine",
+            "trench",
+            "outdoor toilet",
+            "camping",
+            "waste"
+          ]
+        },
+        {
+          "id": "handwashing",
+          "title": "Handwashing Without Running Water",
+          "summary": "Scrub 20 seconds. Build a tippy tap. When sanitizer works.",
+          "file": "water-sanitation/handwashing.html",
+          "urgent": false,
+          "keywords": [
+            "handwashing",
+            "tippy tap",
+            "soap",
+            "hand sanitizer",
+            "hygiene"
+          ]
+        },
+        {
+          "id": "disinfecting-surfaces",
+          "title": "Disinfecting Surfaces",
+          "summary": "Bleach mixes for surfaces and flood cleanup. Never mix with ammonia.",
+          "file": "water-sanitation/disinfecting-surfaces.html",
+          "urgent": false,
+          "keywords": [
+            "disinfect",
+            "bleach solution",
+            "clean",
+            "sanitize",
+            "surfaces"
+          ]
+        },
+        {
+          "id": "food-safety-power-out",
+          "title": "Food Safety Without Power",
+          "summary": "Fridge 4 hours, freezer 24 to 48 hours, the 40 °F rule.",
+          "file": "water-sanitation/food-safety-power-out.html",
+          "urgent": false,
+          "keywords": [
+            "food safety",
+            "power outage",
+            "refrigerator",
+            "freezer",
+            "spoiled",
+            "flood food",
+            "40 degrees"
+          ]
+        },
+        {
+          "id": "garbage-waste",
+          "title": "Garbage and Waste",
+          "summary": "Keep pests away. Hazardous waste, burning rules, dead animals.",
+          "file": "water-sanitation/garbage-waste.html",
+          "urgent": false,
+          "keywords": [
+            "garbage",
+            "trash",
+            "waste",
+            "rats",
+            "hazardous waste",
+            "debris"
+          ]
+        },
+        {
+          "id": "flood-disease",
+          "title": "Preventing Disease After Floods",
+          "summary": "Flood water risks, wounds, wells, and insects.",
+          "file": "water-sanitation/flood-disease.html",
+          "urgent": false,
+          "keywords": [
+            "flood",
+            "flood water",
+            "disease",
+            "infection",
+            "well water",
+            "mosquito"
+          ]
+        },
+        {
+          "id": "mold",
+          "title": "Mold",
+          "summary": "Dry out within 24 to 48 hours. Protect yourself while cleaning.",
+          "file": "water-sanitation/mold.html",
+          "urgent": false,
+          "keywords": [
+            "mold",
+            "mildew",
+            "water damage",
+            "n95",
+            "cleanup"
+          ]
+        },
+        {
+          "id": "personal-hygiene",
+          "title": "Personal Hygiene",
+          "summary": "Staying clean with little water. Feet, teeth, and shelters.",
+          "file": "water-sanitation/personal-hygiene.html",
+          "urgent": false,
+          "keywords": [
+            "hygiene",
+            "bathing",
+            "sponge bath",
+            "trench foot",
+            "teeth",
+            "shelter"
+          ]
+        },
+        {
+          "id": "menstrual-infant-hygiene",
+          "title": "Menstrual and Infant Hygiene",
+          "summary": "Periods, breastfeeding, safe formula, and diapers in a disaster.",
+          "file": "water-sanitation/menstrual-infant-hygiene.html",
+          "urgent": false,
+          "keywords": [
+            "menstrual",
+            "period",
+            "tampon",
+            "pad",
+            "baby",
+            "infant formula",
+            "breastfeeding",
+            "diaper"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "survival",
+      "title": "Survival and Disasters",
+      "symbol": "tent.fill",
+      "summary": "Shelter, fire, signaling, navigation, and disaster safety.",
+      "guides": [
+        {
+          "id": "priorities",
+          "title": "Survival Priorities (Rule of 3s)",
+          "summary": "Stop, think, observe, plan. Air, shelter, water, then food.",
+          "file": "survival/priorities.html",
+          "urgent": false,
+          "keywords": [
+            "rule of 3s",
+            "priorities",
+            "stop",
+            "survival",
+            "panic",
+            "lost"
+          ]
+        },
+        {
+          "id": "shelter",
+          "title": "Shelter",
+          "summary": "Get off the ground, out of the wind, and dry. Simple shelters.",
+          "file": "survival/shelter.html",
+          "urgent": false,
+          "keywords": [
+            "shelter",
+            "debris hut",
+            "lean-to",
+            "tarp",
+            "cold",
+            "insulation"
+          ]
+        },
+        {
+          "id": "fire",
+          "title": "Fire",
+          "summary": "Tinder, kindling, fuel. Ways to light. Fire safety.",
+          "file": "survival/fire.html",
+          "urgent": false,
+          "keywords": [
+            "fire",
+            "campfire",
+            "tinder",
+            "ferro rod",
+            "matches",
+            "kindling"
+          ]
+        },
+        {
+          "id": "signaling",
+          "title": "Signaling for Rescue",
+          "summary": "3 whistle blasts, signal mirror, ground-to-air symbols.",
+          "file": "survival/signaling.html",
+          "urgent": false,
+          "keywords": [
+            "signal",
+            "rescue",
+            "whistle",
+            "mirror",
+            "sos",
+            "ground to air",
+            "plb",
+            "beacon"
+          ]
+        },
+        {
+          "id": "navigation",
+          "title": "Navigation Without GPS",
+          "summary": "Shadow stick, watch method, North Star, Southern Cross.",
+          "file": "survival/navigation.html",
+          "urgent": false,
+          "keywords": [
+            "navigation",
+            "compass",
+            "north star",
+            "polaris",
+            "shadow stick",
+            "direction",
+            "lost"
+          ]
+        },
+        {
+          "id": "tornado",
+          "title": "Tornadoes and Lightning",
+          "summary": "Lowest floor, interior room, cover your head. When thunder roars, go indoors.",
+          "file": "survival/tornado.html",
+          "urgent": true,
+          "keywords": [
+            "tornado",
+            "twister",
+            "storm",
+            "lightning",
+            "thunderstorm",
+            "warning"
+          ]
+        },
+        {
+          "id": "flood",
+          "title": "Floods",
+          "summary": "Turn around, don't drown. Get to high ground.",
+          "file": "survival/flood.html",
+          "urgent": true,
+          "keywords": [
+            "flood",
+            "flash flood",
+            "high water",
+            "storm surge",
+            "turn around dont drown"
+          ]
+        },
+        {
+          "id": "earthquake",
+          "title": "Earthquakes",
+          "summary": "Drop, cover, and hold on. Gas leaks, aftershocks, and tsunamis.",
+          "file": "survival/earthquake.html",
+          "urgent": true,
+          "keywords": [
+            "earthquake",
+            "drop cover hold on",
+            "aftershock",
+            "tsunami",
+            "gas leak"
+          ]
+        },
+        {
+          "id": "hurricane",
+          "title": "Hurricanes",
+          "summary": "Evacuate when told. Storm surge, safe rooms, and after the storm.",
+          "file": "survival/hurricane.html",
+          "urgent": false,
+          "keywords": [
+            "hurricane",
+            "storm surge",
+            "tropical storm",
+            "evacuate",
+            "cyclone"
+          ]
+        },
+        {
+          "id": "extreme-heat",
+          "title": "Extreme Heat",
+          "summary": "Stay cool, drink water, check on others. Never leave anyone in a car.",
+          "file": "survival/extreme-heat.html",
+          "urgent": false,
+          "keywords": [
+            "heat wave",
+            "extreme heat",
+            "cooling center",
+            "hot",
+            "air conditioning"
+          ]
+        },
+        {
+          "id": "winter-storm",
+          "title": "Winter Storms",
+          "summary": "Stay warm without power. Stranded in a car: run the engine 10 minutes an hour.",
+          "file": "survival/winter-storm.html",
+          "urgent": false,
+          "keywords": [
+            "winter storm",
+            "blizzard",
+            "snow",
+            "ice storm",
+            "cold",
+            "stranded car"
+          ]
+        },
+        {
+          "id": "wildfire-smoke",
+          "title": "Wildfire and Smoke",
+          "summary": "Evacuate early. N95 masks, clean indoor air, and DIY box fan filter.",
+          "file": "survival/wildfire-smoke.html",
+          "urgent": false,
+          "keywords": [
+            "wildfire",
+            "smoke",
+            "air quality",
+            "n95",
+            "evacuate",
+            "fire"
+          ]
+        },
+        {
+          "id": "power-outage",
+          "title": "Power Outage Safety",
+          "summary": "Generators 20 ft from the house. Carbon monoxide kills.",
+          "file": "survival/power-outage.html",
+          "urgent": true,
+          "keywords": [
+            "power outage",
+            "blackout",
+            "generator",
+            "carbon monoxide",
+            "co",
+            "backfeed"
+          ]
+        },
+        {
+          "id": "stay-or-go",
+          "title": "Stay Put or Evacuate",
+          "summary": "When to leave, how to shelter in place, and what to do if lost.",
+          "file": "survival/stay-or-go.html",
+          "urgent": false,
+          "keywords": [
+            "evacuate",
+            "shelter in place",
+            "evacuation",
+            "chemical",
+            "radiation",
+            "lost",
+            "leave"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "radio-comms",
+      "title": "Radio and Comms",
+      "symbol": "antenna.radiowaves.left.and.right",
+      "summary": "Call for help and stay in touch when phones are down.",
+      "guides": [
+        {
+          "id": "radio-emergency-basics",
+          "title": "Calling for Help by Radio",
+          "summary": "No phone? Which channels to try and what to say. The FCC emergency rule.",
+          "file": "radio-comms/radio-emergency-basics.html",
+          "urgent": true,
+          "keywords": [
+            "emergency",
+            "radio",
+            "help",
+            "mayday",
+            "call for help",
+            "97.403",
+            "no signal"
+          ]
+        },
+        {
+          "id": "ham-radio-basics",
+          "title": "Ham Radio Basics",
+          "summary": "What ham radio is, the Technician exam, licensing, and key rules.",
+          "file": "radio-comms/ham-radio-basics.html",
+          "urgent": false,
+          "keywords": [
+            "ham",
+            "amateur radio",
+            "technician",
+            "license",
+            "fcc",
+            "call sign",
+            "exam"
+          ]
+        },
+        {
+          "id": "key-frequencies",
+          "title": "Key Frequencies",
+          "summary": "Calling frequencies, APRS, HF nets, and other services at a glance.",
+          "file": "radio-comms/key-frequencies.html",
+          "urgent": false,
+          "keywords": [
+            "frequencies",
+            "146.520",
+            "446.000",
+            "simplex",
+            "aprs",
+            "hf",
+            "nets",
+            "calling frequency"
+          ]
+        },
+        {
+          "id": "frs-gmrs",
+          "title": "FRS and GMRS Channels",
+          "summary": "All 22 channels, power limits, licensing, and repeaters. Channel 20.",
+          "file": "radio-comms/frs-gmrs.html",
+          "urgent": false,
+          "keywords": [
+            "frs",
+            "gmrs",
+            "walkie talkie",
+            "channel 20",
+            "462.675",
+            "repeater",
+            "family radio"
+          ]
+        },
+        {
+          "id": "cb-marine-vhf",
+          "title": "CB and Marine VHF",
+          "summary": "CB channel 9 and 19. Marine channel 16 and how to make a Mayday call.",
+          "file": "radio-comms/cb-marine-vhf.html",
+          "urgent": false,
+          "keywords": [
+            "cb",
+            "citizens band",
+            "channel 9",
+            "channel 19",
+            "marine",
+            "vhf",
+            "channel 16",
+            "mayday",
+            "pan-pan",
+            "coast guard"
+          ]
+        },
+        {
+          "id": "noaa-weather-radio",
+          "title": "NOAA Weather Radio",
+          "summary": "The 7 weather frequencies and SAME county codes.",
+          "file": "radio-comms/noaa-weather-radio.html",
+          "urgent": false,
+          "keywords": [
+            "noaa",
+            "weather radio",
+            "wx",
+            "162.550",
+            "same",
+            "alerts"
+          ]
+        },
+        {
+          "id": "meshtastic",
+          "title": "Meshtastic and LoRa Mesh",
+          "summary": "Off-grid text messaging with no license. Range and privacy.",
+          "file": "radio-comms/meshtastic.html",
+          "urgent": false,
+          "keywords": [
+            "meshtastic",
+            "lora",
+            "mesh",
+            "915",
+            "off grid",
+            "text messaging"
+          ]
+        },
+        {
+          "id": "radio-procedure",
+          "title": "Radio Procedure and Etiquette",
+          "summary": "How to call, what to say in an emergency, and common words.",
+          "file": "radio-comms/radio-procedure.html",
+          "urgent": false,
+          "keywords": [
+            "procedure",
+            "etiquette",
+            "over",
+            "out",
+            "emergency traffic",
+            "break",
+            "mayday",
+            "pan-pan",
+            "plain language"
+          ]
+        },
+        {
+          "id": "phonetic-alphabet",
+          "title": "Phonetic Alphabet",
+          "summary": "Alfa, Bravo, Charlie: spell words clearly over the radio.",
+          "file": "radio-comms/phonetic-alphabet.html",
+          "urgent": false,
+          "keywords": [
+            "phonetic",
+            "nato",
+            "alfa bravo",
+            "spelling",
+            "alphabet"
+          ]
+        },
+        {
+          "id": "morse-code",
+          "title": "Morse Code",
+          "summary": "SOS and the full Morse code table with timing.",
+          "file": "radio-comms/morse-code.html",
+          "urgent": false,
+          "keywords": [
+            "morse",
+            "sos",
+            "cw",
+            "code",
+            "dit dah"
+          ]
+        },
+        {
+          "id": "comms-plan",
+          "title": "Emergency Comms Plan",
+          "summary": "Out-of-area contact, meeting places, channel card, check-in times.",
+          "file": "radio-comms/comms-plan.html",
+          "urgent": false,
+          "keywords": [
+            "plan",
+            "communication plan",
+            "meeting place",
+            "pace",
+            "check in",
+            "family plan"
+          ]
+        },
+        {
+          "id": "ares-races-skywarn",
+          "title": "ARES, RACES, and SKYWARN",
+          "summary": "Volunteer radio and storm spotter groups and how to join.",
+          "file": "radio-comms/ares-races-skywarn.html",
+          "urgent": false,
+          "keywords": [
+            "ares",
+            "races",
+            "skywarn",
+            "storm spotter",
+            "cert",
+            "volunteer",
+            "arrl"
+          ]
+        },
+        {
+          "id": "winlink",
+          "title": "Winlink Email Over Radio",
+          "summary": "Send email by ham radio when the internet is down.",
+          "file": "radio-comms/winlink.html",
+          "urgent": false,
+          "keywords": [
+            "winlink",
+            "email",
+            "radio email",
+            "pat",
+            "packet",
+            "rms"
+          ]
+        }
+      ]
+    }
+  ]
+}

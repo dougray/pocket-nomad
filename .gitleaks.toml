@@ -44,6 +44,8 @@ regexes = [
   '''100\.64\.0\.0/10''',
   # US Poison Control, a public emergency number quoted in the guides.
   '''800[ .-]222[ .-]1222''',
+  # 32-bit integer limits in protocol tests (they look like 10-digit phone numbers).
+  '''\b214748364[78]\b''',
 ]
 paths = [
   '''\.gitleaks\.toml$''',
