@@ -9,9 +9,15 @@ import CoreLocation
 import SwiftUI
 
 struct KnownRadiosSheet: View {
-    let center: CLLocationCoordinate2D?
+    /// Used when there is no GPS fix yet.
+    let mapCenter: CLLocationCoordinate2D?
     @Environment(\.dismiss) private var dismiss
     @State private var store = KnownRadioStore.shared
+    @State private var location = LocationService.shared
+
+    /// Where to keep radios around: the live GPS fix, else the middle of the map.
+    private var center: CLLocationCoordinate2D? { location.location?.coordinate ?? mapCenter }
+    private var usingGPS: Bool { location.location != nil }
     @State private var radiusKm = 200
     @State private var confirmDelete = false
 
@@ -48,11 +54,14 @@ struct KnownRadiosSheet: View {
                     .disabled(center == nil || store.downloading)
                     if let error = store.lastError {
                         Text(error).font(.footnote).foregroundStyle(.red)
+                    } else if let updated = store.updated, !store.downloading, Date().timeIntervalSince(updated) < 120 {
+                        Label("Got \(store.radios.count) radios. They're on the map now.", systemImage: "checkmark.circle.fill")
+                            .font(.footnote).foregroundStyle(.green)
                     }
                 } header: { Text("Download") } footer: {
                     Text(center == nil
                          ? "Waiting for GPS. Radios are kept around where you are."
-                         : "Gets the public lists from meshmap.net (Meshtastic radios heard by the official MQTT server) and map.meshcore.io (MeshCore radios that uploaded their adverts), about 5 to 20 MB, and keeps only radios near you. Needs internet once. Your location isn't sent. Radios with ⛔, 🛑 or 🚫 in their name are left out.")
+                         : (usingGPS ? "Keeps radios around where you are. " : "No GPS fix yet, so this keeps radios around the middle of the map: move the map to your area first. ") + "Gets the public lists from meshmap.net (Meshtastic radios heard by the official MQTT server) and map.meshcore.io (MeshCore radios that uploaded their adverts), about 5 to 20 MB, and keeps only radios near you. Needs internet once. Your location isn't sent. Radios with ⛔, 🛑 or 🚫 in their name are left out.")
                 }
 
                 if store.updated != nil {
@@ -61,6 +70,8 @@ struct KnownRadiosSheet: View {
                     }
                 }
             }
+            .onAppear { location.begin() }
+            .onDisappear { location.end() }
             .navigationTitle("Known radios")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { Button("Done") { dismiss() } }

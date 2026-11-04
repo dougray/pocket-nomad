@@ -134,6 +134,7 @@ struct OfflineMapView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     if controller.coverage != .off { coverageLegend }
                     if !mappedNodes.isEmpty || (controller.showKnown && !known.radios.isEmpty) { radioLegend }
+                    if controller.showKnown && known.radios.isEmpty { knownPrompt }
                 }
                 .padding(.leading, 12)
                 .padding(.bottom, 100)
@@ -159,7 +160,7 @@ struct OfflineMapView: View {
                 CoverageSettingsView()
             }
             .sheet(isPresented: $showKnownSheet) {
-                KnownRadiosSheet(center: location.location?.coordinate ?? controller.mapView?.centerCoordinate)
+                KnownRadiosSheet(mapCenter: controller.mapView?.centerCoordinate)
             }
             .sheet(item: $tappedRadio) { radio in
                 KnownRadioDetail(radio: radio).presentationDetents([.height(260)])
@@ -205,6 +206,16 @@ struct OfflineMapView: View {
                 Text(coverageStore.recording ? "Nothing yet. Connect a radio and move around." : "Recording is off.")
                     .font(.caption2).foregroundStyle(.secondary)
             }
+        }
+        .padding(10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// Shown while the known-radios layer is on but nothing has been downloaded.
+    private var knownPrompt: some View {
+        Button { showKnownSheet = true } label: {
+            Label(known.downloading ? "Downloading known radios…" : "Get known radios near you", systemImage: "arrow.down.circle")
+                .font(.caption.weight(.semibold))
         }
         .padding(10)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
