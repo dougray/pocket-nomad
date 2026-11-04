@@ -5,7 +5,7 @@
 // no signal. Map tiles are cached as you look at them, up to a limit; there is
 // no background sync and nothing is sent anywhere.
 
-const VERSION = "f679b77d0d13";
+const VERSION = "9236d840e650";
 const APP_CACHE = `pn-app-${VERSION}`;
 const TILE_CACHE = "pn-tiles-v1";
 const MAX_TILES = 4000;
@@ -105,9 +105,8 @@ const FILES = [
  "js/tools.js",
  "js/ui.js",
  "manifest.webmanifest",
- "vendor/MAPLIBRE-LICENSE.txt",
- "vendor/maplibre-gl.css",
- "vendor/maplibre-gl.js"
+ "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js",
+ "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"
 ];
 
 self.addEventListener("install", (event) => {
@@ -131,6 +130,11 @@ self.addEventListener("fetch", (event) => {
     // App files: offline first; navigation falls back to the app shell.
     event.respondWith(caches.match(req, { ignoreSearch: true }).then((hit) =>
       hit || fetch(req).catch(() => req.mode === "navigate" ? caches.match("./") : Response.error())));
+    return;
+  }
+  if (url.hostname === "unpkg.com") {
+    // The pinned map library: saved at install, so serve the saved copy.
+    event.respondWith(caches.match(req).then((hit) => hit || fetch(req)));
     return;
   }
   if (url.hostname === "tiles.openfreemap.org") {

@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // OpenStreetMap vector tiles from OpenFreeMap, drawn with MapLibre GL JS
-// (vendored, BSD-3-Clause). Tiles you look at are kept by the service worker,
+// (BSD-3-Clause, pinned CDN copy that the service worker keeps for offline
+// use, like the app's own files). Tiles you look at are kept too,
 // so places you've viewed still show with no signal. Pins stay in this browser.
 
 import { esc, store, watchLocation } from "./ui.js";
@@ -12,16 +13,17 @@ const STYLE = "https://tiles.openfreemap.org/styles/dark";
 const KINDS = { water: "💧 Water", shelter: "🏠 Shelter", rally: "🚩 Rally point", medical: "✚ Medical", supplies: "📦 Supplies", danger: "⚠️ Danger", other: "📍 Other" };
 const COLORS = { meshtastic: "#66d978", meshcore: "#408cfa" };
 
+const MAPLIBRE = "https://unpkg.com/maplibre-gl@4.7.1/dist"; // keep in step with tools/build-pwa.py
 let map, stopGPS, unsubNodes, pinMarkers = [], nodeMarkers = [];
 
 async function loadMapLibre() {
   if (window.maplibregl) return;
   const css = document.createElement("link");
-  css.rel = "stylesheet"; css.href = "vendor/maplibre-gl.css";
+  css.rel = "stylesheet"; css.href = `${MAPLIBRE}/maplibre-gl.css`;
   document.head.append(css);
   await new Promise((resolve, reject) => {
     const s = document.createElement("script");
-    s.src = "vendor/maplibre-gl.js"; s.onload = resolve; s.onerror = () => reject(new Error("The map library didn't load."));
+    s.src = `${MAPLIBRE}/maplibre-gl.js`; s.onload = resolve; s.onerror = () => reject(new Error("The map library didn't load."));
     document.head.append(s);
   });
 }

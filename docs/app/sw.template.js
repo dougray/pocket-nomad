@@ -34,6 +34,11 @@ self.addEventListener("fetch", (event) => {
       hit || fetch(req).catch(() => req.mode === "navigate" ? caches.match("./") : Response.error())));
     return;
   }
+  if (url.hostname === "unpkg.com") {
+    // The pinned map library: saved at install, so serve the saved copy.
+    event.respondWith(caches.match(req).then((hit) => hit || fetch(req)));
+    return;
+  }
   if (url.hostname === "tiles.openfreemap.org") {
     event.respondWith(tile(req));
   }
