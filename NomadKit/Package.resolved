@@ -1,0 +1,24 @@
+{
+  "originHash" : "8e1ed10325a3f75270745be5c0034794143ffbe3ad936211ee28274404733cf0",
+  "pins" : [
+    {
+      "identity" : "maplibre-gl-native-distribution",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/maplibre/maplibre-gl-native-distribution",
+      "state" : {
+        "revision" : "13e41ab3d77ff5113e7e5d4ee87803b1f81f5683",
+        "version" : "6.31.0"
+      }
+    },
+    {
+      "identity" : "zstd",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/facebook/zstd",
+      "state" : {
+        "revision" : "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+        "version" : "1.5.7"
+      }
+    }
+  ],
+  "version" : 3
+}

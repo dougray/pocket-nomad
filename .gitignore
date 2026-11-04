@@ -1,0 +1,14 @@
+private/
+Config/Local.xcconfig
+*.xcodeproj/
+xcuserdata/
+.build/
+DerivedData*/
+Vendor/
+*.p12
+*.p8
+*.mobileprovision
+.env
+.DS_Store
+.superpowers/
+/packs/

@@ -1,0 +1,10 @@
+#!/bin/sh
+# Full-history secret scan before anything leaves this machine.
+set -e
+root=$(git rev-parse --show-toplevel)
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-push: gitleaks not installed (brew install gitleaks); refusing to push." >&2
+  exit 1
+fi
+gitleaks git --redact --no-banner --config "$root/.gitleaks.toml" "$root"
+"$root/.githooks/check-denylist.sh" tree

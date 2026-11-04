@@ -1,0 +1,3 @@
+// Copy to Local.xcconfig (gitignored) and fill in to sign with your own team.
+DEVELOPMENT_TEAM =
+// PRODUCT_BUNDLE_IDENTIFIER = com.example.NomadPocket

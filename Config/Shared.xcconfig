@@ -1,0 +1,18 @@
+PRODUCT_BUNDLE_IDENTIFIER = org.nomadpocket.NomadPocket
+MARKETING_VERSION = 0.1.0
+CURRENT_PROJECT_VERSION = 1
+IPHONEOS_DEPLOYMENT_TARGET = 17.0
+TARGETED_DEVICE_FAMILY = 1,2
+CODE_SIGN_STYLE = Automatic
+DEVELOPMENT_TEAM =
+SWIFT_VERSION = 6.0
+SWIFT_STRICT_CONCURRENCY = complete
+
+// llama.cpp ships device-only (no simulator slice), so it is linked for iphoneos only.
+// Swift code checks `#if canImport(llama)`.
+FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*] = $(inherited) $(PROJECT_DIR)/Vendor/llama.xcframework/ios-arm64
+OTHER_LDFLAGS[sdk=iphoneos*] = $(inherited) -framework llama
+LD_RUNPATH_SEARCH_PATHS = $(inherited) @executable_path/Frameworks
+
+// Signing team and other personal settings. Gitignored; copy the .example.
+#include? "Local.xcconfig"

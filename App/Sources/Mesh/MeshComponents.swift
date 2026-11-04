@@ -1,0 +1,229 @@
+// MeshComponents.swift
+// Pocket Nomad - Mesh module
+// SPDX-License-Identifier: Apache-2.0
+//
+// Small shared views: status card, help cards, big buttons, node badge.
+
+import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
+
+enum MeshUI {
+    static let minTap: CGFloat = 60
+    static let corner: CGFloat = 16
+    static let ok = Color.green
+    static let warn = Color.yellow
+}
+
+/// Large, full-width button style for gloves.
+struct MeshBigButtonStyle: ButtonStyle {
+    var tint: Color = Theme.accent
+    var filled = true
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.title3.weight(.bold))
+            .frame(maxWidth: .infinity, minHeight: MeshUI.minTap)
+            .padding(.horizontal, 12)
+            .foregroundStyle(filled ? Color.black : tint)
+            .background(
+                RoundedRectangle(cornerRadius: MeshUI.corner)
+                    .fill(filled ? tint : Theme.card)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: MeshUI.corner)
+                    .strokeBorder(tint, lineWidth: filled ? 0 : 2)
+            )
+            .opacity(configuration.isPressed ? 0.7 : 1)
+    }
+}
+
+/// A card with an icon, title and body text.
+struct MeshInfoCard<Actions: View>: View {
+    let symbol: String
+    let title: String
+    let message: String
+    var tint: Color = Theme.accent
+    @ViewBuilder var actions: () -> Actions
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label {
+                Text(title).font(.headline)
+            } icon: {
+                Image(systemName: symbol).foregroundStyle(tint)
+            }
+            Text(message)
+                .font(.body)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+            actions()
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: MeshUI.corner))
+        .overlay(RoundedRectangle(cornerRadius: MeshUI.corner).strokeBorder(tint.opacity(0.6), lineWidth: 1.5))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+extension MeshInfoCard where Actions == EmptyView {
+    init(symbol: String, title: String, message: String, tint: Color = Theme.accent) {
+        self.init(symbol: symbol, title: title, message: message, tint: tint, actions: { EmptyView() })
+    }
+}
+
+/// Shows the connection state in words, with colour and an icon.
+struct MeshStatusCard: View {
+    let state: MeshConnectionState
+    let radio: MeshRadioInfo
+    var onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 14) {
+                Image(systemName: symbol)
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 44)
+                    .symbolEffect(.pulse, isActive: isBusy)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(.title3.weight(.bold)).foregroundStyle(.primary)
+                    Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").foregroundStyle(.secondary)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, minHeight: 80, alignment: .leading)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: MeshUI.corner))
+            .overlay(RoundedRectangle(cornerRadius: MeshUI.corner).strokeBorder(tint, lineWidth: 2))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title). \(subtitle)")
+        .accessibilityHint("Opens the radio list")
+    }
+
+    private var isBusy: Bool {
+        switch state {
+        case .scanning, .connecting, .syncing, .reconnecting: return true
+        default: return false
+        }
+    }
+
+    private var symbol: String {
+        switch state {
+        case .connected: return "antenna.radiowaves.left.and.right"
+        case .failed: return "exclamationmark.triangle.fill"
+        case .idle: return "antenna.radiowaves.left.and.right.slash"
+        default: return "dot.radiowaves.left.and.right"
+        }
+    }
+
+    private var tint: Color {
+        switch state {
+        case .connected: return MeshUI.ok
+        case .failed: return Theme.danger
+        case .idle: return .secondary
+        default: return MeshUI.warn
+        }
+    }
+
+    private var title: String {
+        switch state {
+        case .idle: return "No radio connected"
+        case .scanning: return "Looking for radios"
+        case .connecting(let n): return "Connecting to \(n)"
+        case .syncing(let n): return "Syncing with \(n)"
+        case .connected(let n): return "Connected: \(n)"
+        case .reconnecting(let n): return "Waiting for \(n)"
+        case .failed: return "Connection problem"
+        }
+    }
+
+    private var subtitle: String {
+        switch state {
+        case .idle: return "Tap to find your Meshtastic or MeshCore radio."
+        case .scanning: return "Keep the radio close and switched on."
+        case .connecting: return "If iOS asks for a PIN, read it off the radio's screen."
+        case .syncing: return "Downloading the node list and settings."
+        case .connected:
+            var bits: [String] = []
+            if let f = radio.firmware { bits.append(f.displayName) }
+            if let r = radio.regionName { bits.append(r) }
+            bits.append(radio.primaryChannelName.isEmpty ? "Primary channel" : radio.primaryChannelName)
+            return bits.joined(separator: " · ")
+        case .reconnecting: return "Will reconnect by itself when the radio is in range."
+        case .failed(let why): return why
+        }
+    }
+}
+
+/// Short-name badge for a node.
+struct MeshNodeBadge: View {
+    let node: MeshNode
+    var size: CGFloat = 48
+
+    var body: some View {
+        Text(node.badge)
+            .font(.system(size: size * 0.32, weight: .heavy, design: .rounded))
+            .lineLimit(1)
+            .minimumScaleFactor(0.5)
+            .foregroundStyle(.black)
+            .frame(width: size, height: size)
+            .background(Circle().fill(color))
+            .accessibilityHidden(true)
+    }
+
+    /// A stable colour per node so people are easy to tell apart.
+    private var color: Color {
+        let hue = Double(node.num % 360) / 360
+        return Color(hue: hue, saturation: 0.55, brightness: 0.95)
+    }
+}
+
+/// What to do when Bluetooth cannot be used.
+struct MeshBluetoothHelp: View {
+    let availability: MeshBluetoothAvailability
+
+    var body: some View {
+        switch availability {
+        case .poweredOff:
+            MeshInfoCard(symbol: "bolt.horizontal.circle", title: "Bluetooth is off",
+                         message: "Swipe down from the top-right corner to open Control Center and tap the Bluetooth icon. Or open Settings, tap Bluetooth, and turn it on.",
+                         tint: MeshUI.warn)
+        case .unauthorized:
+            MeshInfoCard(symbol: "hand.raised.fill", title: "Bluetooth permission is off",
+                         message: "Pocket Nomad needs Bluetooth to talk to your radio. Tap the button below, then turn on Bluetooth for this app.",
+                         tint: Theme.danger) {
+                #if canImport(UIKit)
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                .buttonStyle(MeshBigButtonStyle(tint: Theme.danger))
+                #endif
+            }
+        case .unsupported:
+            MeshInfoCard(symbol: "xmark.octagon.fill", title: "Bluetooth LE not available",
+                         message: "This device cannot talk to mesh radios. Mesh messaging needs an iPhone or iPad with Bluetooth.",
+                         tint: Theme.danger)
+        case .resetting:
+            MeshInfoCard(symbol: "arrow.clockwise", title: "Bluetooth is restarting",
+                         message: "Wait a few seconds. If this does not clear, turn Bluetooth off and on again.",
+                         tint: MeshUI.warn)
+        case .unknown, .poweredOn:
+            EmptyView()
+        }
+    }
+}
+
+extension Date {
+    var meshRelative: String {
+        if abs(timeIntervalSinceNow) < 60 { return "just now" }
+        return formatted(.relative(presentation: .named))
+    }
+}

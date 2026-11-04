@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pocket Nomad</title>
+<meta name="description" content="A free, open-source survival app for iPhone that works with no signal: first aid and water guides, an offline medical library, offline maps, an on-device AI that cites its sources, and mesh messaging over Meshtastic or MeshCore radios.">
+<meta property="og:title" content="Pocket Nomad">
+<meta property="og:description" content="The survival kit that works with no signal. Free and open source.">
+<meta property="og:image" content="appstore/banner-1280x640.png">
+<meta name="theme-color" content="#000000">
+<style>
+  :root {
+    --bg: #050505; --panel: #141414; --line: #262626; --text: #f8f6f2; --muted: #a9a59d;
+    --amber: #fc9712; --orange: #fc840c; --highlight: #febb1e;
+    --radius: 16px;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 17px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  a { color: var(--amber); }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
+  header.hero { background: radial-gradient(ellipse at 30% 40%, rgba(252,151,18,.22), transparent 60%); padding: 40px 0 24px; }
+  .hero-grid { display: grid; grid-template-columns: 1fr; gap: 24px; align-items: center; }
+  .hero img.logo { width: 200px; height: auto; display: block; }
+  h1 { font-size: clamp(32px, 6vw, 52px); line-height: 1.08; margin: 8px 0 12px; letter-spacing: -.02em; }
+  h1 span { background: linear-gradient(180deg, var(--amber), var(--orange)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lede { font-size: 19px; color: var(--muted); max-width: 40em; }
+  .pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 4px; padding: 0; list-style: none; }
+  .pills li { border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 14px; color: var(--muted); }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
+  .btn { display: inline-block; padding: 12px 20px; border-radius: 12px; font-weight: 600; text-decoration: none; }
+  .btn.primary { background: linear-gradient(180deg, var(--amber), var(--orange)); color: #000; }
+  .btn.ghost { border: 1px solid var(--line); color: var(--text); }
+  section { padding: 44px 0; border-top: 1px solid var(--line); }
+  h2 { font-size: 28px; margin: 0 0 6px; }
+  h2 + p.sub { color: var(--muted); margin: 0 0 22px; }
+  .grid { display: grid; gap: 14px; grid-template-columns: 1fr; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; }
+  .card h3 { margin: 0 0 6px; font-size: 18px; }
+  .card p { margin: 0; color: var(--muted); font-size: 15.5px; }
+  .card .tag { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--amber); margin-bottom: 6px; }
+  .shots { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x mandatory; }
+  .shots img { width: 230px; flex: 0 0 auto; border-radius: 18px; border: 1px solid var(--line); scroll-snap-align: start; }
+  ul.check { padding-left: 0; list-style: none; margin: 0; }
+  ul.check li { padding-left: 28px; position: relative; margin: 8px 0; color: var(--muted); }
+  ul.check li::before { content: "✓"; position: absolute; left: 0; color: var(--amber); font-weight: 700; }
+  ul.check li b { color: var(--text); }
+  .note { border-left: 3px solid var(--amber); padding: 10px 14px; background: var(--panel); border-radius: 0 12px 12px 0; color: var(--muted); font-size: 15px; }
+  code { background: #1d1d1d; padding: 2px 6px; border-radius: 6px; font-size: 14px; }
+  pre { background: #111; border: 1px solid var(--line); border-radius: 12px; padding: 14px; overflow-x: auto; font-size: 14px; }
+  footer { border-top: 1px solid var(--line); padding: 28px 0 44px; color: var(--muted); font-size: 14px; }
+  @media (min-width: 760px) {
+    .hero-grid { grid-template-columns: 220px 1fr; }
+    .grid.two { grid-template-columns: 1fr 1fr; }
+    .grid.three { grid-template-columns: repeat(3, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap hero-grid">
+    <img class="logo" src="appstore/logo.png" alt="Pocket Nomad logo">
+    <div>
+      <h1>The survival kit that <span>works with no signal</span></h1>
+      <p class="lede">Pocket Nomad is a free, open-source iPhone app for when the network is gone: first aid and water guides, an offline medical library, offline maps, an on-device AI that answers only from those sources, and text messaging over mesh radios.</p>
+      <ul class="pills">
+        <li>Works offline</li><li>No account</li><li>No tracking</li><li>Free &amp; open source</li><li>iPhone &amp; iPad</li>
+      </ul>
+      <div class="cta">
+        <a class="btn primary" href="#get-it">Get Pocket Nomad</a>
+        <a class="btn ghost" href="#features">What's inside</a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main>
+<section>
+  <div class="wrap">
+    <div class="shots" aria-label="Screenshots">
+      <img src="appstore/iphone-1-survive.png" alt="Survive tab: emergency guides and tools">
+      <img src="appstore/iphone-2-guide.png" alt="Severe bleeding guide, step by step">
+      <img src="appstore/iphone-3-ask.png" alt="Ask: an answer with its source quoted">
+      <img src="appstore/iphone-4-library.png" alt="Library of offline books">
+      <img src="appstore/iphone-5-map.png" alt="Offline street map">
+      <img src="appstore/iphone-6-water.png" alt="Water purifier: bleach dose calculator">
+    </div>
+  </div>
+</section>
+
+<section id="use-cases">
+  <div class="wrap">
+    <h2>When you'd reach for it</h2>
+    <p class="sub">Everything below works with the phone in airplane mode.</p>
+    <div class="grid three">
+      <div class="card"><span class="tag">Power outage</span><h3>The grid is down</h3><p>Cell towers fail within hours. Look up first aid, make water safe, and message neighbours over a mesh radio.</p></div>
+      <div class="card"><span class="tag">Backcountry</span><h3>Out of range</h3><p>Hiking, hunting or paddling with no bars: a GPS compass, offline maps, sunset times and treatment steps for bites, heat and cold.</p></div>
+      <div class="card"><span class="tag">Disaster kit</span><h3>Go-bag phone</h3><p>Checklists for the bag, the car and the house, a Medical ID responders can read, and a library of field manuals.</p></div>
+      <div class="card"><span class="tag">Travel</span><h3>No data plan</h3><p>Street maps of the region you load before you leave, and reference books that don't need the internet.</p></div>
+      <div class="card"><span class="tag">Group comms</span><h3>Stay in touch</h3><p>Pair a Meshtastic or MeshCore radio and text your group, see who's in range, and send an SOS with your position.</p></div>
+      <div class="card"><span class="tag">Community</span><h3>Map the mesh</h3><p>Record where your radio hears others to plan repeater spots, and optionally share a privacy-filtered coverage map.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <h2>What's inside</h2>
+    <p class="sub">Five tabs, all offline.</p>
+    <div class="grid two">
+      <div class="card"><span class="tag">Survive</span><h3>69 guides, 8 checklists, 7 tools</h3><p>First aid (CPR, bleeding, burns, choking…), water and sanitation, shelter and fire, radio and comms. Compass with decimal, DMS and MGRS position; SOS and Morse light; bleach and boiling calculator; Medical ID; sunrise and sunset.</p></div>
+      <div class="card"><span class="tag">Ask</span><h3>Answers that cite their source</h3><p>Ask in plain words. The app finds the best passages in your guides and books, and an on-device model answers only from them, quoting the source. Doses it can calculate, it calculates itself.</p></div>
+      <div class="card"><span class="tag">Library</span><h3>Whole books, offline</h3><p>Reads Kiwix libraries: WikiMed, the Post-Disaster Library, military field medicine, water treatment manuals, NHS medicines and more, with full-text search.</p></div>
+      <div class="card"><span class="tag">Map</span><h3>OpenStreetMap, offline</h3><p>A world overview is built in; add a region or a whole state for street-level detail. Drop pins for water, shelter and rally points, and see mesh nodes live.</p></div>
+      <div class="card"><span class="tag">Mesh</span><h3>Meshtastic and MeshCore</h3><p>Text over a LoRa radio paired by Bluetooth. The app detects which firmware your radio runs: channel chat, direct messages with delivery receipts, the node list and one-tap SOS.</p></div>
+      <div class="card"><span class="tag">Coverage</span><h3>Know where the mesh reaches</h3><p>An optional scanner logs where your radio heard others, coloured by signal, to plan repeaters. Private by default.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="privacy">
+  <div class="wrap">
+    <h2>Private by design</h2>
+    <p class="sub">The App Store label is "Data Not Collected".</p>
+    <ul class="check">
+      <li><b>No accounts, analytics, ads or tracking.</b> There are no servers; the developers never receive your data.</li>
+      <li><b>Everything stays on the phone</b>: your Medical ID, messages, pins, checklists and coverage recordings.</li>
+      <li><b>The AI runs on the device.</b> Questions and answers aren't saved.</li>
+      <li><b>Coverage sharing is opt-in</b> and needs a private zone first. Before a file exists, the phone removes your private places, exact positions, node names and IDs, and dates finer than a month.</li>
+      <li><b>The only network use is downloads you start</b>: books from the Kiwix library and AI models from Hugging Face.</li>
+    </ul>
+    <p style="margin-top:16px"><a href="PRIVACY.html">Read the full privacy policy</a></p>
+  </div>
+</section>
+
+<section id="get-it">
+  <div class="wrap">
+    <h2>Get Pocket Nomad</h2>
+    <p class="sub">Free, with no in-app purchases.</p>
+    <div class="grid two">
+      <div class="card"><span class="tag">iPhone &amp; iPad</span><h3>App Store</h3><p>Coming soon. Requires iOS 17 or later. Apple's on-device AI needs an iPhone 15 Pro or newer; other phones can download a small open model instead.</p></div>
+      <div class="card"><span class="tag">Developers</span><h3>Build from source</h3><p>Xcode 27 and XcodeGen. Clone the repository, set your team in <code>Config/Local.xcconfig</code>, then <code>make project</code> and open it in Xcode.</p></div>
+    </div>
+    <p class="note" style="margin-top:18px">The guides follow published guidance (Red Cross, CDC, EPA, FEMA, WHO and others) and list their sources, but they don't replace training. Call emergency services whenever you can.</p>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Pocket Nomad's code is free and open source under the Apache License 2.0. The name, logo and icon are reserved. Map data © OpenStreetMap contributors. Books come from the Kiwix library under their own licences.</p>
+    <p>Inspired by Project NOMAD; an independent project, not affiliated with it.</p>
+  </div>
+</footer>
+
+</body>
+</html>

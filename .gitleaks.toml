@@ -1,0 +1,50 @@
+# Secret scanning for Pocket Nomad. Runs from .githooks (pre-commit, pre-push)
+# and later in CI. Extends gitleaks' default rules with homelab identifiers
+# that must never be published. Real personal strings are NOT listed here;
+# they live in the gitignored private/denylist.txt checked by the same hooks.
+title = "nomad-pocket"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "phone-number-e164"
+description = "Phone number (E.164 or 10-digit US)"
+regex = '''(?:\+1[ .-]?)?\(?\b[2-9]\d{2}\)?[ .-]?[2-9]\d{2}[ .-]?\d{4}\b'''
+keywords = []
+
+[[rules]]
+id = "tailnet-hostname"
+description = "Tailscale MagicDNS hostname"
+regex = '''\b[a-z0-9-]+\.[a-z0-9-]+\.ts\.net\b'''
+keywords = ["ts.net"]
+
+[[rules]]
+id = "private-ipv4"
+description = "RFC 1918 private IPv4 address"
+regex = '''\b(?:10\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}\b'''
+keywords = []
+
+[[rules]]
+id = "tailscale-cgnat-ipv4"
+description = "Tailscale / CGNAT IPv4 address (100.64.0.0/10)"
+regex = '''\b100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}\b'''
+keywords = ["100."]
+
+[[rules]]
+id = "apns-auth-key"
+description = "APNs .p8 auth key"
+regex = '''-----BEGIN PRIVATE KEY-----'''
+keywords = ["begin private key"]
+
+[allowlist]
+description = "Documentation placeholders (matched against the whole line)"
+regexTarget = "line"
+regexes = [
+  '''100\.64\.0\.0/10''',
+  # US Poison Control, a public emergency number quoted in the guides.
+  '''800[ .-]222[ .-]1222''',
+]
+paths = [
+  '''\.gitleaks\.toml$''',
+]

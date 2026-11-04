@@ -1,0 +1,130 @@
+name: NomadPocket
+options:
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+packages:
+  NomadKit:
+    path: NomadKit
+  MapLibre:
+    url: https://github.com/maplibre/maplibre-gl-native-distribution
+    exactVersion: 6.31.0
+targets:
+  NomadPocket:
+    type: application
+    platform: iOS
+    sources:
+      - path: App/Sources
+      - path: App/Assets.xcassets
+      - path: App/PrivacyInfo.xcprivacy
+        buildPhase: resources
+      - path: App/Resources/Guides
+        type: folder
+        buildPhase: resources
+      - path: App/Resources/Map
+        type: folder
+        buildPhase: resources
+    configFiles:
+      Debug: Config/Shared.xcconfig
+      Release: Config/Shared.xcconfig
+    dependencies:
+      - package: NomadKit
+        product: ZIMKit
+      - package: NomadKit
+        product: NomadSearch
+      - package: MapLibre
+    postCompileScripts:
+      - name: Embed llama.framework (device only)
+        script: "\"$PROJECT_DIR/tools/embed-llama.sh\""
+        basedOnDependencyAnalysis: false
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Pocket Nomad
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+          UIImageName: Logo
+          UIImageRespectsSafeAreaInsets: false
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: false
+        UIBackgroundModes: [bluetooth-central]
+        NSLocationWhenInUseUsageDescription: Pocket Nomad shows where you are on the offline map and compass, can add your coordinates to an SOS message, and (if you turn it on) records where your radio hears others for the coverage map. Your location never leaves the phone unless you send or export it.
+        NSBluetoothAlwaysUsageDescription: Pocket Nomad connects to your Meshtastic radio over Bluetooth so you can send and receive mesh messages without cell service.
+        NSCameraUsageDescription: Pocket Nomad uses the camera flash as an SOS and Morse signal light.
+        ITSAppUsesNonExemptEncryption: false
+        LSApplicationCategoryType: public.app-category.reference
+        NSHumanReadableCopyright: "Apache License 2.0. See LICENSE."
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: ZIM Archive
+            LSHandlerRank: Owner
+            LSItemContentTypes: [org.openzim.zim]
+          - CFBundleTypeName: PMTiles Map
+            LSHandlerRank: Owner
+            LSItemContentTypes: [io.protomaps.pmtiles]
+          - CFBundleTypeName: GGUF Model
+            LSHandlerRank: Owner
+            LSItemContentTypes: [org.ggml.gguf]
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: org.openzim.zim
+            UTTypeDescription: ZIM Archive
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification: {public.filename-extension: [zim]}
+          - UTTypeIdentifier: io.protomaps.pmtiles
+            UTTypeDescription: PMTiles Map
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification: {public.filename-extension: [pmtiles]}
+          - UTTypeIdentifier: org.ggml.gguf
+            UTTypeDescription: GGUF Model
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification: {public.filename-extension: [gguf]}
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: NO
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+  NomadPocketTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [MeshTests, AppTests]
+    dependencies:
+      - target: NomadPocket
+    configFiles:
+      Debug: Config/Shared.xcconfig
+      Release: Config/Shared.xcconfig
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: org.nomadpocket.NomadPocketTests
+  NomadPocketUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: NomadPocket
+    configFiles:
+      Debug: Config/Shared.xcconfig
+      Release: Config/Shared.xcconfig
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: org.nomadpocket.NomadPocketUITests
+        TEST_TARGET_NAME: NomadPocket
+        # UI tests run in their own process, which doesn't carry llama.framework.
+        OTHER_LDFLAGS: ""
+        "OTHER_LDFLAGS[sdk=iphoneos*]": ""
+schemes:
+  NomadPocket:
+    build:
+      targets:
+        NomadPocket: all
+        NomadPocketTests: [test]
+        NomadPocketUITests: [test]
+    test:
+      targets: [NomadPocketTests, NomadPocketUITests]

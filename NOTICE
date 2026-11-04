@@ -1,0 +1,31 @@
+Pocket Nomad
+Copyright 2026 The Pocket Nomad contributors
+
+This product is an independent project inspired by Project NOMAD
+(https://www.projectnomad.us). It is not affiliated with or endorsed by it.
+
+Name and artwork (not covered by the Apache License):
+The name "Pocket Nomad", its logo and app icon are reserved. All rights
+reserved. The Apache License 2.0 covers the source code and other material in
+this repository, but not this artwork, and (per section 6 of the license) it
+grants no right to use the name or logo. If you distribute a modified version,
+please give it a different name and icon. The reserved files are:
+- App/Assets.xcassets/AppIcon.appiconset/ (icon, dark and tinted variants)
+- App/Assets.xcassets/Logo.imageset/
+- tools/pubmed-icon.png
+- docs/appstore/ (store screenshots and banners, which show the logo)
+
+Bundled third-party material:
+- Map data © OpenStreetMap contributors, available under the Open Database
+  License (ODbL). Basemap tiles and styles from Protomaps (BSD-3-Clause / ODbL).
+- Noto Sans fonts, SIL Open Font License 1.1 (App/Resources/Map/fonts/OFL.txt).
+- Protomaps basemap sprites (CC0).
+Written from published documentation (no code copied):
+- Meshtastic client API (BLE service and protobuf messages), meshtastic.org.
+- MeshCore companion radio protocol, MeshCore project (MIT License):
+  docs/companion_protocol.md and examples/companion_radio.
+- openZIM file format specification, openzim.org.
+Linked at build time:
+- MapLibre Native (BSD-2-Clause).
+- llama.cpp / ggml (MIT), device builds only.
+- Zstandard (BSD-3-Clause).
