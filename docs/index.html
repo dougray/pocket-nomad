@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Pocket Nomad</title>
 <meta name="description" content="A free, open-source survival app for iPhone that works with no signal: first aid and water guides, an offline medical library, offline maps, an on-device AI that cites its sources, and mesh messaging over Meshtastic or MeshCore radios.">
 <meta property="og:title" content="Pocket Nomad">
@@ -20,7 +20,8 @@
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 17px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
   a { color: var(--amber); }
-  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
+  .wrap { max-width: 1200px; margin: 0 auto;
+          padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); }
   header.hero { background: radial-gradient(ellipse at 30% 40%, rgba(252,151,18,.22), transparent 60%); padding: 40px 0 24px; }
   .hero-grid { display: grid; grid-template-columns: 1fr; gap: 24px; align-items: center; }
   .hero img.logo { width: 200px; height: auto; display: block; }
@@ -41,8 +42,11 @@
   .card h3 { margin: 0 0 6px; font-size: 18px; }
   .card p { margin: 0; color: var(--muted); font-size: 15.5px; }
   .card .tag { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--amber); margin-bottom: 6px; }
-  .shots { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x mandatory; }
-  .shots img { width: 230px; flex: 0 0 auto; border-radius: 18px; border: 1px solid var(--line); scroll-snap-align: start; }
+  /* Whole screenshots, never cut off: iPhone ones two across on phones,
+     iPad ones three across on tablets and up. */
+  .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .shots img { width: 100%; height: auto; display: block; border-radius: 16px; border: 1px solid var(--line); }
+  .shots.ipad { display: none; }
   ul.check { padding-left: 0; list-style: none; margin: 0; }
   ul.check li { padding-left: 28px; position: relative; margin: 8px 0; color: var(--muted); }
   ul.check li::before { content: "✓"; position: absolute; left: 0; color: var(--amber); font-weight: 700; }
@@ -51,10 +55,24 @@
   code { background: #1d1d1d; padding: 2px 6px; border-radius: 6px; font-size: 14px; }
   pre { background: #111; border: 1px solid var(--line); border-radius: 12px; padding: 14px; overflow-x: auto; font-size: 14px; }
   footer { border-top: 1px solid var(--line); padding: 28px 0 44px; color: var(--muted); font-size: 14px; }
-  @media (min-width: 760px) {
+  @media (min-width: 700px) {
     .hero-grid { grid-template-columns: 220px 1fr; }
-    .grid.two { grid-template-columns: 1fr 1fr; }
+    .grid.two, .grid.three { grid-template-columns: 1fr 1fr; }
+    .shots.iphone { display: none; }
+    .shots.ipad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  }
+  @media (min-width: 1000px) {
     .grid.three { grid-template-columns: repeat(3, 1fr); }
+    #features .grid.two { grid-template-columns: repeat(3, 1fr); }
+  }
+  @media (min-width: 1200px) {
+    body { font-size: 18px; }
+    header.hero { padding: 64px 0 40px; }
+    .hero-grid { grid-template-columns: 280px 1fr; gap: 48px; }
+    .hero img.logo { width: 260px; }
+    .lede { font-size: 21px; }
+    section { padding: 64px 0; }
+    h2 { font-size: 34px; }
   }
 </style>
 </head>
@@ -80,13 +98,21 @@
 <main>
 <section>
   <div class="wrap">
-    <div class="shots" aria-label="Screenshots">
-      <img src="appstore/iphone-1-survive.png" alt="Survive tab: emergency guides and tools">
-      <img src="appstore/iphone-2-guide.png" alt="Severe bleeding guide, step by step">
-      <img src="appstore/iphone-3-ask.png" alt="Ask: an answer with its source quoted">
-      <img src="appstore/iphone-4-library.png" alt="Library of offline books">
-      <img src="appstore/iphone-5-map.png" alt="Offline street map">
-      <img src="appstore/iphone-6-water.png" alt="Water purifier: bleach dose calculator">
+    <div class="shots iphone" aria-label="iPhone screenshots">
+      <img loading="lazy" src="appstore/iphone-1-survive.png" alt="Survive tab: emergency guides and tools">
+      <img loading="lazy" src="appstore/iphone-2-guide.png" alt="Severe bleeding guide, step by step">
+      <img loading="lazy" src="appstore/iphone-3-ask.png" alt="Ask: an answer with its source quoted">
+      <img loading="lazy" src="appstore/iphone-4-library.png" alt="Library of offline books">
+      <img loading="lazy" src="appstore/iphone-5-map.png" alt="Offline street map">
+      <img loading="lazy" src="appstore/iphone-6-water.png" alt="Water purifier: bleach dose calculator">
+    </div>
+    <div class="shots ipad" aria-label="iPad screenshots">
+      <img src="appstore/ipad-1-survive.png" alt="Survive tab on iPad" loading="lazy">
+      <img src="appstore/ipad-2-guide.png" alt="Severe bleeding guide on iPad" loading="lazy">
+      <img src="appstore/ipad-3-ask.png" alt="Ask with sources on iPad" loading="lazy">
+      <img src="appstore/ipad-4-library.png" alt="Library on iPad" loading="lazy">
+      <img src="appstore/ipad-5-map.png" alt="Offline map on iPad" loading="lazy">
+      <img src="appstore/ipad-6-water.png" alt="Water purifier on iPad" loading="lazy">
     </div>
   </div>
 </section>
