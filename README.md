@@ -3,7 +3,7 @@
 A free, open-source iPhone app that keeps working when the network doesn't. It
 puts first aid, water and sanitation, survival and radio guides, an offline
 library, offline maps, an on-device AI that answers from that library, and a
-Meshtastic mesh messenger in one place.
+Meshtastic and MeshCore mesh messenger in one place, on iPhone, iPad and Apple Watch.
 
 Inspired by [Project NOMAD](https://www.projectnomad.us), which does this as a home
 server. Pocket Nomad is an independent project and is not affiliated with it.
@@ -15,8 +15,8 @@ server. Pocket Nomad is an independent project and is not affiliated with it.
 | **Survive** | 69 guides (first aid, water and sanitation, survival, radio and comms), 8 checklists, and tools: compass with decimal/DMS/MGRS position, SOS and Morse signal light (flash, screen, sound), bleach and boiling water calculator, Medical ID, and sunrise, sunset and moon. | No |
 | **Ask** | Ask a question in plain words. The app finds the best passages in the guides and your books, and an on-device model answers **only from those passages**, citing them as [1], [2]. With no model it shows the passages. | Optional model |
 | **Library** | Reads Kiwix `.zim` books (WikiMed, MedlinePlus, the Post-Disaster Library, iFixit, all of Wikipedia…) and a PubMed survival-medicine pack, with title and full-text search, including the text of PDFs. | Yes, books |
-| **Map** | OpenStreetMap vector maps. A world overview (zoom 0–5) is built in; add regions for street-level detail. Drop pins for water, shelter and rally points. Mesh nodes that share a position appear live, and a coverage layer shows where your radio has heard others. | Regions optional |
-| **Mesh** | Text over a LoRa radio paired by Bluetooth, running **Meshtastic or MeshCore** (detected automatically): channel chat, direct messages, node list, one-tap SOS with your coordinates, and an optional **coverage scanner** that records where your radio hears others (private by default; see below). | A Meshtastic or MeshCore radio |
+| **Map** | OpenStreetMap vector maps. A world overview (zoom 0–5) is built in; add regions for street-level detail. Drop pins for water, shelter and rally points. Mesh radios that share a position appear live (Meshtastic green, MeshCore blue, repeaters ringed), **known radios** from the public community maps can be downloaded for offline use, and a coverage layer shows where your radio has heard others and how drive-test pings went. | Regions optional |
+| **Mesh** | Text over a LoRa radio paired by Bluetooth, running **Meshtastic or MeshCore** (detected automatically): channel chat, direct messages, node list, one-tap SOS with your coordinates, blocking, an optional **coverage scanner** that records where your radio hears others (private by default; see below), and **drive mode** with a ping test. | A Meshtastic or MeshCore radio |
 
 Nothing is sent anywhere. The only network traffic is the downloads you start.
 See the [privacy policy](docs/PRIVACY.md); the app's App Store privacy label is
@@ -36,6 +36,33 @@ signal, a count, the firmware and the month range. Samples in private zones are
 dropped, as are whole hexagons that touch one, and node names and IDs are
 removed. The file goes only where you send it. Map › Layers › Coverage › "What
 sharing would publish" previews it exactly.
+
+## Drive mode and the ping test
+
+Mesh › Coverage map › Drive mode keeps the coverage scanner running, from the
+phone's own GPS, while the phone is locked in a car mount (iOS shows the
+location indicator; it turns itself off after 4 hours). With the ping test on,
+it sends one test every 300 m, at most every 45 s:
+
+- **Meshtastic**: a tiny packet on a private app port that chat apps ignore.
+  To "any radio that repeats it" it goes one hop only; to a chosen radio it asks
+  for that radio's acknowledgement.
+- **MeshCore**: a short "Pocket Nomad ping" direct message to a radio you choose
+  (your own second radio or a friend's), confirmed by that radio.
+
+Each spot is marked answered (green), repeated by another radio (yellow) or
+nothing heard (red). Pings are stored with the coverage recordings, follow the
+same private zones, and are exported per hexagon as `pings_reached`,
+`pings_relayed` and `pings_none`; the public map's "Two-way pings" view shows them.
+
+## Known radios
+
+Map › Layers › Download known radios fetches the public lists from
+[meshmap.net](https://meshmap.net) (Meshtastic radios heard by the official MQTT
+server) and [map.meshcore.io](https://map.meshcore.io) (MeshCore adverts), keeps the
+radios within 50–400 km of you, and shows them offline. Your location is not sent.
+Radios with ⛔, 🛑 or 🚫 in their name, the community "don't map me" sign, are
+never recorded, shared or shown.
 
 ## AI
 
