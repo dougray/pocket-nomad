@@ -286,6 +286,90 @@ final class MeshService {
         return send(text, to: .channel(0)) ? text : nil
     }
 
+    // MARK: Drive-test pings
+
+    private struct PendingPing {
+        var target: UInt32?
+        var best: MeshPingOutcome = .none
+        var done: (MeshPingOutcome) -> Void
+        var timeout: Task<Void, Never>?
+    }
+    @ObservationIgnored private var pendingPings: [UInt32: PendingPing] = [:]
+
+    /// Meshtastic's private app port: other apps ignore it, so pings never show up as chat.
+    static let pingPort: UInt32 = 256
+    static let pingText = "Pocket Nomad ping"
+
+    /// Sends one drive-test ping and reports what came back. With no target
+    /// (Meshtastic only) it asks whether any radio repeats it: only neighbours
+    /// relay it once (hop limit 1), so it doesn't flood the mesh. With a target,
+    /// `.reached` means that radio acknowledged it. MeshCore pings are a short
+    /// direct text, so they need a target and show up on that radio.
+    /// Returns false if the ping could not be sent.
+    func ping(_ target: UInt32?, done: @escaping (MeshPingOutcome) -> Void) -> Bool {
+        guard case .connected = connection else { return false }
+        if firmware == .meshcore {
+            guard let target, let prefix = nodes[target]?.publicKeyPrefix else { return false }
+            coreEnqueue(MeshCoreCommand.sendText(Self.pingText, toKeyPrefix: prefix, date: Date()), finishedBy: [6]) { [weak self] reply in
+                guard let self else { return }
+                if case .sent(_, let ack, let timeoutMS) = reply, ack != 0 {
+                    let wait = min(60, max(20, Double(timeoutMS) / 1000 * 1.5))
+                    self.trackPing(ack, target: target, wait: wait, done: done)
+                } else {
+                    done(.none)
+                }
+            }
+            return true
+        }
+        let id = Self.newPacketID()
+        let packet = MeshPBPacket(
+            to: target ?? MeshConstants.broadcastNum,
+            channel: 0,
+            decoded: MeshPBData(portnum: Self.pingPort, payload: Data("pn-ping".utf8)),
+            id: id,
+            hopLimit: target == nil ? 1 : (radio.hopLimit.flatMap { $0 > 0 ? $0 : nil } ?? MeshConstants.defaultHopLimit),
+            wantAck: true
+        )
+        transport.write(MeshPBToRadio.packet(packet).encode())
+        // The radio retries for about 30 s before giving up.
+        trackPing(id, target: target, wait: 45, done: done)
+        startReading()
+        return true
+    }
+
+    private func trackPing(_ id: UInt32, target: UInt32?, wait: Double, done: @escaping (MeshPingOutcome) -> Void) {
+        pendingPings[id] = PendingPing(target: target, done: done, timeout: Task { [weak self] in
+            try? await Task.sleep(for: .seconds(wait))
+            guard !Task.isCancelled else { return }
+            self?.finishPing(id)
+        })
+    }
+
+    private func finishPing(_ id: UInt32, _ outcome: MeshPingOutcome? = nil) {
+        guard let p = pendingPings.removeValue(forKey: id) else { return }
+        p.timeout?.cancel()
+        p.done(outcome ?? p.best)
+    }
+
+    /// Routing answers for a ping. Returns true if the packet was a ping's.
+    private func handlePingRouting(_ p: MeshPBPacket, _ data: MeshPBData) -> Bool {
+        guard var pending = pendingPings[data.requestID] else { return false }
+        guard let routing = try? MeshPBRouting.decode(data.payload), let reason = routing.errorReason else { return true }
+        if reason == MeshRoutingError.none.rawValue {
+            if let target = pending.target, p.from == target {
+                finishPing(data.requestID, .reached)
+            } else if pending.target == nil {
+                finishPing(data.requestID, .relayed)
+            } else {
+                pending.best = .relayed // a neighbour repeated it; keep waiting for the target
+                pendingPings[data.requestID] = pending
+            }
+        } else {
+            finishPing(data.requestID)
+        }
+        return true
+    }
+
     func clearPairingHint() { pairingHint = nil }
 
     /// Deletes every stored message and node from this phone. The radio keeps
@@ -569,6 +653,7 @@ final class MeshService {
     }
 
     private func handleRouting(_ p: MeshPBPacket, _ data: MeshPBData) {
+        if data.requestID != 0, handlePingRouting(p, data) { return }
         guard data.requestID != 0,
               let i = messages.lastIndex(where: { $0.isOutgoing && $0.packetID == data.requestID }),
               let routing = try? MeshPBRouting.decode(data.payload),
@@ -703,6 +788,8 @@ final class MeshService {
             let sender = m.senderName.flatMap { name in nodes.values.first { $0.longName == name }?.num } ?? 0
             coreReceive(from: sender, to: MeshConstants.broadcastNum, channel: UInt32(m.channel),
                         timestamp: m.timestamp, text: m.text, senderName: m.senderName, snr: m.snr, path: m.pathLength)
+        case .sendConfirmed(let ack, _) where pendingPings[ack] != nil:
+            finishPing(ack, .reached)
         case .sendConfirmed(let ack, _):
             if let i = messages.lastIndex(where: { $0.isOutgoing && $0.packetID == ack && ack != 0 }) {
                 messages[i].delivery = .delivered

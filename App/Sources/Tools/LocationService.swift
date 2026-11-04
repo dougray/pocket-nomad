@@ -38,6 +38,29 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         manager.stopUpdatingHeading()
     }
 
+    private var backgroundSession: CLBackgroundActivitySession?
+
+    /// Keeps GPS running while the phone is locked or another app is open
+    /// (drive mode). Uses "while using" permission: iOS shows the blue location
+    /// pill so the user can see it is on. Pair every call with `endBackground()`.
+    func beginBackground() {
+        begin()
+        manager.allowsBackgroundLocationUpdates = true
+        manager.pausesLocationUpdatesAutomatically = false
+        manager.showsBackgroundLocationIndicator = true
+        manager.activityType = .automotiveNavigation
+        backgroundSession = CLBackgroundActivitySession()
+    }
+
+    func endBackground() {
+        backgroundSession?.invalidate()
+        backgroundSession = nil
+        manager.allowsBackgroundLocationUpdates = false
+        manager.pausesLocationUpdatesAutomatically = true
+        manager.activityType = .other
+        end()
+    }
+
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let last = locations.last else { return }
         Task { @MainActor in self.location = last }

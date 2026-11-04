@@ -17,6 +17,7 @@
     --amber: #fc9712; --orange: #fc840c; --highlight: #febb1e;
     --radius: 16px;
     --s1: #d7301f; --s2: #fc8d59; --s3: #fee08b; --s4: #91cf60; --s5: #1a9850; --s0: #6b6b6b;
+    --p0: #d7301f; --p1: #f6b92b; --p2: #1a9850;
   }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
@@ -123,6 +124,13 @@
     <div class="side">
       <div class="panel controls" aria-label="Filters">
         <div>
+          <h2 id="view-label">Show</h2>
+          <div class="seg" role="group" aria-labelledby="view-label" id="view">
+            <button type="button" data-view="signal" aria-pressed="true" title="Where radios were heard, by best signal">Signal heard</button>
+            <button type="button" data-view="pings" aria-pressed="false" title="Drive-test pings: where messages got through">Two-way pings</button>
+          </div>
+        </div>
+        <div>
           <h2 id="fw-label">Firmware</h2>
           <div class="seg" role="group" aria-labelledby="fw-label" id="firmware">
             <button type="button" data-fw="all" aria-pressed="true">All</button>
@@ -141,7 +149,16 @@
         <label class="toggle"><input type="checkbox" id="demo"> <span>Show demo data instead (made up, around Denver; not real coverage)</span></label>
         <p class="stats" id="stats" aria-live="polite">Loading…</p>
       </div>
-      <div class="panel legend-panel">
+      <div class="panel legend-panel" id="legend-pings" hidden>
+        <h2>Drive-test pings</h2>
+        <ul class="legend">
+          <li><i style="background:var(--p2)"></i>Answered: the radio pinged replied</li>
+          <li><i style="background:var(--p1)"></i>Repeated: another radio relayed it, no reply</li>
+          <li><i style="background:var(--p0)"></i>Nothing: no radio heard the ping</li>
+          <li class="note">Each hexagon shows its best result. Tap one for the counts.</li>
+        </ul>
+      </div>
+      <div class="panel legend-panel" id="legend-signal">
         <h2>Best signal (SNR)</h2>
         <ul class="legend">
           <li><i style="background:var(--s5)"></i>Strong: 5 dB or more</li>

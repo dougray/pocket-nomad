@@ -280,4 +280,20 @@ final class MeshCoreServiceTests: XCTestCase {
         XCTAssertLessThanOrEqual(text.utf8.count, 133)
         XCTAssertTrue(text.hasPrefix("SOS"))
     }
+
+    func testMeshCorePingNeedsATargetAndIsConfirmed() throws {
+        let (svc, fake, radio) = connected()
+        XCTAssertFalse(svc.ping(nil) { _ in }, "MeshCore can only ping a chosen radio")
+        let ana = try XCTUnwrap(svc.sortedNodes.first)
+        var outcome: MeshPingOutcome?
+        let ack = radio.nextAck
+        XCTAssertTrue(svc.ping(ana.num) { outcome = $0 })
+        radio.run()
+        let cmd = try XCTUnwrap(fake.writes.last)
+        XCTAssertEqual(cmd.first, 2)
+        XCTAssertEqual(String(decoding: cmd.suffix(from: 13), as: UTF8.self), MeshService.pingText)
+        XCTAssertTrue(svc.messages(in: .direct(ana.num)).isEmpty, "pings are not added to the chat")
+        fake.onEvent?(.frame(CoreFrames.sendConfirmed(ack: ack)))
+        XCTAssertEqual(outcome, .reached)
+    }
 }

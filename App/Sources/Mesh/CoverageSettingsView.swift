@@ -17,10 +17,14 @@ struct CoverageSettingsView: View {
     @State private var zoneName = "Home"
     @State private var zoneRadius = 500.0
     @State private var exportFile: ExportFile?
+    @State private var drive = DriveMode.shared
+    @State private var mesh = MeshService.shared
 
     var body: some View {
         NavigationStack {
             Form {
+                driveSection
+
                 Section {
                     Toggle("Record coverage", isOn: $store.recording)
                     LabeledContent("Recordings", value: store.samples.count.formatted())
@@ -30,7 +34,7 @@ struct CoverageSettingsView: View {
                     Button("Delete all coverage data", role: .destructive) { confirmDelete = true }
                         .disabled(store.samples.isEmpty)
                 } header: { Text("Coverage scanner") } footer: {
-                    Text("While Pocket Nomad is open and connected to a radio, it notes where your phone was each time the radio hears another node, and how strong the signal was. See it on the map under Layers › Coverage. It stays on this phone.")
+                    Text("While Pocket Nomad is open (or in drive mode) and connected to a radio, it notes where your phone was each time the radio hears another node, and how strong the signal was. See it on the map under Layers › Coverage. It stays on this phone.")
                 }
 
                 Section {
@@ -83,6 +87,42 @@ struct CoverageSettingsView: View {
             }
             .sheet(isPresented: $addingZone) { zoneEditor }
             .sheet(item: $exportFile) { ActivityView(items: [$0.url]) }
+        }
+    }
+
+    private var driveSection: some View {
+        Section {
+            Toggle("Drive mode", isOn: Binding(get: { drive.active }, set: { $0 ? drive.start() : drive.stop() }))
+            Toggle("Ping test", isOn: $drive.pinging)
+            if drive.pinging {
+                Picker("Ping", selection: $drive.target) {
+                    if mesh.firmware != .meshcore { Text("Any radio that repeats it").tag(UInt32?.none) }
+                    ForEach(mesh.sortedNodes.filter { $0.num != mesh.myNodeNum }) { node in
+                        Text(node.displayName).tag(UInt32?.some(node.num))
+                    }
+                }
+            }
+            Toggle("Keep screen on", isOn: $drive.keepScreenOn)
+            if drive.active {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let note = drive.pingNote {
+                        Text(note).foregroundStyle(.secondary)
+                    } else if drive.pinging {
+                        Text(drive.waiting ? "Waiting for an answer…" : "\(drive.sent) pings sent")
+                    }
+                    if drive.sent > 0 {
+                        HStack(spacing: 12) {
+                            Label("\(drive.reached) answered", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                            Label("\(drive.relayed) repeated", systemImage: "arrow.triangle.2.circlepath").foregroundStyle(.orange)
+                            Label("\(drive.unanswered) nothing", systemImage: "xmark.circle").foregroundStyle(.red)
+                        }
+                        .labelStyle(.titleAndIcon)
+                    }
+                }
+                .font(.footnote)
+            }
+        } header: { Text("Drive mode") } footer: {
+            Text("Keeps recording while the phone is locked or in another app, and turns itself off after 4 hours. The ping test sends a tiny test message every 300 m (at most every 45 s) and marks the spot green if the radio you chose answered, yellow if another radio only repeated it, or red if nothing heard it. \(mesh.firmware == .meshcore ? "MeshCore pings are a short direct message, so pick your own second radio or a friend's. " : "")Uses battery and GPS: keep the phone on a charger.")
         }
     }
 

@@ -149,6 +149,38 @@ class ValidateTests(unittest.TestCase):
         self.bad([], "FeatureCollection")
 
 
+class PingTests(unittest.TestCase):
+    def test_accepts_ping_only_and_mixed_cells(self):
+        cells = cm.validate(export(feature(*DENVER, count=0, best_snr=..., pings_reached=1, pings_relayed=0, pings_none=2)), TODAY)
+        self.assertEqual((cells[DENVER]["count"], cells[DENVER]["pings_none"]), (0, 2))
+        cells = cm.validate(export(feature(*DENVER, pings_reached=0, pings_relayed=3, pings_none=0)), TODAY)
+        self.assertEqual(cells[DENVER]["pings_relayed"], 3)
+
+    def test_rejects_bad_ping_fields(self):
+        for props, needle in [
+            (dict(pings_reached=1), "together"),
+            (dict(pings_reached=-1, pings_relayed=0, pings_none=0), "ping counts"),
+            (dict(pings_reached=1.5, pings_relayed=0, pings_none=0), "ping counts"),
+            (dict(pings_reached=True, pings_relayed=0, pings_none=0), "ping counts"),
+            (dict(count=0, pings_reached=0, pings_relayed=0, pings_none=0), "recording or a ping"),
+        ]:
+            with self.subTest(props=props):
+                with self.assertRaisesRegex(cm.Invalid, needle):
+                    cm.validate(export(feature(*DENVER, **props)), TODAY)
+
+    def test_pings_add_up_and_only_appear_when_present(self):
+        other = (DENVER[0] + 1, DENVER[1])
+        a = cm.validate(export(feature(*DENVER, pings_reached=1, pings_relayed=1, pings_none=0)), TODAY)
+        b = cm.validate(export(feature(*DENVER, count=0, best_snr=..., pings_reached=2, pings_relayed=0, pings_none=1),
+                               feature(*other)), TODAY)
+        out = cm.to_geojson(cm.merge([a, b]))
+        props = {tuple(f["geometry"]["coordinates"][0][0]): f["properties"] for f in out["features"]}
+        here = props[tuple(cm.ring(*DENVER)[0])]
+        self.assertEqual((here["count"], here["pings_reached"], here["pings_relayed"], here["pings_none"]), (2, 3, 1, 1))
+        self.assertNotIn("pings_reached", props[tuple(cm.ring(*other)[0])])
+        cm.validate(json.loads(cm.dumps(out)), TODAY)
+
+
 class MergeTests(unittest.TestCase):
     def test_same_cells_combine(self):
         a = cm.validate(export(feature(*DENVER, count=3, best_snr=-4.5, firmware=["meshtastic"],

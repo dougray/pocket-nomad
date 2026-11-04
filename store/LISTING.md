@@ -49,7 +49,9 @@ Copy for App Store Connect. Every field is within Apple's limits. Screenshots ar
 > MESH
 > • Text people nearby with no cell network through a Meshtastic or MeshCore LoRa radio (sold separately) paired over Bluetooth
 > • Send an SOS with your coordinates, see nearby radios on the map
-> • Optional coverage scanner shows where your mesh reaches. Off by default; nothing is shared unless you export it, and private zones are always removed first
+> • Optional coverage scanner shows where your mesh reaches, using your phone's GPS. Off by default; nothing is shared unless you export it, and private zones are always removed first
+> • Drive mode keeps mapping with the phone locked in a car mount, and its ping test marks where your messages actually get through
+> • Download the known Meshtastic and MeshCore radios near you from the community maps, and see repeaters on your offline map
 >
 > APPLE WATCH
 > • SOS light, compass and position, the urgent first-aid steps and quick mesh replies on your wrist

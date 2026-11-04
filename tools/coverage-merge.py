@@ -8,7 +8,8 @@
 A submission must be exactly what the app exports (Mesh > Coverage map > share):
 a GeoJSON FeatureCollection of closed hexagons on the app's global 400 m
 Web Mercator grid, each with only count, best_snr (optional), firmware,
-first_month and last_month. Anything else (extra properties, points, names,
+first_month, last_month and (optional, all three together) the drive-test
+counts pings_reached, pings_relayed and pings_none. Anything else (extra properties, points, names,
 IDs, polygons that are not grid hexagons) is rejected, and if any file is
 rejected nothing is written. Standard library only.
 """
@@ -27,8 +28,9 @@ APP_GENERATOR = "Pocket Nomad coverage export"
 MERGED_GENERATOR = "Pocket Nomad coverage map (merged)"
 DEMO_GENERATOR = "Pocket Nomad coverage map DEMO (made-up data, not real coverage)"
 FIRMWARES = ("meshcore", "meshtastic")
-ALLOWED_PROPS = {"count", "best_snr", "firmware", "first_month", "last_month"}
-REQUIRED_PROPS = ALLOWED_PROPS - {"best_snr"}  # the app omits best_snr when no SNR was heard
+PING_PROPS = ("pings_reached", "pings_relayed", "pings_none")  # drive-test results, all three or none
+ALLOWED_PROPS = {"count", "best_snr", "firmware", "first_month", "last_month", *PING_PROPS}
+REQUIRED_PROPS = {"count", "firmware", "first_month", "last_month"}  # the app omits best_snr when no SNR was heard
 MAX_FILE_BYTES = 5 * 1024 * 1024
 MAX_FEATURES = 20_000
 MAX_COUNT = 1_000_000
@@ -162,9 +164,17 @@ def _props(props, where, latest):
     missing = REQUIRED_PROPS - set(props)
     if missing:
         raise Invalid(f"{where}: missing properties: {', '.join(sorted(missing))}")
+    def whole(v):
+        return isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= MAX_COUNT
+    present = [k for k in PING_PROPS if k in props]
+    if present and len(present) != len(PING_PROPS):
+        raise Invalid(f"{where}: {', '.join(PING_PROPS)} must appear together")
+    pings = {k: props[k] for k in present}
+    if not all(whole(v) for v in pings.values()):
+        raise Invalid(f"{where}: ping counts must be whole numbers from 0 to {MAX_COUNT}")
     count = props["count"]
-    if not isinstance(count, int) or isinstance(count, bool) or not 1 <= count <= MAX_COUNT:
-        raise Invalid(f"{where}: count must be a whole number from 1 to {MAX_COUNT}")
+    if not whole(count) or count + sum(pings.values()) < 1:
+        raise Invalid(f"{where}: count must be a whole number from 0 to {MAX_COUNT}, and a cell needs a recording or a ping")
     snr = props.get("best_snr")
     if snr is not None:
         if not _is_number(snr) or not SNR_RANGE[0] <= snr <= SNR_RANGE[1]:
@@ -178,7 +188,8 @@ def _props(props, where, latest):
     last = _month(props["last_month"], f"{where}: last_month", latest)
     if first > last:
         raise Invalid(f"{where}: first_month is after last_month")
-    return {"count": count, "best_snr": snr, "firmware": set(fw), "first_month": first, "last_month": last}
+    return {"count": count, "best_snr": snr, "firmware": set(fw), "first_month": first, "last_month": last,
+            **{k: pings.get(k, 0) for k in PING_PROPS}}
 
 
 def validate(doc, today=None, allow_demo=False):
@@ -246,7 +257,8 @@ def merge(cell_maps):
             if m is None:
                 out[key] = {**c, "firmware": set(c["firmware"])}
                 continue
-            m["count"] = min(MAX_COUNT, m["count"] + c["count"])
+            for k in ("count", *PING_PROPS):
+                m[k] = min(MAX_COUNT, m[k] + c[k])
             snrs = [s for s in (m["best_snr"], c["best_snr"]) if s is not None]
             m["best_snr"] = max(snrs) if snrs else None
             m["firmware"] |= c["firmware"]
@@ -263,6 +275,8 @@ def to_geojson(cells, generator=MERGED_GENERATOR):
                  "first_month": c["first_month"], "last_month": c["last_month"]}
         if c["best_snr"] is not None:
             props["best_snr"] = c["best_snr"]
+        if any(c[k] for k in PING_PROPS):
+            props.update({k: c[k] for k in PING_PROPS})
         features.append({"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [ring(q, r)]},
                          "properties": props})
     return {"type": "FeatureCollection", "generator": generator,

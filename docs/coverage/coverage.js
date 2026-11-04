@@ -4,11 +4,12 @@
 (function () {
   "use strict";
 
-  var COLORS = { s0: "#6b6b6b", s1: "#d7301f", s2: "#fc8d59", s3: "#fee08b", s4: "#91cf60", s5: "#1a9850" };
+  var COLORS = { s0: "#6b6b6b", s1: "#d7301f", s2: "#fc8d59", s3: "#fee08b", s4: "#91cf60", s5: "#1a9850",
+    p0: "#d7301f", p1: "#f6b92b", p2: "#1a9850" };
   var EMPTY = { type: "FeatureCollection", features: [] };
   var US = [[-125, 24], [-66, 50]];
 
-  var state = { firmware: "all", from: null, to: null, demo: false, data: { real: null, demo: null } };
+  var state = { view: "signal", firmware: "all", from: null, to: null, demo: false, data: { real: null, demo: null } };
   var $ = function (id) { return document.getElementById(id); };
   var params = new URLSearchParams(location.search);
   state.demo = params.get("demo") === "1";
@@ -44,7 +45,7 @@
       .then(function (doc) { state.data[kind] = clean(doc); return state.data[kind]; });
   }
 
-  // Keep only well-formed features with the five allowed properties.
+  // Keep only well-formed features with the allowed properties.
   function clean(doc) {
     var months = /^\d{4}-(0[1-9]|1[0-2])$/;
     var out = (doc && Array.isArray(doc.features) ? doc.features : []).filter(function (f) {
@@ -59,11 +60,16 @@
           count: p.count, best_snr: typeof p.best_snr === "number" ? p.best_snr : null,
           firmware: p.firmware.slice().sort(), first_month: p.first_month, last_month: p.last_month,
           fw: p.firmware.slice().sort().join(","),
+          pings_reached: whole(p.pings_reached), pings_relayed: whole(p.pings_relayed), pings_none: whole(p.pings_none),
+          // Best ping result: 2 answered, 1 repeated, 0 nothing, -1 no pings.
+          ping: whole(p.pings_reached) ? 2 : whole(p.pings_relayed) ? 1 : whole(p.pings_none) ? 0 : -1,
         },
       };
     });
     return { type: "FeatureCollection", features: out };
   }
+
+  function whole(v) { return typeof v === "number" && v >= 0 && Math.floor(v) === v ? v : 0; }
 
   function current() { return state.data[state.demo ? "demo" : "real"] || EMPTY; }
 
@@ -113,6 +119,7 @@
       type: "FeatureCollection",
       features: current().features.filter(function (f) {
         var p = f.properties, has = p.firmware;
+        if (state.view === "pings" ? p.ping < 0 : p.count < 1) return false;
         if (fw === "meshtastic" && has.indexOf("meshtastic") < 0) return false;
         if (fw === "meshcore" && has.indexOf("meshcore") < 0) return false;
         if (fw === "both" && (has.indexOf("meshtastic") < 0 || has.indexOf("meshcore") < 0)) return false;
@@ -127,16 +134,22 @@
     var fc = filtered();
     var src = map.getSource("coverage");
     if (src) src.setData(fc);
-    var heard = fc.features.reduce(function (n, f) { return n + f.properties.count; }, 0);
+    var pings = state.view === "pings";
+    var heard = fc.features.reduce(function (n, f) {
+      var p = f.properties;
+      return n + (pings ? p.pings_reached + p.pings_relayed + p.pings_none : p.count);
+    }, 0);
     var total = current().features.length;
     $("stats").innerHTML = "";
     var b1 = document.createElement("b"), b2 = document.createElement("b");
     b1.textContent = fc.features.length.toLocaleString();
     b2.textContent = heard.toLocaleString();
     $("stats").append(b1, " hexagon" + (fc.features.length === 1 ? "" : "s") + " · ", b2,
-      " time" + (heard === 1 ? "" : "s") + " heard" + (fc.features.length < total ? " (filtered from " + total.toLocaleString() + ")" : ""));
+      (pings ? " ping" + (heard === 1 ? "" : "s") : " time" + (heard === 1 ? "" : "s") + " heard") + (fc.features.length < total ? " (filtered from " + total.toLocaleString() + ")" : ""));
 
     if (state.demo) setBanner("Demo data: made up to show how the map works. Not real coverage.", true);
+    else if (total > 0 && pings && fc.features.length === 0 && state.firmware === "all" && !state.from && !state.to)
+      setBanner("No drive-test pings have been contributed yet. Turn on drive mode in the app to add some.");
     else if (total === 0) setBanner("No coverage has been contributed yet. Be the first (see below), or turn on the demo to see how it looks.");
     else if (fc.features.length === 0) setBanner("Nothing matches these filters.");
     else setBanner("");
@@ -164,9 +177,12 @@
     var color = ["case", ["==", ["get", "best_snr"], null], COLORS.s0,
       ["step", ["get", "best_snr"], COLORS.s1, -10, COLORS.s2, -5, COLORS.s3, 0, COLORS.s4, 5, COLORS.s5]];
     map.addLayer({ id: "coverage-fill", type: "fill", source: "coverage",
-      paint: { "fill-color": color, "fill-opacity": ["interpolate", ["linear"], ["zoom"], 8, 0.75, 14, 0.5] } });
+      paint: { "fill-color": state.color = color, "fill-opacity": ["interpolate", ["linear"], ["zoom"], 8, 0.75, 14, 0.5] } });
     map.addLayer({ id: "coverage-line", type: "line", source: "coverage",
       paint: { "line-color": color, "line-width": ["interpolate", ["linear"], ["zoom"], 9, 0, 13, 1] } });
+
+    state.pingColor = ["match", ["get", "ping"], 2, COLORS.p2, 1, COLORS.p1, COLORS.p0];
+    if (state.view === "pings") paint();
 
     map.on("click", "coverage-fill", function (e) {
       var p = e.features[0].properties;
@@ -174,6 +190,9 @@
       var snr = p.best_snr === null || p.best_snr === undefined || p.best_snr === "null" ? "no reading" : Number(p.best_snr).toFixed(1) + " dB";
       var rows = [["Best signal", snr], ["Times heard", Number(p.count).toLocaleString()], ["Firmware", fw.join(" + ")],
         ["Months", p.first_month === p.last_month ? label(p.first_month) : label(p.first_month) + " – " + label(p.last_month)]];
+      var sent = Number(p.pings_reached) + Number(p.pings_relayed) + Number(p.pings_none);
+      if (sent > 0) rows.splice(2, 0, ["Pings", p.pings_reached + " answered, " + p.pings_relayed + " repeated, " + p.pings_none + " nothing"]);
+      if (Number(p.count) === 0) rows.splice(0, 2);
       var box = document.createElement("div"), dl = document.createElement("dl");
       box.className = "popup";
       rows.forEach(function (r) {
@@ -193,6 +212,24 @@
   // Load the data straight away, so the counts and messages don't wait for map tiles.
   // No animation on first load: background tabs pause animations.
   show("jump");
+
+  function paint() {
+    if (!map.getLayer("coverage-fill")) return;
+    var c = state.view === "pings" ? state.pingColor : state.color;
+    map.setPaintProperty("coverage-fill", "fill-color", c);
+    map.setPaintProperty("coverage-line", "line-color", c);
+  }
+
+  document.querySelectorAll("#view button").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      state.view = btn.getAttribute("data-view");
+      document.querySelectorAll("#view button").forEach(function (b) { b.setAttribute("aria-pressed", String(b === btn)); });
+      $("legend-pings").hidden = state.view !== "pings";
+      $("legend-signal").hidden = state.view === "pings";
+      paint();
+      render(true);
+    });
+  });
 
   document.querySelectorAll("#firmware button").forEach(function (btn) {
     btn.addEventListener("click", function () {

@@ -409,4 +409,53 @@ final class MeshServiceTests: XCTestCase {
         XCTAssertNil(svc.pairingHint)
         XCTAssertEqual(svc.connection, .syncing(name: "Test Radio"))
     }
+
+    // MARK: Drive-test pings
+
+    func testBroadcastPingIsSilentOneHopAndRelayedCounts() throws {
+        let (svc, fake) = try connected()
+        var outcome: MeshPingOutcome?
+        XCTAssertTrue(svc.ping(nil) { outcome = $0 })
+        let p = try XCTUnwrap(try fake.lastSentPacket())
+        XCTAssertEqual(p.to, MeshConstants.broadcastNum)
+        XCTAssertEqual(p.hopLimit, 1, "only neighbours repeat it")
+        XCTAssertTrue(p.wantAck)
+        XCTAssertEqual(p.decoded?.portnum, MeshService.pingPort, "not a text message, so it never shows as chat")
+        XCTAssertTrue(svc.messages(in: .channel(0)).isEmpty)
+
+        fake.enqueue(routing(from: me, requestID: p.id, error: 0)) // implicit ACK: a neighbour repeated it
+        fake.onEvent?(.fromNumChanged)
+        fake.pump()
+        XCTAssertEqual(outcome, .relayed)
+    }
+
+    func testTargetedPingWaitsForTheTargetAndFallsBackToRelayed() throws {
+        let (svc, fake) = try connected()
+        var first: MeshPingOutcome?
+        XCTAssertTrue(svc.ping(alice) { first = $0 })
+        let p1 = try XCTUnwrap(try fake.lastSentPacket())
+        XCTAssertEqual(p1.to, alice)
+        fake.enqueue(routing(from: me, requestID: p1.id, error: 0))
+        fake.onEvent?(.fromNumChanged)
+        fake.pump()
+        XCTAssertNil(first, "a relay alone isn't an answer yet")
+        fake.enqueue(routing(from: alice, requestID: p1.id, error: 0))
+        fake.onEvent?(.fromNumChanged)
+        fake.pump()
+        XCTAssertEqual(first, .reached)
+
+        var second: MeshPingOutcome?
+        XCTAssertTrue(svc.ping(alice) { second = $0 })
+        let p2 = try XCTUnwrap(try fake.lastSentPacket())
+        fake.enqueue(routing(from: me, requestID: p2.id, error: 0))
+        fake.enqueue(routing(from: me, requestID: p2.id, error: 5)) // radio gave up
+        fake.onEvent?(.fromNumChanged)
+        fake.pump()
+        XCTAssertEqual(second, .relayed)
+    }
+
+    func testPingNeedsAConnectedRadio() {
+        let svc = makeService(FakeMeshTransport())
+        XCTAssertFalse(svc.ping(nil) { _ in XCTFail("no result without a radio") })
+    }
 }

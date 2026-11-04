@@ -55,8 +55,8 @@ targets:
         UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: false
-        UIBackgroundModes: [bluetooth-central]
-        NSLocationWhenInUseUsageDescription: Pocket Nomad shows where you are on the offline map and compass, can add your coordinates to an SOS message, and (if you turn it on) records where your radio hears others for the coverage map. Your location never leaves the phone unless you send or export it.
+        UIBackgroundModes: [bluetooth-central, location]
+        NSLocationWhenInUseUsageDescription: Pocket Nomad shows where you are on the offline map and compass, can add your coordinates to an SOS message, and (if you turn it on) records where your radio hears others for the coverage map. In drive mode, which you turn on, this keeps working while the phone is locked. Your location never leaves the phone unless you send or export it.
         NSBluetoothAlwaysUsageDescription: Pocket Nomad connects to your Meshtastic radio over Bluetooth so you can send and receive mesh messages without cell service.
         NSCameraUsageDescription: Pocket Nomad uses the camera flash as an SOS and Morse signal light.
         ITSAppUsesNonExemptEncryption: false

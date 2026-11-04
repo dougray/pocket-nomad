@@ -16,7 +16,10 @@ struct NomadPocketApp: App {
         if let launch = LaunchScreen.parts(), launch.0 == "mesh", launch.1 == "demo" {
             MeshService.shared.loadDemoNodes()
         }
-        if let launch = LaunchScreen.parts(), launch.0 == "map", !launch.1.isEmpty {
+        if let launch = LaunchScreen.parts(), launch.0 == "map", launch.1 == "known" {
+            // Real download from the community maps, kept around downtown Austin.
+            Task { await KnownRadioStore.shared.download(around: .init(latitude: 30.2672, longitude: -97.7431), radiusKm: 100, areaName: nil) }
+        } else if let launch = LaunchScreen.parts(), launch.0 == "map", !launch.1.isEmpty {
             MeshService.shared.loadDemoNodes()
             CoverageStore.shared.loadDemo()
             if launch.1 == "shared" { CoverageStore.shared.sharing = true }
@@ -62,8 +65,8 @@ enum AppTab: Hashable { case survive, ask, library, map, mesh }
 /// screenshots and quick checks: survive, ask, library, map, mesh, settings,
 /// packs, book, tool:<compass|sos|morse|water|medicalID|checklists|sun>, guide:<file>,
 /// category:<id>, query:<text> (Survive search), ask:<question>, coverage (scanner
-/// settings), mesh:demo (demo nodes) and map:demo / map:shared (demo nodes and
-/// coverage around Denver).
+/// settings), mesh:demo (demo nodes), map:demo / map:shared (demo nodes and
+/// coverage around Denver) and map:known (downloads known radios around Austin).
 enum LaunchScreen {
     static let value: String? = {
         #if DEBUG

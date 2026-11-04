@@ -25,6 +25,26 @@ struct CoverageSample: Codable, Equatable, Sendable {
     var hops: UInt32?
 }
 
+/// What came back from one drive-test ping.
+enum MeshPingOutcome: String, Codable, Sendable {
+    /// The radio you pinged answered: messages get through both ways.
+    case reached
+    /// Another radio repeated it, so the mesh heard you, but no answer came back.
+    case relayed
+    /// Nothing heard it.
+    case none
+}
+
+/// One drive-test ping: where the phone was when it was sent, and what came back.
+struct CoveragePing: Codable, Equatable, Sendable {
+    var date: Date
+    var latitude: Double
+    var longitude: Double
+    var accuracy: Double
+    var firmware: MeshFirmware
+    var outcome: MeshPingOutcome
+}
+
 /// A place never to share anything from (home, work).
 struct CoverageZone: Codable, Identifiable, Equatable, Sendable {
     var id = UUID()
@@ -51,6 +71,7 @@ final class CoverageStore {
     static let shared = CoverageStore()
 
     private(set) var samples: [CoverageSample] = []
+    private(set) var pings: [CoveragePing] = []
     private(set) var zones: [CoverageZone] = []
 
     /// Off by default. Needs location while the app is open.
@@ -75,7 +96,9 @@ final class CoverageStore {
 
     private let defaults: UserDefaults
     private let fileURL: URL
+    private let pingsURL: URL
     private let location: () -> CLLocation?
+    private let nodeName: (UInt32) -> String
     private let now: () -> Date
     private let controlsGPS: Bool
     private var usingLocation = false
@@ -91,18 +114,22 @@ final class CoverageStore {
     init(defaults: UserDefaults = .standard,
          fileURL: URL = URL.applicationSupportDirectory.appending(path: "coverage.json"),
          location: @escaping () -> CLLocation? = { LocationService.shared.location },
+         nodeName: @escaping (UInt32) -> String = { MeshService.shared.nodes[$0]?.longName ?? "" },
          now: @escaping () -> Date = Date.init,
          controlsGPS: Bool = true) {
         self.defaults = defaults
         self.controlsGPS = controlsGPS
         self.fileURL = fileURL
+        pingsURL = fileURL.deletingPathExtension().appendingPathExtension("pings.json")
         self.location = location
+        self.nodeName = nodeName
         self.now = now
         recording = defaults.bool(forKey: Keys.recording)
         sharing = defaults.bool(forKey: Keys.sharing)
         retentionDays = defaults.object(forKey: Keys.retention) as? Int ?? 30
         zones = (defaults.data(forKey: Keys.zones)).flatMap { try? JSONDecoder().decode([CoverageZone].self, from: $0) } ?? []
         samples = (try? JSONDecoder().decode([CoverageSample].self, from: Data(contentsOf: fileURL))) ?? []
+        pings = (try? JSONDecoder().decode([CoveragePing].self, from: Data(contentsOf: pingsURL))) ?? []
         if zones.isEmpty { sharing = false }
         prune()
     }
@@ -120,9 +147,8 @@ final class CoverageStore {
     /// fresh, reasonably accurate fix; one sample per node per 20 s unless the
     /// phone has moved more than 25 m.
     func record(_ heard: MeshHeard) {
-        guard recording, let fix = location() else { return }
+        guard recording, !optedOut(heard.node), let fix = freshFix() else { return }
         let t = now()
-        guard t.timeIntervalSince(fix.timestamp) < 30, fix.horizontalAccuracy >= 0, fix.horizontalAccuracy <= 100 else { return }
         let lat = fix.coordinate.latitude, lon = fix.coordinate.longitude
         if let last = samples.last(where: { $0.node == heard.node }),
            t.timeIntervalSince(last.date) < 20,
@@ -132,8 +158,32 @@ final class CoverageStore {
         scheduleSave()
     }
 
+    /// A GPS fix from the last 30 s that is good to 100 m, or nil.
+    func freshFix() -> CLLocation? {
+        guard let fix = location(), now().timeIntervalSince(fix.timestamp) < 30,
+              fix.horizontalAccuracy >= 0, fix.horizontalAccuracy <= 100 else { return nil }
+        return fix
+    }
+
+    /// Adds a drive-test result at the place the ping was sent from.
+    func recordPing(_ outcome: MeshPingOutcome, at fix: CLLocation, firmware: MeshFirmware) {
+        pings.append(CoveragePing(date: now(), latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude,
+                                  accuracy: fix.horizontalAccuracy, firmware: firmware, outcome: outcome))
+        scheduleSave()
+    }
+
+    /// Radios whose owners put a no-mapping sign in their name (a convention
+    /// used by community mesh maps) are never recorded or shared.
+    /// Checked by scalar, so the emoji counts with or without a variation selector.
+    nonisolated static let optOutMarks: Set<UInt32> = [0x26D4, 0x1F6D1, 0x1F6AB] // ⛔ 🛑 🚫
+
+    nonisolated static func optsOut(_ name: String) -> Bool { name.unicodeScalars.contains { optOutMarks.contains($0.value) } }
+
+    func optedOut(_ node: UInt32) -> Bool { Self.optsOut(nodeName(node)) }
+
     func deleteAll() {
         samples.removeAll()
+        pings.removeAll()
         saveNow()
     }
 
@@ -149,7 +199,9 @@ final class CoverageStore {
     }
 
     /// What sharing would publish, built from the current samples and zones.
-    var sharedCells: [CoverageShare.Cell] { CoverageShare.cells(from: samples, zones: zones) }
+    var sharedCells: [CoverageShare.Cell] {
+        CoverageShare.cells(from: samples.filter { !optedOut($0.node) }, pings: pings, zones: zones)
+    }
 
     /// Writes the privacy-filtered GeoJSON to a temporary file for the share sheet.
     func exportFile() throws -> URL {
@@ -192,7 +244,9 @@ final class CoverageStore {
         let cutoff = now().addingTimeInterval(-Double(retentionDays) * 86_400)
         let before = samples.count
         samples.removeAll { $0.date < cutoff }
-        if samples.count != before { scheduleSave() }
+        let pingsBefore = pings.count
+        pings.removeAll { $0.date < cutoff }
+        if samples.count != before || pings.count != pingsBefore { scheduleSave() }
     }
 
     private func saveZones() {
@@ -211,6 +265,7 @@ final class CoverageStore {
     func saveNow() {
         try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? JSONEncoder().encode(samples).write(to: fileURL, options: [.atomic, .completeFileProtection])
+        try? JSONEncoder().encode(pings).write(to: pingsURL, options: [.atomic, .completeFileProtection])
     }
 }
 
@@ -229,6 +284,9 @@ enum CoverageShare {
         var count: Int
         var bestSNR: Float?
         var firmwares: Set<MeshFirmware>
+        var pingsReached = 0
+        var pingsRelayed = 0
+        var pingsNone = 0
         var firstMonth: String
         var lastMonth: String
 
@@ -239,32 +297,48 @@ enum CoverageShare {
     /// Bins samples into hexagons, dropping anything in or near a private zone:
     /// both samples inside a zone and whole cells that touch one, so a cell that
     /// straddles your street doesn't give it away.
-    static func cells(from samples: [CoverageSample], zones: [CoverageZone]) -> [Cell] {
+    static func cells(from samples: [CoverageSample], pings: [CoveragePing] = [], zones: [CoverageZone]) -> [Cell] {
         let reach = cellSize // a cell's corners are at most one cell size from its centre
         var bins: [String: Cell] = [:]
         let month = DateFormatter()
         month.locale = Locale(identifier: "en_US_POSIX")
         month.timeZone = TimeZone(identifier: "UTC")
         month.dateFormat = "yyyy-MM"
-        for s in samples {
-            if zones.contains(where: { $0.contains(latitude: s.latitude, longitude: s.longitude) }) { continue }
-            let (q, r) = hex(latitude: s.latitude, longitude: s.longitude)
+        // Adds one point to its hexagon, unless it is in or near a private zone.
+        func add(_ lat: Double, _ lon: Double, _ date: Date, _ firmware: MeshFirmware, _ update: (inout Cell) -> Void) {
+            if zones.contains(where: { $0.contains(latitude: lat, longitude: lon) }) { return }
+            let (q, r) = hex(latitude: lat, longitude: lon)
             let c = center(q: q, r: r)
-            if zones.contains(where: { distance($0.latitude, $0.longitude, c.latitude, c.longitude) <= $0.radius + reach }) { continue }
-            let m = month.string(from: s.date)
+            if zones.contains(where: { distance($0.latitude, $0.longitude, c.latitude, c.longitude) <= $0.radius + reach }) { return }
+            let m = month.string(from: date)
             let key = "\(q),\(r)"
             var cell = bins[key] ?? Cell(q: q, r: r, count: 0, bestSNR: nil, firmwares: [], firstMonth: m, lastMonth: m)
-            cell.count += 1
-            if let snr = s.snr { cell.bestSNR = max(cell.bestSNR ?? -.infinity, snr) }
-            cell.firmwares.insert(s.firmware)
+            update(&cell)
+            cell.firmwares.insert(firmware)
             cell.firstMonth = min(cell.firstMonth, m)
             cell.lastMonth = max(cell.lastMonth, m)
             bins[key] = cell
         }
+        for s in samples {
+            add(s.latitude, s.longitude, s.date, s.firmware) { cell in
+                cell.count += 1
+                if let snr = s.snr { cell.bestSNR = max(cell.bestSNR ?? -.infinity, snr) }
+            }
+        }
+        for p in pings {
+            add(p.latitude, p.longitude, p.date, p.firmware) { cell in
+                switch p.outcome {
+                case .reached: cell.pingsReached += 1
+                case .relayed: cell.pingsRelayed += 1
+                case .none: cell.pingsNone += 1
+                }
+            }
+        }
         return bins.values.sorted { ($0.q, $0.r) < ($1.q, $1.r) }
     }
 
-    /// GeoJSON hexagons with only best signal, count, firmware and month range.
+    /// GeoJSON hexagons with only best signal, count, drive-test ping counts,
+    /// firmware and month range.
     static func geoJSON(_ cells: [Cell]) throws -> Data {
         let features: [[String: Any]] = cells.map { cell in
             var ring = cell.corners.map { [round6($0.longitude), round6($0.latitude)] }
@@ -276,6 +350,11 @@ enum CoverageShare {
                 "last_month": cell.lastMonth,
             ]
             if let snr = cell.bestSNR { props["best_snr"] = (Double(snr) * 10).rounded() / 10 }
+            if cell.pingsReached + cell.pingsRelayed + cell.pingsNone > 0 {
+                props["pings_reached"] = cell.pingsReached
+                props["pings_relayed"] = cell.pingsRelayed
+                props["pings_none"] = cell.pingsNone
+            }
             return ["type": "Feature", "geometry": ["type": "Polygon", "coordinates": [ring]], "properties": props]
         }
         let doc: [String: Any] = [

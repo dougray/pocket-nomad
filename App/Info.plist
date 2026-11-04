@@ -66,7 +66,7 @@
 	<key>NSHumanReadableCopyright</key>
 	<string>Apache License 2.0. See LICENSE.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Pocket Nomad shows where you are on the offline map and compass, can add your coordinates to an SOS message, and (if you turn it on) records where your radio hears others for the coverage map. Your location never leaves the phone unless you send or export it.</string>
+	<string>Pocket Nomad shows where you are on the offline map and compass, can add your coordinates to an SOS message, and (if you turn it on) records where your radio hears others for the coverage map. In drive mode, which you turn on, this keeps working while the phone is locked. Your location never leaves the phone unless you send or export it.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -75,6 +75,7 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>bluetooth-central</string>
+		<string>location</string>
 	</array>
 	<key>UIFileSharingEnabled</key>
 	<true/>

@@ -130,7 +130,8 @@ struct MeshView: View {
         Button { showCoverage = true } label: {
             tileRow(symbol: "circle.hexagongrid.fill",
                     title: "Coverage map",
-                    subtitle: coverage.recording ? "Recording · \(coverage.samples.count) points, private" : "Map where your radio hears others",
+                    subtitle: DriveMode.shared.active ? "Drive mode on · \(DriveMode.shared.sent) pings, \(coverage.samples.count) points"
+                        : coverage.recording ? "Recording · \(coverage.samples.count) points, private" : "Map where your radio hears others",
                     badge: 0)
         }
         .buttonStyle(.plain)

@@ -20,8 +20,9 @@ happy to publish.
 
 The phone has already removed your private zones (and every hexagon touching
 one), exact positions, node names and IDs, and dates finer than a month. Each
-hexagon keeps only `count`, `best_snr`, `firmware`, `first_month` and
-`last_month`. See [the privacy policy](docs/PRIVACY.md#sharing-coverage-opt-in).
+hexagon keeps only `count`, `best_snr`, `firmware`, `first_month`,
+`last_month` and, if you used drive mode's ping test, `pings_reached`,
+`pings_relayed` and `pings_none`. See [the privacy policy](docs/PRIVACY.md#sharing-coverage-opt-in).
 
 ## 2. Send it in, either way
 
@@ -60,7 +61,7 @@ exactly what the app exports.
 3. Commit the submission and the updated `docs/coverage/data/coverage.geojson`
    together, and close the issue or merge the PR.
 
-Same hexagons from different files combine: counts add, `best_snr` is the
-highest, firmware is the union, and the month range widens.
+Same hexagons from different files combine: counts (including ping counts)
+add, `best_snr` is the highest, firmware is the union, and the month range widens.
 
 Tests: `python3 -m unittest discover -s tools/tests`
