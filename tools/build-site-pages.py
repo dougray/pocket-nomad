@@ -132,7 +132,7 @@ IOS = page("ios", "Pocket Nomad for iPhone, iPad and Apple Watch",
       <div class="card"><span class="tag">Apple Watch</span><h3>Installs with the iPhone app</h3><p>Open the Watch app on your iPhone, find Pocket Nomad under Available Apps, and tap Install.</p></div>
     </div>""", "get")
     + section("Screenshots", "", shots([("iphone-1-survive.png", "Survive tab"), ("iphone-2-guide.png", "Severe bleeding guide"), ("iphone-3-ask.png", "Ask with sources"),
-        ("iphone-4-library.png", "Offline library"), ("iphone-5-map.png", "Offline map"), ("iphone-6-water.png", "Water purifier"), ("watch-2-sos.png", "Apple Watch SOS")]))
+        ("iphone-4-library.png", "Offline library"), ("iphone-5-map.png", "Offline map"), ("iphone-6-water.png", "Water purifier"), ("iphone-7-mesh.png", "Two radios connected at once"), ("iphone-8-coverage.png", "Coverage from both networks (demo data)"), ("watch-2-sos.png", "Apple Watch SOS")]))
     + section("Set it up before you need it", "Everything below needs a connection once; after that it all works with no signal.", steps([
         "<b>Install</b> Pocket Nomad from the App Store and open it once.",
         "<b>Medical ID:</b> Survive › Medical ID. Add allergies, medicines and who to call.",
@@ -174,10 +174,11 @@ ANDROID = page("android", "Pocket Nomad for Android",
         "Then <code>adb connect IP:PORT</code> with the address on the Wireless debugging screen.",
         "Then <code>adb install pocket-nomad-wear.apk</code>, and turn Wireless debugging back off.",
     ])}</div>
-    <p class="note">When the Google Play version is live, the watch app will install from Play on the watch instead.</p>""", "wear")
+    <p class="note">When the Google Play version is live, the watch app will install from Play on the watch instead.</p>
+    <div style="margin-top:18px">{shots([("wear-home.png", "Watch home"), ("wear-sos.png", "SOS light"), ("wear-compass.png", "Compass"), ("wear-firstaid.png", "First aid")])}</div>""", "wear")
     + section("Screenshots", "", shots([("android-1-survive.png", "Survive: emergency guides and tools"), ("android-9-ask.png", "Ask: an answer from the guides, with sources"), ("android-10-library.png", "Library: Get Content from Kiwix"), ("android-2-guide.png", "A first-aid guide"),
-        ("android-3-water.png", "Water purifier"), ("android-4-compass.png", "Compass and MGRS position"), ("android-6-map.png", "Map with coverage, pings and mesh radios (demo data)"),
-        ("android-7-mesh.png", "Mesh tab"), ("android-8-settings.png", "Settings and privacy")]))
+        ("android-3-water.png", "Water purifier"), ("android-4-compass.png", "Compass and MGRS position"), ("android-12-coverage-both.png", "Coverage, pings and radios from both networks (demo data)"),
+        ("android-11-two-radios.png", "Mesh tab with two radios connected"), ("android-8-settings.png", "Settings and privacy")]))
     + section("Google Play", "", """<div class="card"><span class="tag">Google Play</span><h3>Coming soon</h3><p>The Play Store listing is being prepared. This page will link to it when it's live.</p></div>""")
     + section("What's in it", "", """<ul class="check">
       <li><b>Survive:</b> the same 69 guides and 8 checklists as the iPhone app, compass with MGRS, SOS and Morse light with the flashlight, water purifier, Medical ID, daylight.</li>

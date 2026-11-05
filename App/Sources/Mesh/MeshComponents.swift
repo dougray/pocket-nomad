@@ -237,6 +237,9 @@ struct MeshNetworkBadge: View {
         Text(network.displayName)
             .font(.caption.weight(.bold))
             .foregroundStyle(.black)
+            // Never wraps ("Mesh-tastic") in a narrow column; the name beside it truncates instead.
+            .lineLimit(1)
+            .fixedSize()
             .padding(.horizontal, 8).padding(.vertical, 3)
             .background(Capsule().fill(Color(uiColor: RadioColors.color(network))))
             .accessibilityLabel("\(network.displayName) network")

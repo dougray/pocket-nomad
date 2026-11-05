@@ -14,7 +14,7 @@ Everything Play Console asks for, in the order it asks. The listing text and ima
 | `images/phoneScreenshots/1-8.png` | Phone screenshots, 1200 x 2400 | 2-8 |
 | `images/wearScreenshots/1-7.png` | Wear OS screenshots, 454 x 454 | 1-8 |
 
-The screenshots are eight of `docs/appstore/android-*.png` (Survive, Ask, a guide, Library, water, map, mesh, compass) padded with the app's black background
+The screenshots are eight of `docs/appstore/android-*.png` (Survive, Ask, a guide, Library, water, the coverage map with both networks, two radios on the Mesh tab, compass) padded with the app's black background
 from 1080 x 2400 to 1200 x 2400, because Play rejects screenshots more than twice as tall
 as they are wide. The feature graphic is the store banner without the iPhone. All of these
 show the logo, so they are reserved artwork (see `NOTICE`).

@@ -529,6 +529,10 @@ final class MeshService {
     func handle(_ event: MeshTransportEvent) {
         switch event {
         case .availability(let a):
+            #if DEBUG
+            // The demo radios stay "connected" on a simulator, which has no Bluetooth.
+            if demoRadios { availability = .poweredOn; return }
+            #endif
             availability = a
             if a != .poweredOn {
                 for l in links {
@@ -1113,6 +1117,37 @@ final class MeshService {
                 n.lastHeard = Date().addingTimeInterval(-Double(i) * 420)
                 n.meshCoreType = d.3
             }
+        }
+    }
+
+    /// Set by `loadDemoRadios`; Bluetooth state changes are then ignored.
+    private var demoRadios = false
+
+    /// Screenshots (debug builds only): both radios shown as connected, with a message
+    /// on each network. There is no real radio behind either link.
+    func loadDemoRadios() {
+        demoRadios = true
+        availability = .poweredOn
+        let demo: [(MeshFirmware, String, UInt32, String, UInt32?, String, String)] = [
+            (.meshtastic, "Demo Meshtastic", 0xB001, "LongFast", 84, "Ana", "Signal check from the creek"),
+            (.meshcore, "Demo MeshCore", 0xB002, "Public", nil, "Ridge Repeater", "Repeater back up after the storm"),
+        ]
+        for (firmware, name, num, channel, battery, sender, text) in demo {
+            let l = link(firmware)
+            l.deviceID = UUID()
+            l.deviceName = name
+            l.radio.firmware = firmware
+            l.radio.myNodeNum = num
+            l.radio.primaryChannelName = channel
+            l.update(num) { n in
+                n.longName = name
+                n.shortName = String(name.suffix(4))
+                n.batteryLevel = battery
+            }
+            l.connection = .connected(name: name)
+            messages.append(MeshMessage(packetID: num, from: 0xA000, to: MeshConstants.broadcastNum, channel: 0,
+                                        text: text, date: Date().addingTimeInterval(-600), isOutgoing: false,
+                                        delivery: .received, senderName: firmware == .meshcore ? sender : nil, network: firmware))
         }
     }
     #endif
