@@ -227,3 +227,125 @@ extension Date {
         return formatted(.relative(presentation: .named))
     }
 }
+
+/// Small coloured tag naming a network, in the same colours as the map
+/// (Meshtastic green, MeshCore blue).
+struct MeshNetworkBadge: View {
+    let network: MeshFirmware
+
+    var body: some View {
+        Text(network.displayName)
+            .font(.caption.weight(.bold))
+            .foregroundStyle(.black)
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(Capsule().fill(Color(uiColor: RadioColors.color(network))))
+            .accessibilityLabel("\(network.displayName) network")
+    }
+}
+
+/// One set-up radio on the Mesh tab: network, state, battery, and what you
+/// can do with it.
+struct MeshRadioCard: View {
+    let link: MeshLink
+    var onTap: () -> Void = {}
+    @State private var confirmForget = false
+
+    private var mesh: MeshService { MeshService.shared }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button(action: onTap) {
+                HStack(spacing: 12) {
+                    Image(systemName: symbol)
+                        .font(.system(size: 26, weight: .semibold))
+                        .foregroundStyle(tint)
+                        .frame(width: 36)
+                        .symbolEffect(.pulse, isActive: isBusy)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 8) {
+                            Text(link.displayName).font(.title3.weight(.bold)).foregroundStyle(.primary).lineLimit(1)
+                            MeshNetworkBadge(network: link.firmware)
+                        }
+                        Text(stateLine).font(.subheadline).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
+                        if let b = link.batteryLevel, link.connection.isConnected {
+                            Label(b > 100 ? "Plugged in" : "Battery \(b)%", systemImage: b > 100 ? "powerplug.fill" : "battery.50")
+                                .font(.subheadline).foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(link.displayName), \(link.firmware.displayName). \(stateLine)")
+            Menu {
+                if link.connection == .idle || isFailed {
+                    Button("Reconnect", systemImage: "arrow.triangle.2.circlepath") { mesh.reconnect(link.firmware) }
+                } else {
+                    Button("Disconnect", systemImage: "xmark.circle") { mesh.disconnect(link.firmware) }
+                }
+                Button("Forget This Radio", systemImage: "trash", role: .destructive) { confirmForget = true }
+            } label: {
+                Image(systemName: "ellipsis.circle").font(.title2)
+                    .frame(minWidth: MeshUI.minTap, minHeight: MeshUI.minTap)
+            }
+            .accessibilityLabel("Actions for \(link.displayName)")
+        }
+        .padding(.leading, 16)
+        .frame(maxWidth: .infinity, minHeight: 80, alignment: .leading)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: MeshUI.corner))
+        .overlay(RoundedRectangle(cornerRadius: MeshUI.corner).strokeBorder(tint, lineWidth: 2))
+        .confirmationDialog("Forget \(link.displayName)?", isPresented: $confirmForget, titleVisibility: .visible) {
+            Button("Forget", role: .destructive) { mesh.forgetDevice(link.firmware) }
+        } message: {
+            Text("It disconnects and won't reconnect. Its messages stay on this phone.")
+        }
+    }
+
+    private var isFailed: Bool {
+        if case .failed = link.connection { return true }
+        return false
+    }
+
+    private var isBusy: Bool {
+        switch link.connection {
+        case .scanning, .connecting, .syncing, .reconnecting: return true
+        default: return false
+        }
+    }
+
+    private var symbol: String {
+        switch link.connection {
+        case .connected: return "antenna.radiowaves.left.and.right"
+        case .failed: return "exclamationmark.triangle.fill"
+        case .idle: return "antenna.radiowaves.left.and.right.slash"
+        default: return "dot.radiowaves.left.and.right"
+        }
+    }
+
+    private var tint: Color {
+        switch link.connection {
+        case .connected: return MeshUI.ok
+        case .failed: return Theme.danger
+        case .idle: return .secondary
+        default: return MeshUI.warn
+        }
+    }
+
+    private var stateLine: String {
+        switch link.connection {
+        case .idle: return "Not connected"
+        case .scanning: return "Looking for radios"
+        case .connecting: return "Connecting. If iOS asks for a PIN, read it off the radio's screen."
+        case .syncing: return "Syncing: downloading nodes and settings"
+        case .connected:
+            var bits = ["Connected"]
+            if let r = link.radio.regionName { bits.append(r) }
+            bits.append(link.radio.primaryChannelName.isEmpty ? "Primary channel" : link.radio.primaryChannelName)
+            return bits.joined(separator: " · ")
+        case .reconnecting: return "Waiting. Reconnects by itself when the radio is in range."
+        case .failed(let why): return why
+        }
+    }
+}

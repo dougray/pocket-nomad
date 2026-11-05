@@ -7,7 +7,8 @@
 import SwiftUI
 
 enum MeshRoute: Hashable {
-    case chat(MeshConversation)
+    /// A thread on one network; nil means the default radio's network.
+    case chat(MeshConversation, network: MeshFirmware? = nil)
     case nodes
     case info
 
@@ -15,8 +16,8 @@ enum MeshRoute: Hashable {
     @MainActor @ViewBuilder
     func destination(open: @escaping (MeshRoute) -> Void) -> some View {
         switch self {
-        case .chat(let c): MeshChatView(conversation: c)
-        case .nodes: MeshNodeListView { open(.chat(.direct($0))) }
+        case .chat(let c, let network): MeshChatView(conversation: c, network: network)
+        case .nodes: MeshNodeListView { open(.chat(.direct($0.num), network: $0.firmware)) }
         case .info: MeshInfoView()
         }
     }
@@ -36,7 +37,7 @@ struct MeshView: View {
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(spacing: 16) {
-                    MeshStatusCard(state: mesh.connection, radio: mesh.radio) { showDevices = true }
+                    radios
 
                     MeshBluetoothHelp(availability: mesh.availability)
 
@@ -55,7 +56,7 @@ struct MeshView: View {
                         connectPrompt
                     }
 
-                    channelTile
+                    channelTiles
                     nodesTile
                     coverageTile
                     directThreads
@@ -91,7 +92,7 @@ struct MeshView: View {
                 Button("Send SOS without location", role: .destructive) { sendSOS(location: false) }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This message goes to every radio in range on the primary channel:\n\n\"\(mesh.sosPreview)\"\n\nWith location, your GPS position is added (decimal degrees).")
+                Text("This message goes to every radio in range on the primary channel\(mesh.activeLinks.count > 1 ? " of both networks (\(mesh.activeLinks.map(\.firmware.displayName).joined(separator: " and ")))" : ""):\n\n\"\(mesh.sosPreview)\"\n\nWith location, your GPS position is added (decimal degrees).")
             }
             .alert("SOS", isPresented: Binding(get: { sosResult != nil }, set: { if !$0 { sosResult = nil } })) {
                 Button("OK", role: .cancel) {}
@@ -101,29 +102,64 @@ struct MeshView: View {
         }
     }
 
-    private var connectPrompt: some View {
-        VStack(spacing: 10) {
-            if let name = mesh.lastDeviceName, mesh.lastDeviceID != nil {
-                Button { mesh.reconnectLast() } label: {
-                    Label("Reconnect to \(name)", systemImage: "arrow.triangle.2.circlepath")
+    /// Every set-up radio (up to one Meshtastic and one MeshCore), and a way to add one.
+    @ViewBuilder
+    private var radios: some View {
+        let remembered = mesh.rememberedLinks
+        if remembered.isEmpty {
+            MeshStatusCard(state: mesh.connection, radio: mesh.radio) { showDevices = true }
+        } else {
+            VStack(spacing: 10) {
+                ForEach(remembered) { l in
+                    MeshRadioCard(link: l) { showDevices = true }
                 }
-                .buttonStyle(MeshBigButtonStyle())
+                if remembered.count < MeshFirmware.allCases.count {
+                    Button { showDevices = true } label: {
+                        Label("Add a \(missingNetworks) radio", systemImage: "plus.circle")
+                    }
+                    .buttonStyle(MeshBigButtonStyle(filled: false))
+                }
             }
-            Button { showDevices = true } label: {
-                Label("Find a radio", systemImage: "magnifyingglass")
-            }
-            .buttonStyle(MeshBigButtonStyle(filled: mesh.lastDeviceID == nil))
         }
     }
 
-    private var channelTile: some View {
-        DetailLink(value: MeshRoute.chat(.channel(0))) {
-            tileRow(symbol: "bubble.left.and.bubble.right.fill",
-                    title: mesh.radio.primaryChannelName.isEmpty ? "Channel chat" : "Channel: \(mesh.radio.primaryChannelName)",
-                    subtitle: lastLine(.channel(0)) ?? "Talk to everyone on the primary channel",
-                    badge: mesh.unreadCount(.channel(0)))
+    private var missingNetworks: String {
+        MeshFirmware.allCases.filter { !mesh.link($0).isRemembered }.map(\.displayName).joined(separator: " or ")
+    }
+
+    private var connectPrompt: some View {
+        VStack(spacing: 10) {
+            if !mesh.rememberedLinks.isEmpty {
+                Button { mesh.reconnectLast() } label: {
+                    Label(mesh.rememberedLinks.count == 1 ? "Reconnect to \(mesh.rememberedLinks[0].displayName)" : "Reconnect both radios",
+                          systemImage: "arrow.triangle.2.circlepath")
+                }
+                .buttonStyle(MeshBigButtonStyle())
+            }
+            if mesh.rememberedLinks.isEmpty {
+                Button { showDevices = true } label: {
+                    Label("Find a radio", systemImage: "magnifyingglass")
+                }
+                .buttonStyle(MeshBigButtonStyle())
+            }
         }
-        .buttonStyle(.plain)
+    }
+
+    /// One primary channel per network in use; labelled when there are two.
+    @ViewBuilder
+    private var channelTiles: some View {
+        let networks = mesh.networksInUse.isEmpty ? [mesh.defaultNetwork] : mesh.networksInUse
+        ForEach(networks, id: \.self) { net in
+            let name = mesh.link(net).radio.primaryChannelName
+            DetailLink(value: MeshRoute.chat(.channel(0), network: net)) {
+                tileRow(symbol: "bubble.left.and.bubble.right.fill",
+                        title: name.isEmpty ? "Channel chat" : "Channel: \(name)",
+                        subtitle: lastLine(.channel(0), net) ?? "Talk to everyone on the primary channel",
+                        badge: mesh.unreadCount(.channel(0), network: net),
+                        network: networks.count > 1 ? net : nil)
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     private var coverageTile: some View {
@@ -141,7 +177,7 @@ struct MeshView: View {
         DetailLink(value: MeshRoute.nodes) {
             tileRow(symbol: "person.3.fill",
                     title: "Nodes (\(mesh.sortedNodes.count))",
-                    subtitle: "Radios your radio has heard",
+                    subtitle: mesh.rememberedLinks.count > 1 ? "Radios heard on both networks" : "Radios your radio has heard",
                     badge: 0)
         }
         .buttonStyle(.plain)
@@ -153,16 +189,20 @@ struct MeshView: View {
         if !threads.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Direct messages").font(.headline).foregroundStyle(.secondary)
-                ForEach(threads, id: \.node.num) { t in
-                    DetailLink(value: MeshRoute.chat(.direct(t.node.num))) {
+                let labelled = mesh.networksInUse.count > 1
+                ForEach(threads, id: \.last.id) { t in
+                    DetailLink(value: MeshRoute.chat(.direct(t.node.num), network: t.network)) {
                         HStack(spacing: 12) {
                             MeshNodeBadge(node: t.node, size: 44)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(t.node.displayName).font(.headline)
+                                HStack(spacing: 6) {
+                                    Text(t.node.displayName).font(.headline)
+                                    if labelled { MeshNetworkBadge(network: t.network) }
+                                }
                                 Text(t.last.text).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                             }
                             Spacer()
-                            unreadBadge(mesh.unreadCount(.direct(t.node.num)))
+                            unreadBadge(mesh.unreadCount(.direct(t.node.num), network: t.network))
                         }
                         .padding(12)
                         .frame(minHeight: MeshUI.minTap)
@@ -193,14 +233,17 @@ struct MeshView: View {
         .accessibilityHint(mesh.canSend ? "Asks before sending an emergency message to everyone" : "Connect a radio first")
     }
 
-    private func tileRow(symbol: String, title: String, subtitle: String, badge: Int) -> some View {
+    private func tileRow(symbol: String, title: String, subtitle: String, badge: Int, network: MeshFirmware? = nil) -> some View {
         HStack(spacing: 14) {
             Image(systemName: symbol)
                 .font(.system(size: 26, weight: .semibold))
                 .foregroundStyle(Theme.accent)
                 .frame(width: 40)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.title3.weight(.semibold)).foregroundStyle(.primary)
+                HStack(spacing: 6) {
+                    Text(title).font(.title3.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
+                    if let network { MeshNetworkBadge(network: network) }
+                }
                 Text(subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -225,24 +268,31 @@ struct MeshView: View {
         }
     }
 
-    private func lastLine(_ c: MeshConversation) -> String? {
-        mesh.messages(in: c).last.map { $0.text }
+    private func lastLine(_ c: MeshConversation, _ network: MeshFirmware) -> String? {
+        mesh.messages(in: c, network: network).last.map { $0.text }
     }
 
+    /// Sends on every connected radio and reports each one.
     private func sendSOS(location: Bool) {
         sendingSOS = true
         Task {
-            let sent = await mesh.sendSOS(includeLocation: location)
+            let results = await mesh.sendSOSEverywhere(includeLocation: location)
             sendingSOS = false
-            if let sent {
-                var msg = "Sent to the mesh:\n\(sent)"
-                if location && !sent.contains("Location:") {
-                    msg += "\n\nNo GPS fix was available, so it went without coordinates."
-                }
-                sosResult = msg
-            } else {
+            guard let first = results.first(where: \.sent)?.text else {
                 sosResult = "Could not send. Check that the radio is connected, then try again."
+                return
             }
+            var msg: String
+            if results.count == 1 {
+                msg = "Sent to the mesh:\n\(first)"
+            } else {
+                msg = results.map { r in "\(r.network.displayName) (\(r.radioName)): \(r.sent ? "sent" : "NOT sent")" }
+                    .joined(separator: "\n") + "\n\n\(first)"
+            }
+            if location && !first.contains("Location:") {
+                msg += "\n\nNo GPS fix was available, so it went without coordinates."
+            }
+            sosResult = msg
         }
     }
 }

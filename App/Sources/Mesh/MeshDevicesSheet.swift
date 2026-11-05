@@ -2,13 +2,16 @@
 // Pocket Nomad - Mesh module
 // SPDX-License-Identifier: Apache-2.0
 //
-// Scan for and connect to nearby Meshtastic and MeshCore radios.
+// Scan for and connect to nearby Meshtastic and MeshCore radios. One radio of
+// each kind can be connected at once; picking a second radio of the same kind
+// asks before it replaces the first.
 
 import SwiftUI
 
 struct MeshDevicesSheet: View {
     @State private var mesh = MeshService.shared
     @Environment(\.dismiss) private var dismiss
+    @State private var replacing: (device: MeshDiscoveredDevice, current: String)?
 
     var body: some View {
         NavigationStack {
@@ -31,43 +34,64 @@ struct MeshDevicesSheet: View {
                     Button("Done") { dismiss() }.font(.headline)
                 }
             }
-            .onAppear { if !mesh.connection.isLinkUp { mesh.startScan() } }
+            .onAppear { if hasFreeSlot { mesh.startScan() } }
             .onDisappear { mesh.stopScan() }
-            .onChange(of: mesh.connection) { _, new in
-                if new.isConnected { dismiss() }
+            .onChange(of: mesh.connectedLinks.count) { old, new in
+                if new > old { dismiss() }
+            }
+            .confirmationDialog("Replace \(replacing?.current ?? "the radio")?",
+                                isPresented: Binding(get: { replacing != nil }, set: { if !$0 { replacing = nil } }),
+                                titleVisibility: .visible) {
+                Button("Replace with \(replacing?.device.name ?? "this radio")", role: .destructive) {
+                    if let d = replacing?.device { mesh.connect(to: d) }
+                    replacing = nil
+                }
+                Button("Cancel", role: .cancel) { replacing = nil }
+            } message: {
+                Text("Pocket Nomad connects one \(replacing?.device.firmware.displayName ?? "") radio at a time (plus one of the other kind). \(replacing?.current ?? "The current one") will be disconnected and forgotten.")
             }
         }
         .presentationDetents([.large])
     }
 
+    /// Fewer than two radios have a working link, so there is room to add one.
+    private var hasFreeSlot: Bool { mesh.activeLinks.count < MeshFirmware.allCases.count }
+
+    /// Each set-up radio, with disconnect and forget.
     @ViewBuilder
     private var currentRadio: some View {
-        switch mesh.connection {
-        case .connected(let name), .syncing(let name), .connecting(let name), .reconnecting(let name):
+        ForEach(mesh.rememberedLinks) { l in
             VStack(alignment: .leading, spacing: 12) {
-                MeshStatusCard(state: mesh.connection, radio: mesh.radio) {}
-                    .allowsHitTesting(false)
-                    .accessibilityHint("")
-                if !mesh.radio.firmwareVersion.isEmpty, mesh.connection.isConnected {
-                    Text("Firmware \(mesh.radio.firmwareVersion)").font(.footnote).foregroundStyle(.secondary)
+                MeshRadioCard(link: l)
+                if !l.radio.firmwareVersion.isEmpty, l.connection.isConnected {
+                    Text("Firmware \(l.radio.firmwareVersion)").font(.footnote).foregroundStyle(.secondary)
                 }
-                Button(role: .destructive) { mesh.disconnect() } label: {
-                    Label("Disconnect \(name)", systemImage: "xmark.circle")
+                if l.connection != .idle {
+                    Button(role: .destructive) { mesh.disconnect(l.firmware) } label: {
+                        Label("Disconnect \(l.displayName)", systemImage: "xmark.circle")
+                    }
+                    .buttonStyle(MeshBigButtonStyle(tint: Theme.danger, filled: false))
+                } else {
+                    Button { mesh.reconnect(l.firmware) } label: {
+                        Label("Reconnect \(l.displayName)", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .buttonStyle(MeshBigButtonStyle(filled: false))
                 }
-                .buttonStyle(MeshBigButtonStyle(tint: Theme.danger, filled: false))
-                Button { mesh.forgetDevice(); mesh.startScan() } label: {
+                Button { mesh.forgetDevice(l.firmware); mesh.startScan() } label: {
                     Label("Forget and pick another", systemImage: "trash")
                 }
                 .buttonStyle(MeshBigButtonStyle(tint: .secondary, filled: false))
             }
-        default:
-            EmptyView()
+        }
+        if mesh.rememberedLinks.count == 1 {
+            Text("You can also connect a \(MeshFirmware.allCases.first { !mesh.link($0).isRemembered }?.displayName ?? "second") radio at the same time. Both record coverage and show on the map; their messages stay on their own networks.")
+                .font(.footnote).foregroundStyle(.secondary)
         }
     }
 
     @ViewBuilder
     private var pairingCard: some View {
-        if !mesh.connection.isConnected {
+        if mesh.connectedLinks.isEmpty {
             MeshInfoCard(symbol: "lock.fill", title: "About the PIN",
                          message: "The first time you connect, iOS asks for a 6-digit PIN. Radios with a screen show it there. Radios without a screen usually use 123456 unless someone changed it.")
         }
@@ -75,7 +99,7 @@ struct MeshDevicesSheet: View {
 
     @ViewBuilder
     private var nearby: some View {
-        if !mesh.connection.isLinkUp {
+        if hasFreeSlot {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Text("Nearby radios").font(.headline)
@@ -88,8 +112,8 @@ struct MeshDevicesSheet: View {
                          : "Waiting for Bluetooth.")
                         .foregroundStyle(.secondary)
                 }
-                ForEach(mesh.discovered) { d in
-                    Button { mesh.connect(to: d) } label: { deviceRow(d) }
+                ForEach(mesh.discovered.filter { d in !(mesh.link(forDevice: d.id)?.connection.isLinkUp ?? false) }) { d in
+                    Button { pick(d) } label: { deviceRow(d) }
                         .buttonStyle(.plain)
                 }
                 if !mesh.isScanning {
@@ -113,7 +137,7 @@ struct MeshDevicesSheet: View {
             }
             Spacer(minLength: 0)
             signalBars(d.rssi)
-            Text(d.id == mesh.lastDeviceID ? "Reconnect" : "Connect")
+            Text(mesh.link(forDevice: d.id) != nil ? "Reconnect" : (mesh.replaced(by: d) != nil ? "Replace" : "Connect"))
                 .font(.headline)
                 .foregroundStyle(.black)
                 .padding(.horizontal, 14).frame(minHeight: 44)
@@ -124,6 +148,15 @@ struct MeshDevicesSheet: View {
         .background(Theme.card, in: RoundedRectangle(cornerRadius: MeshUI.corner))
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
+    }
+
+    /// Connects, or asks first when it would replace the radio of the same kind.
+    private func pick(_ d: MeshDiscoveredDevice) {
+        if let current = mesh.replaced(by: d) {
+            replacing = (d, current.displayName)
+        } else {
+            mesh.connect(to: d)
+        }
     }
 
     private func signalWord(_ rssi: Int) -> String {

@@ -71,6 +71,17 @@ nothing heard (red). Pings are stored with the coverage recordings, follow the
 same private zones, and are exported per hexagon as `pings_reached`,
 `pings_relayed` and `pings_none`; the public map's "Two-way pings" view shows them.
 
+## Two radios at once
+
+Connect one Meshtastic and one MeshCore radio at the same time (iPhone and Android). Both
+feed the coverage scanner and drive mode together, so one drive maps both networks: every
+recording and ping is tagged with its network, and Map › Layers › Coverage can show both,
+or Meshtastic only, or MeshCore only (green and blue rings, with a legend). Each network
+keeps its own channel and direct messages, replies go out on the conversation's network,
+and an SOS goes out on every connected radio. Both radios are remembered and reconnect on
+their own. Nothing heard on one network is ever repeated on the other. Not yet tried with
+two real radios at once.
+
 ## Known radios
 
 Map › Layers › Download known radios fetches the public lists from

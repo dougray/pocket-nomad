@@ -11,12 +11,23 @@ struct MessagesView: View {
                 statusLine
             }
             if connector.canUseMesh {
-                NavigationLink(value: WatchRoute.reply(.channel(0), "Primary channel")) {
-                    Label("Message the channel", systemImage: "arrowshape.turn.up.left.fill")
+                // With two radios on the phone, each network has its own channel.
+                let networks = connector.status?.networks ?? []
+                if networks.count > 1 {
+                    ForEach(networks, id: \.self) { network in
+                        let name = WatchRelay.networkName(network) ?? network
+                        NavigationLink(value: WatchRoute.reply(.channel(0), "Primary channel · \(name)", network)) {
+                            Label("Message the \(name) channel", systemImage: "arrowshape.turn.up.left.fill")
+                        }
+                    }
+                } else {
+                    NavigationLink(value: WatchRoute.reply(.channel(0), "Primary channel", networks.first)) {
+                        Label("Message the channel", systemImage: "arrowshape.turn.up.left.fill")
+                    }
                 }
             }
             ForEach(connector.status?.messages ?? []) { m in
-                NavigationLink(value: WatchRoute.reply(m.conversation, m.conversationTitle)) {
+                NavigationLink(value: WatchRoute.reply(m.conversation, m.conversationTitle, m.network)) {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack {
                             Text(m.sender).font(.caption.weight(.bold))
@@ -62,6 +73,8 @@ struct MessagesView: View {
 struct QuickReplyView: View {
     let conversation: WatchRelay.Conversation
     let title: String
+    /// The mesh to reply on; nil lets the phone use its default radio.
+    var network: String?
     @State private var connector = WatchConnector.shared
     @State private var dictated: String?
     @State private var sending = false
@@ -104,7 +117,7 @@ struct QuickReplyView: View {
     private func send(_ text: String) {
         sending = true
         Task {
-            result = await connector.send(.reply(text: text, conversation: conversation))
+            result = await connector.send(.reply(text: text, conversation: conversation, network: network))
             sending = false
             WKInterfaceDevice.current().play(result?.ok == true ? .success : .failure)
         }

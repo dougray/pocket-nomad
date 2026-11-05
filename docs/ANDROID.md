@@ -93,6 +93,12 @@ android/
   `Mesh.repository.nodes` and `.coverage` (StateFlows the map draws), `OptOut.optsOut`
   (the ⛔ 🛑 🚫 "don't map me" check), and the `MeshScreen` and `CoverageScreen`
   composables.
+- **Two radios at once** (`:mesh` `MeshRadios`): one Meshtastic and one MeshCore radio
+  can be connected together. Each firmware has a slot with its own `MeshService`
+  (its own `MeshBleTransport`, so its own GATT connection, operation queue, MTU and
+  connection priority, plus its own handshake, nodes, channels, chat, prefs under
+  `meshtastic.`/`meshcore.` and history in `files/mesh/<firmware>/mesh.json`). A
+  separate transport only scans. See [Two radios](#two-radios).
 - **`:library`** (`org.nomadpocket.library`): `zim.ZimArchive` (header, MIME list,
   path/title pointer lists, dirents, redirects, clusters; xz, zstd and zlib; positional
   `FileChannel` reads with small caches, never the whole file), `search.SearchIndex`
@@ -200,10 +206,11 @@ so the FTS5 checks run against the same SQLite sources and flags as the app.
 | Offline map areas | Region .pmtiles from the pack script or Library › Get Content | ✓ Save the area on screen (OfflineManager), with a size estimate and delete |
 | Pins (water, shelter, rally, medical, supplies, danger, other), list, delete | ✓ | ✓ |
 | Live mesh radios on the map | ✓ | ✓ From `:mesh` |
-| Coverage layer: my recordings and pings | ✓ | ✓ |
+| Coverage layer: my recordings and pings | ✓ | ✓ Ringed by network; Both / Meshtastic / MeshCore filter in Layers |
 | Coverage layer: "what sharing would publish" hexagons | ✓ | ✓ From `:mesh`'s privacy filter (`CoverageStore.sharedCells`) |
 | Known radios from meshmap.net and map.meshcore.io | ✓ | ✓ Same parsing, radius, opt-out and wording |
 | Mesh: chat, DMs, nodes, SOS, coverage scanner, drive mode | ✓ | `:mesh` (see its own docs) |
+| Two radios at once (one Meshtastic + one MeshCore) | ✓ Not yet tried with real radios | ✓ See [Two radios](#two-radios). Not yet tried with real radios |
 | Settings: always dark, privacy summary, licences | ✓ | ✓ |
 | Library: Kiwix .zim books, reader, delete | ✓ | ✓ Same ZIM reader, ported (ZIM 5 and 6, old and new namespaces, xz/zstd/zlib) |
 | Library: full-text search across books | ✓ | ✓ Prebuilt `.nomadidx` or built on the phone (books up to 200,000 articles automatically, bigger on request) |
@@ -225,6 +232,45 @@ so the FTS5 checks run against the same SQLite sources and flags as the app.
 | Watch app: SOS light + haptics, compass + position, first-aid steps | Apple Watch | ✓ Standalone Wear OS app (`:wear`), no phone needed; SOS tile |
 | Watch: mesh SOS and messages relayed from the phone | Apple Watch (WatchConnectivity) | Later: needs a phone link without Play Services (see [Wear OS](#wear-os)) |
 | Siri/Shortcuts, Health Medical ID hand-off | Partly | Not possible as-is; the Medical ID card points to Android's Safety/Emergency info |
+
+## Two radios
+
+One Meshtastic and one MeshCore radio can be connected at the same time, mainly so
+the coverage scanner and drive mode map both networks in one drive.
+
+- **Slots:** at most one radio per firmware. Picking a second radio of the same
+  firmware asks "Replace <name>?" and then forgets the first. If a scan guessed the
+  firmware wrong (no service UUID in the advert), the radio moves to the right slot
+  once its services are found.
+- **Remembered and reconnected:** both radios are remembered and both reconnect at
+  launch. The old single remembered radio (and its history, blocked list and
+  drive-mode ping target) moves once into the slot of the firmware saved with its
+  history, or Meshtastic if none was saved (`MeshRadios.migrate`).
+- **Mesh tab:** a Radios section with a card per radio (firmware badge, Meshtastic
+  green `#66d978`, MeshCore blue `#408cfa`, as on the map; state; battery when the
+  radio reports it; Disconnect or Reconnect; Forget) and "Add a radio" while a slot
+  is free. Each network has its own channel tile and direct messages, labelled with
+  the network; a conversation always sends on its own radio. The Nodes list merges
+  both networks with a badge per row.
+- **SOS** goes out on the primary channel of every connected radio (one GPS lookup),
+  and the result dialog says how each radio did.
+- **Coverage:** both radios feed the scanner at once. Every record and ping carries
+  its firmware (it always has, so older files load unchanged); the 20 s per-node
+  limit counts per network. On the map, recordings and pings are ringed in their
+  network's colour, shared hexagons are outlined green, blue or white (both), and
+  Layers has a Both / Meshtastic / MeshCore filter with counts in the legend. Live
+  radios heard by either radio show in their network's colour. The export keeps
+  its fields; each hexagon's `firmware` list says which networks were heard there.
+- **Drive mode:** the foreground service keeps both links up; each radio pings on
+  its own network with its own target (MeshCore still needs one) and its own
+  45 s / 300 m limit, at least 15 s after the other radio's ping. Notes name the
+  radio ("MeshCore: Waiting for GPS"), and the notification lists both radios.
+- **No bridging:** nothing heard on one network is re-sent on the other. A future
+  opt-in bridge would hook into `MeshRadios.create`.
+- **Not yet tested on real radios or phones:** two GATT connections at once, MTU and
+  connection priority per link, pairing two radios back to back, and drive mode with
+  two links in the background. Some phones limit concurrent BLE connections or slow
+  down when two links ask for high priority.
 
 ## Phase 2 (Library, Ask, release, Wear OS)
 

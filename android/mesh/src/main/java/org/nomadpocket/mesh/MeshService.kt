@@ -2,10 +2,14 @@
 // Pocket Nomad - Mesh module
 // SPDX-License-Identifier: Apache-2.0
 //
-// Owns the radio link, the handshake (Meshtastic or MeshCore), the node list
+// Owns one radio link, the handshake (Meshtastic or MeshCore), the node list
 // and chat history. Ported from App/Sources/Mesh/MeshService.swift. Screens
 // observe the StateFlows. All calls and transport events run on one thread
 // (the main thread in the app); timers run in `scope`.
+//
+// With two radios (one Meshtastic, one MeshCore) there is one MeshService per
+// radio, each with its own transport (so its own GATT connection and operation
+// queue), prefs and store; MeshRadios holds them and merges what :app sees.
 
 package org.nomadpocket.mesh
 
@@ -97,6 +101,12 @@ class MeshService(
     /** Called each time the radio hears another node live (for the coverage scanner). */
     var onHeard: ((MeshHeard) -> Unit)? = null
 
+    /**
+     * Called when a radio's link is up, with the firmware found on it. Returning
+     * false drops it here (MeshRadios moves it to the other firmware's slot).
+     */
+    var onReady: ((id: String, name: String, firmware: Firmware) -> Boolean)? = null
+
     // MARK: Internals
 
     private var started = false
@@ -173,6 +183,9 @@ class MeshService(
     }
 
     fun connect(device: MeshDiscoveredDevice) = connect(device.id, device.name)
+
+    /** True while this link has a remembered radio or a connection in progress. */
+    val inUse: Boolean get() = lastDeviceID != null || (connection !is MeshConnectionState.Idle && connection !is MeshConnectionState.Scanning)
 
     fun reconnectLast() {
         val id = lastDeviceID ?: return
@@ -302,12 +315,13 @@ class MeshService(
      * allowed. Returns the text sent, or null if it could not be sent.
      */
     suspend fun sendSOS(includeLocation: Boolean): String? {
-        var lat: Double? = null
-        var lon: Double? = null
-        if (includeLocation) {
-            location()?.let { lat = it.latitude; lon = it.longitude }
-        }
-        val text = MeshText.truncated(MeshSOS.text(lat, lon, myNode?.longName), maxTextBytes)
+        val fix = if (includeLocation) location() else null
+        return sendSOS(fix?.latitude, fix?.longitude)
+    }
+
+    /** Sends the SOS with a position already found (MeshRadios looks it up once for both radios). */
+    fun sendSOS(latitude: Double?, longitude: Double?): String? {
+        val text = MeshText.truncated(MeshSOS.text(latitude, longitude, myNode?.longName), maxTextBytes)
         return if (send(text, MeshConversation.Channel(0))) text else null
     }
 
@@ -428,6 +442,7 @@ class MeshService(
             }
 
             is MeshTransportEvent.Ready -> {
+                if (onReady?.invoke(event.id, event.name, event.firmware) == false) return
                 currentDeviceName = event.name
                 rememberDevice(event.id, event.name)
                 _pairingHint.value = null
@@ -912,6 +927,27 @@ class MeshService(
         trimHistory()
         scheduleSave()
         return true
+    }
+
+    /**
+     * Screenshots and demos: shows this link as connected to a made-up radio,
+     * with a couple of nodes and messages. Nothing is sent; no transport is used.
+     */
+    fun loadDemoRadio(firmware: Firmware, name: String, myNum: Long, battery: Long, channel: String,
+                      others: List<MeshNode>, chat: List<String>) {
+        currentDeviceName = name
+        _lastDevice.value = "demo-${firmware.rawValue}" to name
+        _radio.value = MeshRadioInfo(firmware = firmware, myNodeNum = myNum, firmwareVersion = "demo",
+            primaryChannelName = channel, channelNames = mapOf(0 to channel))
+        putNode(MeshNode(num = myNum, longName = name, shortName = name.take(4), batteryLevel = battery))
+        others.forEach { putNode(it) }
+        val t = now()
+        _messages.value = chat.mapIndexed { i, text ->
+            val from = others[i % others.size]
+            MeshMessage(packetID = i + 1L, from = from.num, to = MeshConstants.BROADCAST_NUM, channel = 0, text = text,
+                dateMillis = t - (chat.size - i) * 300_000L, isOutgoing = false, delivery = MeshDeliveryState.Received)
+        }
+        _connection.value = MeshConnectionState.Connected(name)
     }
 
     /** Screenshots and demos: made-up nodes at made-up places (open ocean). */

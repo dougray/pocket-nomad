@@ -15,8 +15,10 @@ enum WatchRelay {
         /// Send the mesh SOS on the primary channel. Coordinates are the watch's
         /// own fix; nil means the phone uses its own location (if allowed).
         case sos(latitude: Double?, longitude: Double?)
-        /// Send `text` to a conversation (see `Conversation`).
-        case reply(text: String, conversation: Conversation)
+        /// Send `text` to a conversation (see `Conversation`). `network` is the
+        /// mesh it belongs to ("meshtastic" or "meshcore"); nil (older watch
+        /// apps) means the phone's default radio.
+        case reply(text: String, conversation: Conversation, network: String? = nil)
     }
 
     /// Mirrors the phone's MeshConversation without depending on the mesh code.
@@ -34,6 +36,8 @@ enum WatchRelay {
         let conversation: Conversation
         /// "Primary channel", or the other person's name for a direct message.
         let conversationTitle: String
+        /// The mesh it came in on ("meshtastic" or "meshcore"), so a reply goes back on it.
+        var network: String? = nil
     }
 
     struct Status: Codable, Equatable, Sendable {
@@ -43,6 +47,9 @@ enum WatchRelay {
         var maxTextBytes: Int
         /// Most recent first, at most `maxMessages`.
         var messages: [Message]
+        /// Networks with a connected radio, when the phone has more than one
+        /// kind ("meshtastic", "meshcore"). Nil from older phone apps.
+        var networks: [String]? = nil
     }
 
     struct Response: Codable, Equatable, Sendable {
@@ -65,6 +72,15 @@ enum WatchRelay {
     }
 
     enum RelayError: Error { case missingPayload }
+
+    /// "Meshtastic" or "MeshCore" for a network's raw name.
+    static func networkName(_ network: String?) -> String? {
+        switch network {
+        case "meshtastic": "Meshtastic"
+        case "meshcore": "MeshCore"
+        default: nil
+        }
+    }
 
     /// Trims a reply and refuses empty ones. Length is checked by the phone,
     /// which knows the radio's limit.

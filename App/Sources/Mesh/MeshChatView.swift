@@ -2,21 +2,29 @@
 // Pocket Nomad - Mesh module
 // SPDX-License-Identifier: Apache-2.0
 //
-// Chat thread for the primary channel or a direct message.
+// Chat thread for the primary channel or a direct message, on one network.
+// Replies always go out on the thread's own network (its own radio).
 
 import SwiftUI
 
 struct MeshChatView: View {
     let conversation: MeshConversation
+    /// The thread's network; nil means the default radio's.
+    var network: MeshFirmware?
     @State private var mesh = MeshService.shared
     @State private var draft = ""
     @State private var blocking: MeshNode?
     @FocusState private var focused: Bool
 
-    private var thread: [MeshMessage] { mesh.messages(in: conversation) }
+    private var net: MeshFirmware { network ?? mesh.defaultNetwork }
+    private var maxBytes: Int { net.maxTextBytes }
+    private var thread: [MeshMessage] { mesh.messages(in: conversation, network: net) }
     private var bytes: Int { MeshText.byteCount(draft.trimmingCharacters(in: .whitespacesAndNewlines)) }
-    private var tooLong: Bool { bytes > mesh.maxTextBytes }
-    private var canSend: Bool { mesh.canSend && bytes > 0 && !tooLong }
+    private var tooLong: Bool { bytes > maxBytes }
+    private var radioReady: Bool { mesh.canSend(on: net) }
+    private var canSend: Bool { radioReady && bytes > 0 && !tooLong }
+    /// Two networks in use: say which one this thread is on.
+    private var labelNetwork: Bool { mesh.networksInUse.count > 1 }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -27,12 +35,12 @@ struct MeshChatView: View {
                     }
                     ForEach(thread) { m in
                         MeshBubble(message: m,
-                                   sender: m.isOutgoing || m.from == 0 ? nil : mesh.node(m.from),
+                                   sender: m.isOutgoing || m.from == 0 ? nil : mesh.node(m.from, network: net),
                                    showSender: isChannel)
                             .id(m.id)
                             .contextMenu {
                                 if !m.isOutgoing && m.from != 0 {
-                                    Button("Block Sender", systemImage: "hand.raised", role: .destructive) { blocking = mesh.node(m.from) }
+                                    Button("Block Sender", systemImage: "hand.raised", role: .destructive) { blocking = mesh.node(m.from, network: net) }
                                 }
                             }
                     }
@@ -41,11 +49,11 @@ struct MeshChatView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .onAppear {
-                mesh.markRead(conversation)
+                mesh.markRead(conversation, network: net)
                 if let last = thread.last { proxy.scrollTo(last.id, anchor: .bottom) }
             }
             .onChange(of: thread.count) {
-                mesh.markRead(conversation)
+                mesh.markRead(conversation, network: net)
                 if let last = thread.last {
                     withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
                 }
@@ -54,6 +62,17 @@ struct MeshChatView: View {
         .safeAreaInset(edge: .bottom) { composer }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if labelNetwork {
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: 2) {
+                        Text(title).font(.headline).lineLimit(1)
+                        MeshNetworkBadge(network: net)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
+        }
         .meshBlockConfirmation($blocking)
     }
 
@@ -65,10 +84,10 @@ struct MeshChatView: View {
     private var title: String {
         switch conversation {
         case .channel(let i):
-            let name = mesh.radio.channelNames[Int32(i)] ?? ""
+            let name = mesh.link(net).radio.channelNames[Int32(i)] ?? ""
             return name.isEmpty ? (i == 0 ? "Primary channel" : "Channel \(i)") : name
         case .direct(let n):
-            return mesh.node(n).displayName
+            return mesh.node(n, network: net).displayName
         }
     }
 
@@ -87,8 +106,8 @@ struct MeshChatView: View {
 
     private var composer: some View {
         VStack(spacing: 6) {
-            if !mesh.canSend {
-                Text("Connect a radio to send.")
+            if !radioReady {
+                Text(labelNetwork ? "Connect your \(net.displayName) radio to send." : "Connect a radio to send.")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(MeshUI.warn)
             }
@@ -113,14 +132,14 @@ struct MeshChatView: View {
                 .accessibilityLabel("Send")
             }
             HStack {
-                Text(tooLong ? "Too long, trim \(bytes - mesh.maxTextBytes) bytes" : "Emoji and accents use extra bytes")
+                Text(tooLong ? "Too long, trim \(bytes - maxBytes) bytes" : "Emoji and accents use extra bytes")
                 Spacer()
-                Text("\(bytes)/\(mesh.maxTextBytes)")
+                Text("\(bytes)/\(maxBytes)")
                     .monospacedDigit()
                     .fontWeight(.bold)
             }
             .font(.footnote)
-            .foregroundStyle(tooLong ? Theme.danger : (bytes > mesh.maxTextBytes - 20 ? MeshUI.warn : .secondary))
+            .foregroundStyle(tooLong ? Theme.danger : (bytes > maxBytes - 20 ? MeshUI.warn : .secondary))
             .accessibilityElement(children: .combine)
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
@@ -129,7 +148,7 @@ struct MeshChatView: View {
 
     private func send() {
         guard canSend else { return }
-        if mesh.send(draft, to: conversation) {
+        if mesh.send(draft, to: conversation, network: net) {
             draft = ""
         }
     }

@@ -51,3 +51,20 @@ class MemoryMeshPrefs : MeshPrefs {
     override fun contains(key: String) = map.containsKey(key)
     override fun remove(key: String) { map.remove(key) }
 }
+
+/**
+ * One radio slot's view of the prefs: every key gets a prefix ("meshcore."),
+ * so each radio keeps its own remembered device, auto-reconnect and blocked list.
+ */
+class ScopedMeshPrefs(private val base: MeshPrefs, private val prefix: String) : MeshPrefs {
+    override fun getString(key: String) = base.getString(prefix + key)
+    override fun putString(key: String, value: String?) = base.putString(prefix + key, value)
+    override fun getBoolean(key: String, default: Boolean) = base.getBoolean(prefix + key, default)
+    override fun putBoolean(key: String, value: Boolean) = base.putBoolean(prefix + key, value)
+    override fun getInt(key: String, default: Int) = base.getInt(prefix + key, default)
+    override fun putInt(key: String, value: Int) = base.putInt(prefix + key, value)
+    override fun getLong(key: String, default: Long) = base.getLong(prefix + key, default)
+    override fun putLong(key: String, value: Long) = base.putLong(prefix + key, value)
+    override fun contains(key: String) = base.contains(prefix + key)
+    override fun remove(key: String) = base.remove(prefix + key)
+}

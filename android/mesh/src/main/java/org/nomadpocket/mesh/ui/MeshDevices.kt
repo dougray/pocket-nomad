@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Scan for and connect to nearby Meshtastic and MeshCore radios (firmware is
-// detected from the advertised service). Port of MeshDevicesSheet.swift, plus
+// detected from the advertised service). One radio of each kind can be
+// connected at once; picking a second of the same kind asks to replace it. Port of MeshDevicesSheet.swift, plus
 // Android's runtime Bluetooth permission and, on Android 11 and older, the
 // location switch it needs to scan.
 
@@ -36,13 +37,16 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -59,29 +63,35 @@ import org.nomadpocket.mesh.displayName
 
 @Composable
 fun MeshDevicesScreen(onConnected: () -> Unit) {
-    val svc = Mesh.service
+    val radios = Mesh.radios
     val context = LocalContext.current
-    val connection by svc.connectionFlow.collectAsStateWithLifecycle()
-    val radio by svc.radioFlow.collectAsStateWithLifecycle()
-    val availability by svc.availabilityFlow.collectAsStateWithLifecycle()
-    val discovered by svc.discoveredFlow.collectAsStateWithLifecycle()
-    val scanning by svc.isScanningFlow.collectAsStateWithLifecycle()
-    val hint by svc.pairingHintFlow.collectAsStateWithLifecycle()
-    val lastDevice by svc.lastDeviceFlow.collectAsStateWithLifecycle()
+    val inUse = rememberRadiosInUse(radios)
+    val availability by radios.availabilityFlow.collectAsStateWithLifecycle()
+    val discovered by radios.discoveredFlow.collectAsStateWithLifecycle()
+    val scanning by radios.isScanningFlow.collectAsStateWithLifecycle()
     val permitted = MeshPermissions.granted(context, MeshPermissions.bluetooth)
-    val request = rememberPermissionRequest { result -> if (result.values.all { it }) svc.startScan() }
+    val request = rememberPermissionRequest { result -> if (result.values.all { it }) radios.startScan() }
+    var confirm by remember { mutableStateOf<Pair<MeshDiscoveredDevice, String>?>(null) }
+    val connectedIDs = inUse.mapNotNull { it.second.lastDeviceID }.toSet()
+    // Scan while a slot is free (or to replace one), close once a newly picked radio connects.
+    val free = radios.canAdd
 
     DisposableEffect(Unit) {
-        if (!svc.connection.isLinkUp) {
-            if (MeshPermissions.granted(context, MeshPermissions.bluetooth)) svc.startScan() else request(MeshPermissions.bluetooth)
-        }
-        onDispose { svc.stopScan() }
+        if (MeshPermissions.granted(context, MeshPermissions.bluetooth)) radios.startScan() else request(MeshPermissions.bluetooth)
+        onDispose { radios.stopScan() }
     }
-    // Close once a new connection completes (not when opened while already connected).
-    val openedConnected = remember { mutableStateOf(svc.connection.isConnected) }
-    LaunchedEffect(connection) {
-        if (connection.isConnected && !openedConnected.value) onConnected()
-        if (!connection.isConnected) openedConnected.value = false
+    val waitingFor = remember { mutableStateOf<String?>(null) }
+    for ((_, link) in inUse) {
+        val connection by link.connectionFlow.collectAsStateWithLifecycle()
+        LaunchedEffect(connection) {
+            if (connection.isConnected && link.lastDeviceID != null && link.lastDeviceID == waitingFor.value) onConnected()
+        }
+    }
+    fun pick(d: MeshDiscoveredDevice) {
+        val replaced = radios.replacing(d)
+        if (replaced != null) { confirm = d to replaced; return }
+        waitingFor.value = d.id
+        radios.connect(d)
     }
 
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -101,67 +111,77 @@ fun MeshDevicesScreen(onConnected: () -> Unit) {
             }
         }
 
-        val name = when (val c = connection) {
-            is MeshConnectionState.Connected -> c.name
-            is MeshConnectionState.Syncing -> c.name
-            is MeshConnectionState.Connecting -> c.name
-            is MeshConnectionState.Reconnecting -> c.name
-            else -> null
-        }
-        if (name != null) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                MeshStatusCard(connection, radio, null)
-                if (radio.firmwareVersion.isNotEmpty() && connection.isConnected) {
-                    Text("Firmware ${radio.firmwareVersion}", fontSize = 13.sp, color = MeshColors.secondary)
+        if (inUse.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Your radios", fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+                for ((fw, link) in inUse) {
+                    val radio by link.radioFlow.collectAsStateWithLifecycle()
+                    val hint by link.pairingHintFlow.collectAsStateWithLifecycle()
+                    MeshRadioCard(fw, link, onDisconnect = { link.disconnect() }, onForget = { link.forgetDevice() },
+                        onReconnect = { link.reconnectLast() })
+                    if (radio.firmwareVersion.isNotEmpty() && link.connection.isConnected) {
+                        Text("Firmware ${radio.firmwareVersion}", fontSize = 13.sp, color = MeshColors.secondary)
+                    }
+                    hint?.let { MeshInfoCard(Icons.Filled.NoEncryption, "Pairing problem (${fw.displayName})", it, MeshColors.danger) }
                 }
-                MeshBigButton("Disconnect $name", { svc.disconnect() }, icon = Icons.Filled.Close, tint = MeshColors.danger, filled = false)
-                MeshBigButton("Forget and pick another", { svc.forgetDevice(); svc.startScan() }, icon = Icons.Filled.Delete,
-                    tint = MeshColors.secondary, filled = false)
+                Text(if (free) "You can connect one Meshtastic and one MeshCore radio at the same time."
+                    else "Both slots are in use (one Meshtastic, one MeshCore). Picking another radio replaces the one of the same kind.",
+                    fontSize = 14.sp, color = MeshColors.secondary)
             }
         }
-        if (!connection.isConnected) {
+        if (inUse.none { it.second.connection.isConnected }) {
             MeshInfoCard(Icons.Filled.Lock, "About the PIN",
                 "The first time you connect, Android asks for a 6-digit PIN. Radios with a screen show it there. Radios without a screen usually use 123456 unless someone changed it.")
         }
-        hint?.let { MeshInfoCard(Icons.Filled.NoEncryption, "Pairing problem", it, MeshColors.danger) }
 
-        if (!connection.isLinkUp) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Nearby radios", fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f))
-                    if (scanning) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 3.dp)
-                }
-                if (discovered.isEmpty()) {
-                    Text(if (availability == MeshBluetoothAvailability.POWERED_ON)
-                        "Searching. Make sure the radio is on, Bluetooth is enabled on it, and no other phone is connected to it."
-                    else "Waiting for Bluetooth.", color = MeshColors.secondary)
-                }
-                for (d in discovered) {
-                    MeshCard(onClick = { svc.connect(d) }) { DeviceRow(d, d.id == lastDevice?.first) }
-                }
-                if (!scanning) {
-                    MeshBigButton("Scan again", {
-                        if (MeshPermissions.granted(context, MeshPermissions.bluetooth)) svc.startScan() else request(MeshPermissions.bluetooth)
-                    }, icon = Icons.Filled.Refresh, filled = false)
-                }
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(if (inUse.isEmpty()) "Nearby radios" else "Add a radio", fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f))
+                if (scanning) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 3.dp)
+            }
+            val list = discovered.filterNot { it.id in connectedIDs }
+            if (list.isEmpty()) {
+                Text(if (availability == MeshBluetoothAvailability.POWERED_ON)
+                    "Searching. Make sure the radio is on, Bluetooth is enabled on it, and no other phone is connected to it."
+                else "Waiting for Bluetooth.", color = MeshColors.secondary)
+            }
+            for (d in list) {
+                MeshCard(onClick = { pick(d) }) { DeviceRow(d, radios.replacing(d) != null) }
+            }
+            if (!scanning) {
+                MeshBigButton("Scan again", {
+                    if (MeshPermissions.granted(context, MeshPermissions.bluetooth)) radios.startScan() else request(MeshPermissions.bluetooth)
+                }, icon = Icons.Filled.Refresh, filled = false)
             }
         }
+    }
+
+    confirm?.let { (d, name) ->
+        AlertDialog(onDismissRequest = { confirm = null },
+            title = { Text("Replace $name?") },
+            text = { Text("Pocket Nomad connects one ${d.firmware.displayName} radio at a time. Connecting ${d.name} disconnects $name and forgets it; its messages stay on this phone.") },
+            confirmButton = { TextButton(onClick = { waitingFor.value = d.id; radios.connect(d); confirm = null }) { Text("Replace", color = MeshColors.danger) } },
+            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
+            containerColor = MeshColors.card)
     }
 }
 
 @Composable
-private fun DeviceRow(d: MeshDiscoveredDevice, remembered: Boolean) {
+private fun DeviceRow(d: MeshDiscoveredDevice, replaces: Boolean) {
     Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Filled.SettingsInputAntenna, null, tint = MeshColors.accent, modifier = Modifier.size(30.dp))
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(d.name, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(d.name, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
+                FirmwareBadge(d.firmware, compact = true)
+            }
             Text("${d.firmware.displayName} · " + if (d.rssi == 0) "Already linked to this phone" else "${signalWord(d.rssi)} · ${d.rssi} dBm",
                 fontSize = 15.sp, color = MeshColors.secondary)
         }
         Button(onClick = {}, enabled = false, shape = CircleShape,
             colors = ButtonDefaults.buttonColors(disabledContainerColor = MeshColors.accent, disabledContentColor = Color.Black)) {
-            Text(if (remembered) "Reconnect" else "Connect", fontWeight = FontWeight.Bold)
+            Text(if (replaces) "Replace" else "Connect", fontWeight = FontWeight.Bold)
         }
     }
 }

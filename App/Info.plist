@@ -60,7 +60,7 @@
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<false/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Pocket Nomad connects to your Meshtastic radio over Bluetooth so you can send and receive mesh messages without cell service.</string>
+	<string>Pocket Nomad connects to your Meshtastic or MeshCore radios over Bluetooth so you can send and receive mesh messages without cell service.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Pocket Nomad uses the camera flash as an SOS and Morse signal light.</string>
 	<key>NSHumanReadableCopyright</key>

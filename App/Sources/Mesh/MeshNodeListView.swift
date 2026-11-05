@@ -2,12 +2,13 @@
 // Pocket Nomad - Mesh module
 // SPDX-License-Identifier: Apache-2.0
 //
-// Radios the connected node has heard, most recent first.
+// Radios the connected radios have heard, most recent first. With two radios
+// the list mixes both networks, each row tagged with its network.
 
 import SwiftUI
 
 struct MeshNodeListView: View {
-    var onMessage: (UInt32) -> Void
+    var onMessage: (MeshNode) -> Void
     @State private var mesh = MeshService.shared
     @State private var blocking: MeshNode?
 
@@ -17,12 +18,13 @@ struct MeshNodeListView: View {
             LazyVStack(spacing: 10) {
                 if nodes.isEmpty {
                     MeshInfoCard(symbol: "person.3", title: "No other radios yet",
-                                 message: mesh.connection.isConnected
+                                 message: mesh.canSend
                                  ? "Your radio has not heard anyone. Radios announce themselves every few hours, so leave it on, get higher up, or ask a friend to send a message."
                                  : "Connect your radio to see who is around.")
                 }
-                ForEach(nodes) { node in
-                    Button { onMessage(node.num) } label: { MeshNodeRow(node: node) }
+                let labelled = mesh.networksInUse.count > 1
+                ForEach(nodes, id: \.listID) { node in
+                    Button { onMessage(node) } label: { MeshNodeRow(node: node, showNetwork: labelled) }
                         .buttonStyle(.plain)
                         .contextMenu {
                             Button("Block This Radio", systemImage: "hand.raised", role: .destructive) { blocking = node }
@@ -68,15 +70,24 @@ extension View {
     }
 }
 
+extension MeshNode {
+    /// Unique across both networks (node numbers are only unique per network).
+    var listID: String { "\(firmware.rawValue).\(num)" }
+}
+
 struct MeshNodeRow: View {
     let node: MeshNode
+    var showNetwork = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             MeshNodeBadge(node: node, size: 52)
             VStack(alignment: .leading, spacing: 4) {
                 Text(node.displayName).font(.title3.weight(.semibold)).foregroundStyle(.primary)
-                Text(node.hexID).font(.footnote.monospaced()).foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    if showNetwork { MeshNetworkBadge(network: node.firmware) }
+                    Text(node.hexID).font(.footnote.monospaced()).foregroundStyle(.secondary)
+                }
                 HStack(spacing: 12) {
                     if let heard = node.lastHeard {
                         Label(heard.meshRelative, systemImage: "clock")

@@ -30,6 +30,7 @@ FEATURES = [
     ("Offline street maps", {"ios": (Y, "Download whole regions"), "android": (Y, "Download the area on screen"), "pwa": (P, "Areas you've viewed are kept")}),
     ("Saved places (water, shelter, rally points)", {"ios": (Y, ""), "android": (Y, ""), "pwa": (Y, "")}),
     ("Mesh texting (Meshtastic and MeshCore)", {"ios": (Y, ""), "android": (Y, ""), "pwa": (P, "Chrome or Edge on Android and computers; not on iPhone")}),
+    ("Two radios at once (one Meshtastic + one MeshCore), both mapping coverage", {"ios": (Y, ""), "android": (Y, ""), "pwa": (N, "One radio at a time")}),
     ("Coverage scanner", {"ios": (Y, ""), "android": (Y, ""), "pwa": (N, "Browsers pause in the background")}),
     ("Drive mode and ping test", {"ios": (Y, ""), "android": (Y, ""), "pwa": (N, "Needs the screen off and GPS in the background")}),
     ("Known radios from the community maps", {"ios": (Y, ""), "android": (Y, ""), "pwa": (N, "Those sites don't allow browser downloads")}),
@@ -182,6 +183,7 @@ ANDROID = page("android", "Pocket Nomad for Android",
       <li><b>Survive:</b> the same 69 guides and 8 checklists as the iPhone app, compass with MGRS, SOS and Morse light with the flashlight, water purifier, Medical ID, daylight.</li>
       <li><b>Map:</b> OpenStreetMap, download the area on screen for offline use, saved places, live mesh radios, known radios from meshmap.net and map.meshcore.io, coverage layer.</li>
       <li><b>Mesh:</b> Meshtastic and MeshCore over Bluetooth, channel chat, direct messages with delivery receipts, SOS, blocking.</li>
+      <li><b>Two radios:</b> connect a Meshtastic and a MeshCore radio together; both map coverage and drive-mode pings at once, shown in their own colours.</li>
       <li><b>Drive mode:</b> keeps mapping coverage with the screen off, with the ping test; shows a notification while it runs and stops itself after 4 hours.</li>
       <li><b>Library:</b> download Kiwix books (WikiMed, field medicine manuals, water treatment and more) and search all of them offline, or open a <code>.zim</code> file you already have.</li>
       <li><b>Ask:</b> plain-language questions answered by a free AI model that runs on the phone, only from your guides and books, with every source cited. Without the model, or on phones short of memory, it shows the best passages.</li>

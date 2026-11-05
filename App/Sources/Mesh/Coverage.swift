@@ -2,8 +2,10 @@
 // Pocket Nomad - Mesh module
 // SPDX-License-Identifier: Apache-2.0
 //
-// The coverage scanner: each time the radio hears another node, note where the
-// phone was. That maps where the mesh reaches, which is how you pick spots for
+// The coverage scanner: each time a radio hears another node, note where the
+// phone was. With two radios connected (one Meshtastic, one MeshCore) both
+// record at once, and every sample and ping carries its network, so the map
+// can show or filter each one. That maps where the mesh reaches, which is how you pick spots for
 // repeaters. Everything stays on the phone unless the user turns sharing on,
 // and even then only a privacy-filtered summary (hexagons, no node names or
 // IDs, no times finer than a month, private zones blanked) is ever written out.
@@ -98,7 +100,7 @@ final class CoverageStore {
     private let fileURL: URL
     private let pingsURL: URL
     private let location: () -> CLLocation?
-    private let nodeName: (UInt32) -> String
+    private let nodeName: (UInt32, MeshFirmware) -> String
     private let now: () -> Date
     private let controlsGPS: Bool
     private var usingLocation = false
@@ -114,7 +116,7 @@ final class CoverageStore {
     init(defaults: UserDefaults = .standard,
          fileURL: URL = URL.applicationSupportDirectory.appending(path: "coverage.json"),
          location: @escaping () -> CLLocation? = { LocationService.shared.location },
-         nodeName: @escaping (UInt32) -> String = { MeshService.shared.nodes[$0]?.longName ?? "" },
+         nodeName: @escaping (UInt32, MeshFirmware) -> String = { MeshService.shared.link($1).nodes[$0]?.longName ?? "" },
          now: @escaping () -> Date = Date.init,
          controlsGPS: Bool = true) {
         self.defaults = defaults
@@ -144,13 +146,13 @@ final class CoverageStore {
     }
 
     /// Notes where the phone is now. Ignored when recording is off or there's no
-    /// fresh, reasonably accurate fix; one sample per node per 20 s unless the
-    /// phone has moved more than 25 m.
+    /// fresh, reasonably accurate fix; one sample per node (per network) per
+    /// 20 s unless the phone has moved more than 25 m.
     func record(_ heard: MeshHeard) {
-        guard recording, !optedOut(heard.node), let fix = freshFix() else { return }
+        guard recording, !optedOut(heard.node, heard.firmware), let fix = freshFix() else { return }
         let t = now()
         let lat = fix.coordinate.latitude, lon = fix.coordinate.longitude
-        if let last = samples.last(where: { $0.node == heard.node }),
+        if let last = samples.last(where: { $0.node == heard.node && $0.firmware == heard.firmware }),
            t.timeIntervalSince(last.date) < 20,
            CoverageShare.distance(last.latitude, last.longitude, lat, lon) < 25 { return }
         samples.append(CoverageSample(date: t, latitude: lat, longitude: lon, accuracy: fix.horizontalAccuracy,
@@ -179,7 +181,7 @@ final class CoverageStore {
 
     nonisolated static func optsOut(_ name: String) -> Bool { name.unicodeScalars.contains { optOutMarks.contains($0.value) } }
 
-    func optedOut(_ node: UInt32) -> Bool { Self.optsOut(nodeName(node)) }
+    func optedOut(_ node: UInt32, _ firmware: MeshFirmware) -> Bool { Self.optsOut(nodeName(node, firmware)) }
 
     func deleteAll() {
         samples.removeAll()
@@ -200,7 +202,18 @@ final class CoverageStore {
 
     /// What sharing would publish, built from the current samples and zones.
     var sharedCells: [CoverageShare.Cell] {
-        CoverageShare.cells(from: samples.filter { !optedOut($0.node) }, pings: pings, zones: zones)
+        sharedCells(for: nil)
+    }
+
+    /// The same, for one network only (nil: both).
+    func sharedCells(for network: MeshFirmware?) -> [CoverageShare.Cell] {
+        CoverageShare.cells(from: samples.filter { !optedOut($0.node, $0.firmware) && (network == nil || $0.firmware == network) },
+                            pings: pings.filter { network == nil || $0.firmware == network }, zones: zones)
+    }
+
+    /// How many samples and pings each network has recorded.
+    func counts(_ network: MeshFirmware) -> (samples: Int, pings: Int) {
+        (samples.count { $0.firmware == network }, pings.count { $0.firmware == network })
     }
 
     /// Writes the privacy-filtered GeoJSON to a temporary file for the share sheet.
@@ -234,6 +247,14 @@ final class CoverageStore {
             }
         }
         samples = out
+        // Drive-test pings from both radios, alternating along one route.
+        pings = (0 ..< 12).map { i in
+            let d = Double(i) * 0.004
+            let outcome: MeshPingOutcome = i < 5 ? .reached : (i < 9 ? .relayed : .none)
+            return CoveragePing(date: base.addingTimeInterval(Double(i) * 60), latitude: tower.lat + d * 0.6,
+                                longitude: tower.lon - d, accuracy: 6,
+                                firmware: i.isMultiple(of: 2) ? .meshtastic : .meshcore, outcome: outcome)
+        }
         zones = [CoverageZone(name: "Home (demo)", latitude: 39.7392, longitude: -104.9849, radius: 500)]
         saveZones()
         saveNow()

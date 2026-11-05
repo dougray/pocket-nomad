@@ -59,13 +59,13 @@ import org.nomadpocket.mesh.MeshConversation
 import org.nomadpocket.mesh.MeshDeliveryState
 import org.nomadpocket.mesh.MeshMessage
 import org.nomadpocket.mesh.MeshNode
+import org.nomadpocket.mesh.MeshService
 import org.nomadpocket.mesh.MeshText
 import java.util.Date
 import java.util.Locale
 
 @Composable
-fun MeshChatScreen(conversation: MeshConversation) {
-    val svc = Mesh.service
+fun MeshChatScreen(conversation: MeshConversation, svc: MeshService = Mesh.service) {
     val messages by svc.messagesFlow.collectAsStateWithLifecycle()
     val connection by svc.connectionFlow.collectAsStateWithLifecycle()
     val radio by svc.radioFlow.collectAsStateWithLifecycle()
@@ -125,18 +125,18 @@ fun MeshChatScreen(conversation: MeshConversation) {
             }
         }
     }
-    BlockConfirmation(blocking) { blocking = null }
+    BlockConfirmation(blocking, svc) { blocking = null }
 }
 
-/** Asks before blocking a radio. Blocking deletes its messages on this phone. */
+/** Asks before blocking a radio on one network. Blocking deletes its messages on this phone. */
 @Composable
-fun BlockConfirmation(node: MeshNode?, dismiss: () -> Unit) {
+fun BlockConfirmation(node: MeshNode?, svc: MeshService = Mesh.service, dismiss: () -> Unit) {
     if (node == null) return
     AlertDialog(
         onDismissRequest = dismiss,
         title = { Text("Block ${node.displayName}?") },
         text = { Text("Its messages are deleted from this phone and new ones are ignored. The other person isn't told. You can unblock it from the Nodes list.") },
-        confirmButton = { TextButton(onClick = { Mesh.service.block(node.num); dismiss() }) { Text("Block", color = MeshColors.danger) } },
+        confirmButton = { TextButton(onClick = { svc.block(node.num); dismiss() }) { Text("Block", color = MeshColors.danger) } },
         dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } },
         containerColor = MeshColors.card,
     )

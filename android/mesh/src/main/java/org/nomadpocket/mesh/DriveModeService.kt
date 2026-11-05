@@ -4,8 +4,10 @@
 //
 // The foreground service that keeps drive mode alive with the screen off: an
 // ongoing notification with a Stop action, GPS through LocationManager, and
-// the radio's Bluetooth link kept up. DriveMode starts and stops it; DriveMode
-// itself turns off after 4 hours.
+// the radios' Bluetooth links kept up (both, with a Meshtastic and a MeshCore
+// radio connected: the links live in Mesh, this service keeps the process in
+// the foreground so neither is dropped). DriveMode starts and stops it;
+// DriveMode itself turns off after 4 hours.
 
 package org.nomadpocket.mesh
 
@@ -72,9 +74,11 @@ class DriveModeService : Service() {
             val s = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
             scope = s
             s.launch {
-                combine(Mesh.drive.stateFlow, Mesh.coverage.samplesFlow) { st, samples -> st to samples.size }.collect { (st, n) ->
-                    if (st.active) getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, notification(st, n))
-                }
+                val links = combine(Mesh.radios.links.values.map { it.connectionFlow }) { radiosLine() }
+                combine(Mesh.drive.stateFlow, Mesh.coverage.samplesFlow, links) { st, samples, line -> Triple(st, samples.size, line) }
+                    .collect { (st, n, line) ->
+                        if (st.active) getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, notification(st, n, line))
+                    }
             }
         }
         return START_NOT_STICKY // after a process death drive mode is off; don't come back half-started
@@ -92,7 +96,16 @@ class DriveModeService : Service() {
         super.onDestroy()
     }
 
-    private fun notification(st: DriveState, points: Int = 0): Notification {
+    /** "Meshtastic connected · MeshCore waiting", for the radios in use. */
+    private fun radiosLine(): String = Mesh.radios.inUse.joinToString(" · ") { (fw, link) ->
+        fw.displayName + " " + when (link.connection) {
+            is MeshConnectionState.Connected -> "connected"
+            is MeshConnectionState.Syncing, is MeshConnectionState.Connecting -> "connecting"
+            else -> "waiting"
+        }
+    }.ifEmpty { "No radio connected" }
+
+    private fun notification(st: DriveState, points: Int = 0, radios: String = radiosLine()): Notification {
         val stop = PendingIntent.getService(this, 1, Intent(this, DriveModeService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val open = packageManager.getLaunchIntentForPackage(packageName)?.let {
@@ -105,9 +118,9 @@ class DriveModeService : Service() {
         }
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.mesh_ic_drive)
-            .setContentTitle("Drive mode on")
+            .setContentTitle(if (Mesh.radios.inUse.size > 1) "Drive mode on · both radios" else "Drive mode on")
             .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText("$text\nTurns itself off after 4 hours."))
+            .setStyle(NotificationCompat.BigTextStyle().bigText("$text\n$radios\nTurns itself off after 4 hours."))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)

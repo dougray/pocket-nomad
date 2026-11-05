@@ -2,12 +2,18 @@
 // Pocket Nomad - Mesh module
 // SPDX-License-Identifier: Apache-2.0
 //
-// Owns the radio link, the handshake (Meshtastic or MeshCore), the node list
-// and chat history. Views observe `MeshService.shared`.
+// Owns the radio links, the handshakes (Meshtastic or MeshCore), the node
+// lists and chat history. Views observe `MeshService.shared`.
+//
+// Up to two radios can be connected at once, one per firmware: each is a
+// MeshLink with its own state, node list and settings, and every message is
+// tagged with the network it belongs to. The two networks are never bridged.
+// Single-radio callers keep working: `connection`, `radio`, `nodes`, `send`
+// and friends either aggregate both links or use `defaultNetwork`.
 //
 // Call `MeshService.shared.start()` once at app launch (before the first
 // scene renders) so CoreBluetooth state restoration can hand back the radio
-// connection when iOS relaunches the app in the background.
+// connections when iOS relaunches the app in the background.
 
 import Foundation
 import Observation
@@ -20,11 +26,8 @@ final class MeshService {
     // MARK: Observable state
 
     private(set) var availability: MeshBluetoothAvailability = .unknown
-    private(set) var connection: MeshConnectionState = .idle
     private(set) var discovered: [MeshDiscoveredDevice] = []
-    private(set) var nodes: [UInt32: MeshNode] = [:]
     private(set) var messages: [MeshMessage] = []
-    private(set) var radio = MeshRadioInfo()
     private(set) var lastRead: [String: Date] = [:]
     /// Radios the user blocked: their messages are dropped and they leave the node list.
     private(set) var blocked: Set<UInt32> = []
@@ -34,8 +37,9 @@ final class MeshService {
     var notice: String?
     private(set) var isScanning = false
 
-    private(set) var lastDeviceID: UUID?
-    private(set) var lastDeviceName: String?
+    /// One link per firmware, Meshtastic first. Always both; a link with no
+    /// remembered radio is an empty slot.
+    let links: [MeshLink]
 
     // MARK: Internals
 
@@ -44,36 +48,23 @@ final class MeshService {
     private let defaults: UserDefaults
     private let location: () -> MeshLocationProvider
     private var started = false
-    private var autoReconnect: Bool
-    private var configID: UInt32 = 0
-    private var handshakeDone = false
-    private var handshakeAttempts = 0
-    private var isReading = false
-    private var readAgain = false
-    private var currentDeviceName = ""
     private var saveTask: Task<Void, Never>?
-    private var handshakeTimeout: Task<Void, Never>?
     @ObservationIgnored private lazy var locationProvider: MeshLocationProvider = location()
-    /// Called each time the radio hears another node live (for the coverage scanner).
+    /// Called each time a radio hears another node live (for the coverage scanner).
+    /// `MeshHeard.firmware` says which radio heard it.
     @ObservationIgnored var onHeard: ((MeshHeard) -> Void)?
 
-    // MeshCore: one command in flight at a time, each waiting for its reply.
-    private struct CoreCommand {
-        let frame: Data
-        /// Response codes that finish this command (errors always do).
-        let finishedBy: Set<UInt8>
-        var timeout: Duration = .seconds(5)
-        var onReply: ((MeshCoreFrame) -> Void)?
-    }
-    @ObservationIgnored private var coreQueue: [CoreCommand] = []
-    @ObservationIgnored private var corePending: CoreCommand?
-    @ObservationIgnored private var coreTimer: Task<Void, Never>?
-
     private enum Keys {
+        // Before two-radio support: one remembered radio.
         static let lastDeviceID = "mesh.lastDeviceID"
         static let lastDeviceName = "mesh.lastDeviceName"
         static let autoReconnect = "mesh.autoReconnect"
+        static let migrated = "mesh.radioSlotsMigrated"
         static let blocked = "mesh.blocked"
+        // One slot per firmware.
+        static func deviceID(_ f: MeshFirmware) -> String { "mesh.\(f.rawValue).deviceID" }
+        static func deviceName(_ f: MeshFirmware) -> String { "mesh.\(f.rawValue).deviceName" }
+        static func autoReconnect(_ f: MeshFirmware) -> String { "mesh.\(f.rawValue).autoReconnect" }
     }
 
     init(transport: MeshTransport? = nil,
@@ -84,30 +75,113 @@ final class MeshService {
         self.store = store
         self.defaults = defaults
         self.location = location
-        self.autoReconnect = defaults.bool(forKey: Keys.autoReconnect)
-        if let s = defaults.string(forKey: Keys.lastDeviceID) { lastDeviceID = UUID(uuidString: s) }
-        lastDeviceName = defaults.string(forKey: Keys.lastDeviceName)
+        links = MeshFirmware.allCases.map { MeshLink(firmware: $0) }
         blocked = Set((defaults.array(forKey: Keys.blocked) as? [Int] ?? []).map { UInt32(truncatingIfNeeded: $0) })
 
         let snap = store.load()
-        messages = snap.messages
-        nodes = Dictionary(snap.nodes.map { ($0.num, $0) }, uniquingKeysWith: { _, b in b })
-        radio = snap.radio
-        lastRead = snap.lastRead
+        // Files from before two-radio support describe one radio; this is its network.
+        let legacy = snap.radio.firmware ?? .meshtastic
+        if let networks = snap.networks {
+            for net in networks { load(net.nodes, net.radio, into: link(net.firmware)) }
+        } else if !snap.nodes.isEmpty || snap.radio != MeshRadioInfo() {
+            load(snap.nodes, snap.radio, into: link(legacy))
+        }
+        messages = snap.messages.map { m in
+            var m = m
+            if m.network == nil { m.network = legacy }
+            return m
+        }
+        lastRead = Dictionary(snap.lastRead.map { key, date in
+            (key.contains(".") ? key : "\(legacy.rawValue).\(key)", date)
+        }, uniquingKeysWith: max)
+
+        for l in links {
+            if let s = defaults.string(forKey: Keys.deviceID(l.firmware)) { l.deviceID = UUID(uuidString: s) }
+            l.deviceName = defaults.string(forKey: Keys.deviceName(l.firmware))
+            l.autoReconnect = defaults.bool(forKey: Keys.autoReconnect(l.firmware))
+        }
+        migrateSingleRadio(into: legacy)
 
         self.transport.onEvent = { [weak self] event in self?.handle(event) }
     }
 
+    private func load(_ nodes: [MeshNode], _ radio: MeshRadioInfo, into l: MeshLink) {
+        l.nodes = Dictionary(nodes.map { n in
+            var n = n
+            n.network = l.firmware
+            return (n.num, n)
+        }, uniquingKeysWith: { _, b in b })
+        l.radio = radio
+        l.radio.firmware = l.firmware
+    }
+
+    /// The one remembered radio of older versions moves into its firmware's slot, once.
+    private func migrateSingleRadio(into firmware: MeshFirmware) {
+        guard !defaults.bool(forKey: Keys.migrated) else { return }
+        defer { defaults.set(true, forKey: Keys.migrated) }
+        guard let s = defaults.string(forKey: Keys.lastDeviceID), let id = UUID(uuidString: s) else { return }
+        let l = link(firmware)
+        if l.deviceID == nil {
+            l.deviceID = id
+            l.deviceName = defaults.string(forKey: Keys.lastDeviceName)
+            l.autoReconnect = defaults.bool(forKey: Keys.autoReconnect)
+            saveSlot(l)
+        }
+        defaults.removeObject(forKey: Keys.lastDeviceID)
+        defaults.removeObject(forKey: Keys.lastDeviceName)
+        defaults.removeObject(forKey: Keys.autoReconnect)
+    }
+
+    // MARK: - Links
+
+    func link(_ firmware: MeshFirmware) -> MeshLink {
+        links.first { $0.firmware == firmware }!
+    }
+
+    /// The link that owns this Bluetooth device, if any.
+    func link(forDevice id: UUID) -> MeshLink? {
+        links.first { $0.deviceID == id }
+    }
+
+    /// Radios the user has set up (connected or not), Meshtastic first.
+    var rememberedLinks: [MeshLink] { links.filter(\.isRemembered) }
+    /// Radios with a working Bluetooth link (syncing or connected).
+    var activeLinks: [MeshLink] { links.filter { $0.connection.isLinkUp } }
+    var connectedLinks: [MeshLink] { links.filter { $0.connection.isConnected } }
+
+    /// Networks to show chats and nodes for: set up, or with saved history.
+    var networksInUse: [MeshFirmware] {
+        links.filter { l in l.hasData || messages.contains { $0.network == l.firmware } }.map(\.firmware)
+    }
+
+    /// The network single-radio callers mean: the only active radio, else
+    /// Meshtastic when both are up, else the radio that is set up.
+    var defaultNetwork: MeshFirmware {
+        if let up = activeLinks.first { return up.firmware }
+        if let busy = links.first(where: { $0.connection != .idle && $0.isRemembered }) { return busy.firmware }
+        if let remembered = rememberedLinks.first { return remembered.firmware }
+        if let withData = links.first(where: { $0.radio.myNodeNum != 0 }) { return withData.firmware }
+        return .meshtastic
+    }
+
+    /// The radio that connecting to `device` would replace: one per firmware.
+    func replaced(by device: MeshDiscoveredDevice) -> MeshLink? {
+        if link(forDevice: device.id) != nil { return nil }
+        let l = link(device.firmware)
+        return l.isRemembered ? l : nil
+    }
+
     // MARK: - Public API
 
-    /// Brings Bluetooth up and reconnects to the last radio if the user had
-    /// one connected. Safe to call more than once.
+    /// Brings Bluetooth up and reconnects to the radios the user had
+    /// connected. Safe to call more than once.
     func start() {
         guard !started else { return }
         started = true
         transport.start()
-        if autoReconnect, let id = lastDeviceID {
-            connection = .reconnecting(name: lastDeviceName ?? "radio")
+        for l in links where l.autoReconnect {
+            guard let id = l.deviceID else { continue }
+            l.connection = .reconnecting(name: l.displayName)
             transport.connect(id: id)
         }
     }
@@ -116,50 +190,95 @@ final class MeshService {
         start()
         discovered.removeAll()
         isScanning = true
-        if case .idle = connection { connection = .scanning }
         transport.startScan()
     }
 
     func stopScan() {
         isScanning = false
         transport.stopScan()
-        if case .scanning = connection { connection = .idle }
     }
 
+    /// Connects to a radio. If a radio of the same firmware is already set up,
+    /// it is disconnected and forgotten (the UI asks first): one per firmware.
     func connect(to device: MeshDiscoveredDevice) {
-        connect(id: device.id, name: device.name)
+        connect(id: device.id, name: device.name, firmware: device.firmware)
     }
 
+    /// Reconnects every remembered radio that isn't connected.
     func reconnectLast() {
-        guard let id = lastDeviceID else { return }
-        connect(id: id, name: lastDeviceName ?? "radio")
+        for l in rememberedLinks where !l.connection.isLinkUp { reconnect(l.firmware) }
     }
 
-    func disconnect() {
-        autoReconnect = false
-        defaults.set(false, forKey: Keys.autoReconnect)
-        handshakeTimeout?.cancel()
-        coreReset()
-        transport.disconnect()
-        connection = .idle
+    func reconnect(_ network: MeshFirmware) {
+        let l = link(network)
+        guard let id = l.deviceID else { return }
+        connect(id: id, name: l.displayName, firmware: network)
     }
 
-    /// Forgets the remembered radio entirely.
-    func forgetDevice() {
-        disconnect()
-        lastDeviceID = nil
-        lastDeviceName = nil
-        defaults.removeObject(forKey: Keys.lastDeviceID)
-        defaults.removeObject(forKey: Keys.lastDeviceName)
+    /// Disconnects one radio, or every radio when `network` is nil. The radio
+    /// stays remembered (offered as "Reconnect") but won't reconnect by itself.
+    func disconnect(_ network: MeshFirmware? = nil) {
+        for l in links where network == nil || l.firmware == network {
+            l.autoReconnect = false
+            saveSlot(l)
+            l.handshakeTimeout?.cancel()
+            coreReset(l)
+            if let id = l.deviceID, l.connection != .idle { transport.disconnect(id: id) }
+            l.isReading = false
+            l.connection = .idle
+        }
     }
 
-    var myNodeNum: UInt32 { radio.myNodeNum }
-    var myNode: MeshNode? { nodes[radio.myNodeNum] }
+    /// Forgets one remembered radio, or all of them when `network` is nil.
+    func forgetDevice(_ network: MeshFirmware? = nil) {
+        disconnect(network)
+        for l in links where network == nil || l.firmware == network {
+            l.deviceID = nil
+            l.deviceName = nil
+            saveSlot(l)
+        }
+    }
 
-    /// Other radios, most recently heard first.
+    /// Aggregate link state: the best state of any radio (connected beats
+    /// syncing beats connecting...), naming every radio in that state.
+    var connection: MeshConnectionState {
+        func named(_ match: (MeshConnectionState) -> Bool) -> String? {
+            let names = links.filter { match($0.connection) }.map(\.displayName)
+            return names.isEmpty ? nil : names.joined(separator: " + ")
+        }
+        if let n = named({ $0.isConnected }) { return .connected(name: n) }
+        if let n = named({ if case .syncing = $0 { true } else { false } }) { return .syncing(name: n) }
+        if let n = named({ if case .connecting = $0 { true } else { false } }) { return .connecting(name: n) }
+        if let n = named({ if case .reconnecting = $0 { true } else { false } }) { return .reconnecting(name: n) }
+        if let failed = links.lazy.compactMap({ l -> String? in if case .failed(let why) = l.connection { why } else { nil } }).first {
+            return .failed(failed)
+        }
+        return isScanning ? .scanning : .idle
+    }
+
+    /// The default network's radio settings (see `link(_:)` for a given one).
+    var radio: MeshRadioInfo { link(defaultNetwork).radio }
+    var myNodeNum: UInt32 { link(defaultNetwork).radio.myNodeNum }
+    var myNode: MeshNode? { link(defaultNetwork).myNode }
+
+    /// The default network's remembered radio.
+    var lastDeviceID: UUID? { link(defaultNetwork).deviceID }
+    var lastDeviceName: String? { link(defaultNetwork).deviceName }
+
+    /// Every node on every network, by number (the default network wins the
+    /// unlikely clash of the same number on both).
+    var nodes: [UInt32: MeshNode] {
+        var out = link(defaultNetwork).nodes
+        for l in links where l.firmware != defaultNetwork {
+            out.merge(l.nodes) { mine, _ in mine }
+        }
+        return out
+    }
+
+    /// Other radios on both networks, most recently heard first.
     var sortedNodes: [MeshNode] {
-        nodes.values
-            .filter { $0.num != radio.myNodeNum && !blocked.contains($0.num) }
+        links.flatMap { l in l.nodes.values.filter { $0.num != l.radio.myNodeNum } }
+            .filter { !blocked.contains($0.num) }
             .sorted { ($0.lastHeard ?? .distantPast) > ($1.lastHeard ?? .distantPast) }
     }
 
@@ -173,7 +292,7 @@ final class MeshService {
     /// Hides a radio on this phone: deletes its messages, drops new ones and takes it
     /// off the node list. Nothing is sent; the other radio can't tell.
     func block(_ num: UInt32) {
-        guard num != 0, num != radio.myNodeNum else { return }
+        guard num != 0, !links.contains(where: { $0.radio.myNodeNum == num }) else { return }
         blocked.insert(num)
         messages.removeAll { $0.from == num || ($0.isOutgoing && $0.to == num) }
         saveBlocked()
@@ -189,58 +308,72 @@ final class MeshService {
         defaults.set(blocked.map { Int($0) }, forKey: Keys.blocked)
     }
 
-    func node(_ num: UInt32) -> MeshNode {
-        nodes[num] ?? MeshNode(num: num)
+    /// A node on a network, or on any network when `network` is nil.
+    func node(_ num: UInt32, network: MeshFirmware? = nil) -> MeshNode {
+        if let network { return link(network).nodes[num] ?? MeshNode(num: num, network: network) }
+        return nodes[num] ?? MeshNode(num: num)
     }
 
-    func messages(in conversation: MeshConversation) -> [MeshMessage] {
-        messages.filter { Self.conversation(of: $0, myNum: radio.myNodeNum) == conversation }
+    /// One thread on one network (the default network when nil).
+    func messages(in conversation: MeshConversation, network: MeshFirmware? = nil) -> [MeshMessage] {
+        let net = network ?? defaultNetwork
+        let myNum = link(net).radio.myNodeNum
+        return messages.filter { $0.network == net && Self.conversation(of: $0, myNum: myNum) == conversation }
     }
 
-    /// Direct-message threads, newest first.
-    var directThreads: [(node: MeshNode, last: MeshMessage)] {
-        var latest: [UInt32: MeshMessage] = [:]
+    /// Direct-message threads on both networks, newest first.
+    var directThreads: [(node: MeshNode, last: MeshMessage, network: MeshFirmware)] {
+        var latest: [String: (UInt32, MeshMessage, MeshFirmware)] = [:]
         for m in messages {
-            guard case .direct(let n)? = Self.conversation(of: m, myNum: radio.myNodeNum) else { continue }
-            if let cur = latest[n], cur.date > m.date { continue }
-            latest[n] = m
+            let net = m.network ?? defaultNetwork
+            guard case .direct(let n)? = Self.conversation(of: m, myNum: link(net).radio.myNodeNum) else { continue }
+            let key = MeshConversation.direct(n).key(on: net)
+            if let cur = latest[key], cur.1.date > m.date { continue }
+            latest[key] = (n, m, net)
         }
-        return latest.map { (node: node($0.key), last: $0.value) }.sorted { $0.last.date > $1.last.date }
+        return latest.values.map { (node: node($0.0, network: $0.2), last: $0.1, network: $0.2) }
+            .sorted { $0.last.date > $1.last.date }
     }
 
-    func unreadCount(_ conversation: MeshConversation) -> Int {
-        let since = lastRead[conversation.key] ?? .distantPast
-        return messages(in: conversation).filter { !$0.isOutgoing && $0.date > since }.count
+    func unreadCount(_ conversation: MeshConversation, network: MeshFirmware? = nil) -> Int {
+        let net = network ?? defaultNetwork
+        let since = lastRead[conversation.key(on: net)] ?? .distantPast
+        return messages(in: conversation, network: net).filter { !$0.isOutgoing && $0.date > since }.count
     }
 
     var totalUnread: Int {
-        var keys: Set<MeshConversation> = [.channel(0)]
-        for t in directThreads { keys.insert(.direct(t.node.num)) }
-        return keys.reduce(0) { $0 + unreadCount($1) }
+        var total = networksInUse.reduce(0) { $0 + unreadCount(.channel(0), network: $1) }
+        for t in directThreads { total += unreadCount(.direct(t.node.num), network: t.network) }
+        return total
     }
 
-    func markRead(_ conversation: MeshConversation) {
-        lastRead[conversation.key] = Date()
+    func markRead(_ conversation: MeshConversation, network: MeshFirmware? = nil) {
+        lastRead[conversation.key(on: network ?? defaultNetwork)] = Date()
         scheduleSave()
     }
 
-    var canSend: Bool { connection.isConnected }
+    /// Some radio is connected and can send.
+    var canSend: Bool { links.contains { $0.connection.isConnected } }
 
-    /// Which firmware the current (or last) radio runs.
-    var firmware: MeshFirmware { radio.firmware ?? .meshtastic }
+    func canSend(on network: MeshFirmware) -> Bool { link(network).connection.isConnected }
 
-    var maxTextBytes: Int { firmware.maxTextBytes }
+    /// Which firmware the default radio runs.
+    var firmware: MeshFirmware { defaultNetwork }
 
-    /// Sends a text. Returns false when not connected or the text is too long.
+    var maxTextBytes: Int { defaultNetwork.maxTextBytes }
+
+    /// Sends a text on one network (the default network when nil). Returns
+    /// false when that radio isn't connected or the text is too long.
     @discardableResult
-    func send(_ rawText: String, to conversation: MeshConversation) -> Bool {
+    func send(_ rawText: String, to conversation: MeshConversation, network: MeshFirmware? = nil) -> Bool {
+        let l = link(network ?? defaultNetwork)
         let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, MeshText.byteCount(text) <= maxTextBytes else { return false }
-        guard connection.isLinkUp else {
-            notice = "Not connected to a radio."
+        guard !text.isEmpty, MeshText.byteCount(text) <= l.firmware.maxTextBytes else { return false }
+        guard l.connection.isLinkUp, let device = l.deviceID else {
+            notice = rememberedLinks.count > 1 ? "Not connected to the \(l.firmware.displayName) radio." : "Not connected to a radio."
             return false
         }
-        if firmware == .meshcore { return coreSend(text, to: conversation) }
+        if l.firmware == .meshcore { return coreSend(text, to: conversation, on: l) }
         let (to, channel): (UInt32, UInt32) = {
             switch conversation {
             case .channel(let i): return (MeshConstants.broadcastNum, i)
@@ -253,15 +386,15 @@ final class MeshService {
             channel: channel,
             decoded: MeshPBData(portnum: MeshPort.textMessage.rawValue, payload: Data(text.utf8)),
             id: id,
-            hopLimit: radio.hopLimit.flatMap { $0 > 0 ? $0 : nil } ?? MeshConstants.defaultHopLimit,
+            hopLimit: l.radio.hopLimit.flatMap { $0 > 0 ? $0 : nil } ?? MeshConstants.defaultHopLimit,
             wantAck: true
         )
-        transport.write(MeshPBToRadio.packet(packet).encode())
-        messages.append(MeshMessage(packetID: id, from: radio.myNodeNum, to: to, channel: channel,
-                                    text: text, date: Date(), isOutgoing: true, delivery: .sent))
+        transport.write(MeshPBToRadio.packet(packet).encode(), to: device)
+        messages.append(MeshMessage(packetID: id, from: l.radio.myNodeNum, to: to, channel: channel,
+                                    text: text, date: Date(), isOutgoing: true, delivery: .sent, network: .meshtastic))
         trimHistory()
         scheduleSave()
-        startReading()
+        startReading(l)
         return true
     }
 
@@ -272,49 +405,57 @@ final class MeshService {
 
     var locationDenied: Bool { locationProvider.isDenied }
 
-    /// Sends the SOS to everyone on the primary channel, with a GPS fix if
-    /// allowed. Returns the text sent, or nil if it could not be sent.
+    /// Sends the SOS on the primary channel of every connected radio, with a
+    /// GPS fix if allowed. Returns the first text sent, or nil if none went out.
     func sendSOS(includeLocation: Bool) async -> String? {
+        await sendSOSEverywhere(includeLocation: includeLocation).first(where: \.sent)?.text
+    }
+
+    /// Sends the SOS on every connected radio and says how each one did.
+    func sendSOSEverywhere(includeLocation: Bool) async -> [MeshSOSResult] {
         var lat: Double?
         var lon: Double?
         if includeLocation, let loc = await locationProvider.currentLocation() {
             lat = loc.coordinate.latitude
             lon = loc.coordinate.longitude
         }
-        let text = MeshText.truncated(MeshSOS.text(latitude: lat, longitude: lon, senderName: myNode?.longName),
-                                      maxBytes: maxTextBytes)
-        return send(text, to: .channel(0)) ? text : nil
+        return sendSOS(latitude: lat, longitude: lon)
+    }
+
+    /// The SOS with given coordinates (or none), on every radio with a link up.
+    /// Each network gets its own text: its own limit and its own radio's name.
+    func sendSOS(latitude: Double?, longitude: Double?) -> [MeshSOSResult] {
+        activeLinks.map { l in
+            let text = MeshText.truncated(MeshSOS.text(latitude: latitude, longitude: longitude, senderName: l.myNode?.longName),
+                                          maxBytes: l.firmware.maxTextBytes)
+            let ok = send(text, to: .channel(0), network: l.firmware)
+            return MeshSOSResult(network: l.firmware, radioName: l.displayName, text: ok ? text : nil)
+        }
     }
 
     // MARK: Drive-test pings
-
-    private struct PendingPing {
-        var target: UInt32?
-        var best: MeshPingOutcome = .none
-        var done: (MeshPingOutcome) -> Void
-        var timeout: Task<Void, Never>?
-    }
-    @ObservationIgnored private var pendingPings: [UInt32: PendingPing] = [:]
 
     /// Meshtastic's private app port: other apps ignore it, so pings never show up as chat.
     static let pingPort: UInt32 = 256
     static let pingText = "Pocket Nomad ping"
 
-    /// Sends one drive-test ping and reports what came back. With no target
-    /// (Meshtastic only) it asks whether any radio repeats it: only neighbours
-    /// relay it once (hop limit 1), so it doesn't flood the mesh. With a target,
-    /// `.reached` means that radio acknowledged it. MeshCore pings are a short
-    /// direct text, so they need a target and show up on that radio.
+    /// Sends one drive-test ping from one radio (the default network when nil)
+    /// and reports what came back. With no target (Meshtastic only) it asks
+    /// whether any radio repeats it: only neighbours relay it once (hop limit
+    /// 1), so it doesn't flood the mesh. With a target, `.reached` means that
+    /// radio acknowledged it. MeshCore pings are a short direct text, so they
+    /// need a target and show up on that radio.
     /// Returns false if the ping could not be sent.
-    func ping(_ target: UInt32?, done: @escaping (MeshPingOutcome) -> Void) -> Bool {
-        guard case .connected = connection else { return false }
-        if firmware == .meshcore {
-            guard let target, let prefix = nodes[target]?.publicKeyPrefix else { return false }
-            coreEnqueue(MeshCoreCommand.sendText(Self.pingText, toKeyPrefix: prefix, date: Date()), finishedBy: [6]) { [weak self] reply in
+    func ping(_ target: UInt32?, on network: MeshFirmware? = nil, done: @escaping (MeshPingOutcome) -> Void) -> Bool {
+        let l = link(network ?? defaultNetwork)
+        guard case .connected = l.connection, let device = l.deviceID else { return false }
+        if l.firmware == .meshcore {
+            guard let target, let prefix = l.nodes[target]?.publicKeyPrefix else { return false }
+            coreEnqueue(l, MeshCoreCommand.sendText(Self.pingText, toKeyPrefix: prefix, date: Date()), finishedBy: [6]) { [weak self] reply in
                 guard let self else { return }
                 if case .sent(_, let ack, let timeoutMS) = reply, ack != 0 {
                     let wait = min(60, max(20, Double(timeoutMS) / 1000 * 1.5))
-                    self.trackPing(ack, target: target, wait: wait, done: done)
+                    self.trackPing(ack, on: l, target: target, wait: wait, done: done)
                 } else {
                     done(.none)
                 }
@@ -327,56 +468,58 @@ final class MeshService {
             channel: 0,
             decoded: MeshPBData(portnum: Self.pingPort, payload: Data("pn-ping".utf8)),
             id: id,
-            hopLimit: target == nil ? 1 : (radio.hopLimit.flatMap { $0 > 0 ? $0 : nil } ?? MeshConstants.defaultHopLimit),
+            hopLimit: target == nil ? 1 : (l.radio.hopLimit.flatMap { $0 > 0 ? $0 : nil } ?? MeshConstants.defaultHopLimit),
             wantAck: true
         )
-        transport.write(MeshPBToRadio.packet(packet).encode())
+        transport.write(MeshPBToRadio.packet(packet).encode(), to: device)
         // The radio retries for about 30 s before giving up.
-        trackPing(id, target: target, wait: 45, done: done)
-        startReading()
+        trackPing(id, on: l, target: target, wait: 45, done: done)
+        startReading(l)
         return true
     }
 
-    private func trackPing(_ id: UInt32, target: UInt32?, wait: Double, done: @escaping (MeshPingOutcome) -> Void) {
-        pendingPings[id] = PendingPing(target: target, done: done, timeout: Task { [weak self] in
+    private func trackPing(_ id: UInt32, on l: MeshLink, target: UInt32?, wait: Double, done: @escaping (MeshPingOutcome) -> Void) {
+        l.pendingPings[id] = MeshLink.PendingPing(target: target, done: done, timeout: Task { [weak self] in
             try? await Task.sleep(for: .seconds(wait))
             guard !Task.isCancelled else { return }
-            self?.finishPing(id)
+            self?.finishPing(id, on: l)
         })
     }
 
-    private func finishPing(_ id: UInt32, _ outcome: MeshPingOutcome? = nil) {
-        guard let p = pendingPings.removeValue(forKey: id) else { return }
+    private func finishPing(_ id: UInt32, on l: MeshLink, _ outcome: MeshPingOutcome? = nil) {
+        guard let p = l.pendingPings.removeValue(forKey: id) else { return }
         p.timeout?.cancel()
         p.done(outcome ?? p.best)
     }
 
     /// Routing answers for a ping. Returns true if the packet was a ping's.
-    private func handlePingRouting(_ p: MeshPBPacket, _ data: MeshPBData) -> Bool {
-        guard var pending = pendingPings[data.requestID] else { return false }
+    private func handlePingRouting(_ p: MeshPBPacket, _ data: MeshPBData, on l: MeshLink) -> Bool {
+        guard var pending = l.pendingPings[data.requestID] else { return false }
         guard let routing = try? MeshPBRouting.decode(data.payload), let reason = routing.errorReason else { return true }
         if reason == MeshRoutingError.none.rawValue {
             if let target = pending.target, p.from == target {
-                finishPing(data.requestID, .reached)
+                finishPing(data.requestID, on: l, .reached)
             } else if pending.target == nil {
-                finishPing(data.requestID, .relayed)
+                finishPing(data.requestID, on: l, .relayed)
             } else {
                 pending.best = .relayed // a neighbour repeated it; keep waiting for the target
-                pendingPings[data.requestID] = pending
+                l.pendingPings[data.requestID] = pending
             }
         } else {
-            finishPing(data.requestID)
+            finishPing(data.requestID, on: l)
         }
         return true
     }
 
     func clearPairingHint() { pairingHint = nil }
 
-    /// Deletes every stored message and node from this phone. The radio keeps
-    /// its own node list; reconnecting downloads that again.
+    /// Deletes every stored message and node from this phone. The radios keep
+    /// their own node lists; reconnecting downloads those again.
     func deleteHistory() {
         messages.removeAll()
-        nodes = nodes.filter { $0.key == radio.myNodeNum && $0.key != 0 }
+        for l in links {
+            l.nodes = l.nodes.filter { $0.key == l.radio.myNodeNum && $0.key != 0 }
+        }
         lastRead.removeAll()
         saveNow()
     }
@@ -388,8 +531,10 @@ final class MeshService {
         case .availability(let a):
             availability = a
             if a != .poweredOn {
-                isReading = false
-                if connection.isLinkUp { connection = .reconnecting(name: currentDeviceName) }
+                for l in links {
+                    l.isReading = false
+                    if l.connection.isLinkUp { l.connection = .reconnecting(name: l.displayName) }
+                }
             }
 
         case .discovered(let d):
@@ -400,185 +545,240 @@ final class MeshService {
             }
             discovered.sort { ($0.rssi == 0 ? -999 : $0.rssi) > ($1.rssi == 0 ? -999 : $1.rssi) }
 
-        case .connecting(_, let name):
-            currentDeviceName = name
-            connection = .connecting(name: name)
+        case .connecting(let id, let name):
+            guard let l = link(forDevice: id) else { return } // e.g. restored by iOS: adopted when ready
+            l.deviceName = name
+            l.connection = .connecting(name: name)
 
         case .ready(let id, let name, let firmware):
-            currentDeviceName = name
-            rememberDevice(id: id, name: name)
+            let l = adopt(id, name: name, firmware: firmware)
             pairingHint = nil
             if isScanning { stopScan() }
-            radio.firmware = firmware
-            if firmware == .meshcore { coreBeginHandshake() } else { beginHandshake() }
+            l.radio.firmware = firmware
+            if firmware == .meshcore { coreBeginHandshake(l) } else { beginHandshake(l) }
 
-        case .frame(let data):
-            coreHandle(data)
+        case .frame(let id, let data):
+            guard let l = link(forDevice: id) else { return }
+            coreHandle(data, on: l)
 
-        case .disconnected(_, let reason, let willReconnect):
-            isReading = false
-            handshakeTimeout?.cancel()
-            coreReset()
+        case .disconnected(let id, let reason, let willReconnect):
+            guard let l = link(forDevice: id) else { return }
+            l.isReading = false
+            l.handshakeTimeout?.cancel()
+            coreReset(l)
             if willReconnect {
-                connection = .reconnecting(name: currentDeviceName)
+                l.connection = .reconnecting(name: l.displayName)
             } else {
-                connection = .idle
-                if let reason { notice = reason }
+                l.connection = .idle
+                if let reason { notice = labelled(reason, l) }
             }
 
-        case .connectFailed(_, let reason):
-            notice = reason
-            connection = autoReconnect ? .reconnecting(name: currentDeviceName) : .failed(reason)
+        case .connectFailed(let id, let reason):
+            guard let l = link(forDevice: id) else { return }
+            notice = labelled(reason, l)
+            l.connection = l.autoReconnect ? .reconnecting(name: l.displayName) : .failed(reason)
 
-        case .fromRadio(let data):
+        case .fromRadio(let id, let data):
+            guard let l = link(forDevice: id) else { return }
             if data.isEmpty {
-                isReading = false
-                if readAgain {
-                    readAgain = false
-                    startReading()
-                } else if !handshakeDone, connection.isLinkUp {
+                l.isReading = false
+                if l.readAgain {
+                    l.readAgain = false
+                    startReading(l)
+                } else if !l.handshakeDone, l.connection.isLinkUp {
                     // Radio may still be preparing its config; poll briefly.
                     Task { [weak self] in
                         try? await Task.sleep(for: .milliseconds(300))
-                        self?.startReading()
+                        self?.startReading(l)
                     }
                 }
                 return
             }
             do {
                 let msg = try MeshPBFromRadio.decode(data)
-                handleFromRadio(msg)
+                handleFromRadio(msg, on: l)
             } catch {
                 // Corrupt or partial packet: skip it and keep draining.
             }
-            transport.readFromRadio()
+            transport.readFromRadio(id: id)
 
-        case .fromNumChanged:
-            startReading()
+        case .fromNumChanged(let id):
+            guard let l = link(forDevice: id) else { return }
+            startReading(l)
 
-        case .pairingProblem(let msg):
-            pairingHint = msg
+        case .pairingProblem(let id, let msg):
+            pairingHint = link(forDevice: id).map { labelled(msg, $0) } ?? msg
 
-        case .writeFailed(let msg):
+        case .writeFailed(let id, let msg):
+            let l = link(forDevice: id)
             notice = "Could not send to the radio: \(msg)"
-            if let i = messages.lastIndex(where: { $0.isOutgoing && $0.delivery == .sent }) {
+            if let i = messages.lastIndex(where: { $0.isOutgoing && $0.delivery == .sent && (l == nil || $0.network == l?.firmware) }) {
                 messages[i].delivery = .failed("Not sent")
             }
         }
     }
 
+    /// Prefixes a radio's name when two are set up, so it's clear which one spoke.
+    private func labelled(_ text: String, _ l: MeshLink) -> String {
+        rememberedLinks.count > 1 ? "\(l.displayName): \(text)" : text
+    }
+
+    /// Puts a ready radio in its firmware's slot. Normally it is already there;
+    /// it moves if it runs the other firmware than its advert suggested, or if
+    /// iOS restored a radio this app version didn't know about.
+    private func adopt(_ id: UUID, name: String, firmware: MeshFirmware) -> MeshLink {
+        let target = link(firmware)
+        if let previous = link(forDevice: id), previous !== target {
+            previous.deviceID = nil
+            previous.deviceName = nil
+            previous.connection = .idle
+            saveSlot(previous)
+        }
+        if let old = target.deviceID, old != id {
+            // One radio per firmware: the newcomer replaces the old one.
+            notice = "Replaced \(target.displayName) with \(name): one \(firmware.displayName) radio at a time."
+            dropLink(target)
+        }
+        target.deviceID = id
+        target.deviceName = name
+        target.autoReconnect = true
+        saveSlot(target)
+        return target
+    }
+
     // MARK: - Handshake and reading
 
-    private func connect(id: UUID, name: String) {
+    private func connect(id: UUID, name: String, firmware: MeshFirmware) {
         start()
-        autoReconnect = true
-        defaults.set(true, forKey: Keys.autoReconnect)
-        rememberDevice(id: id, name: name)
-        currentDeviceName = name
-        connection = .connecting(name: name)
+        // A radio already in a slot stays there (its slot was decided by its real firmware).
+        let l = link(forDevice: id) ?? link(firmware)
+        if let old = l.deviceID, old != id { dropLink(l) }
+        l.deviceID = id
+        l.deviceName = name
+        l.autoReconnect = true
+        saveSlot(l)
+        l.connection = .connecting(name: name)
         transport.connect(id: id)
     }
 
-    private func rememberDevice(id: UUID, name: String) {
-        lastDeviceID = id
-        lastDeviceName = name
-        defaults.set(id.uuidString, forKey: Keys.lastDeviceID)
-        defaults.set(name, forKey: Keys.lastDeviceName)
+    /// Disconnects a slot's current radio before another takes its place.
+    private func dropLink(_ l: MeshLink) {
+        l.handshakeTimeout?.cancel()
+        coreReset(l)
+        for id in l.pendingPings.keys { finishPing(id, on: l, MeshPingOutcome.none) }
+        if let old = l.deviceID { transport.disconnect(id: old) }
+        l.isReading = false
+        l.connection = .idle
     }
 
-    private func beginHandshake() {
-        handshakeDone = false
-        handshakeAttempts += 1
-        connection = .syncing(name: currentDeviceName)
-        configID = Self.newPacketID()
-        transport.write(MeshPBToRadio.wantConfigID(configID).encode())
-        startReading()
+    private func saveSlot(_ l: MeshLink) {
+        if let id = l.deviceID {
+            defaults.set(id.uuidString, forKey: Keys.deviceID(l.firmware))
+        } else {
+            defaults.removeObject(forKey: Keys.deviceID(l.firmware))
+        }
+        if let name = l.deviceName {
+            defaults.set(name, forKey: Keys.deviceName(l.firmware))
+        } else {
+            defaults.removeObject(forKey: Keys.deviceName(l.firmware))
+        }
+        defaults.set(l.autoReconnect, forKey: Keys.autoReconnect(l.firmware))
+    }
 
-        handshakeTimeout?.cancel()
-        let attempt = handshakeAttempts
-        handshakeTimeout = Task { [weak self] in
+    private func beginHandshake(_ l: MeshLink) {
+        guard let device = l.deviceID else { return }
+        l.handshakeDone = false
+        l.handshakeAttempts += 1
+        l.connection = .syncing(name: l.displayName)
+        l.configID = Self.newPacketID()
+        transport.write(MeshPBToRadio.wantConfigID(l.configID).encode(), to: device)
+        startReading(l)
+
+        l.handshakeTimeout?.cancel()
+        let attempt = l.handshakeAttempts
+        l.handshakeTimeout = Task { [weak self] in
             try? await Task.sleep(for: .seconds(30))
-            guard let self, !Task.isCancelled, !self.handshakeDone, attempt == self.handshakeAttempts else { return }
+            guard let self, !Task.isCancelled, !l.handshakeDone, attempt == l.handshakeAttempts else { return }
             if attempt < 2 {
-                self.beginHandshake()
+                self.beginHandshake(l)
             } else {
                 // Messages may still flow; let the user try.
-                self.handshakeDone = true
-                self.connection = .connected(name: self.currentDeviceName)
-                self.notice = "The radio did not finish sending its settings. Messages may still work."
+                l.handshakeDone = true
+                l.connection = .connected(name: l.displayName)
+                self.notice = self.labelled("The radio did not finish sending its settings. Messages may still work.", l)
             }
         }
     }
 
-    private func startReading() {
-        guard connection.isLinkUp else { return }
-        if isReading {
-            readAgain = true
+    private func startReading(_ l: MeshLink) {
+        guard l.connection.isLinkUp, let device = l.deviceID else { return }
+        if l.isReading {
+            l.readAgain = true
             return
         }
-        isReading = true
-        transport.readFromRadio()
+        l.isReading = true
+        transport.readFromRadio(id: device)
     }
 
-    private func handleFromRadio(_ msg: MeshPBFromRadio) {
+    private func handleFromRadio(_ msg: MeshPBFromRadio, on l: MeshLink) {
         switch msg.variant {
         case .myInfo(let info)?:
-            radio.myNodeNum = info.myNodeNum
+            l.radio.myNodeNum = info.myNodeNum
         case .nodeInfo(let info)?:
-            upsert(info)
+            upsert(info, on: l)
         case .channel(let ch)?:
             if ch.role == MeshPBChannel.Role.disabled.rawValue {
-                radio.channelNames[ch.index] = nil
+                l.radio.channelNames[ch.index] = nil
             } else {
-                radio.channelNames[ch.index] = ch.name
-                if ch.role == MeshPBChannel.Role.primary.rawValue { radio.primaryChannelName = ch.name }
+                l.radio.channelNames[ch.index] = ch.name
+                if ch.role == MeshPBChannel.Role.primary.rawValue { l.radio.primaryChannelName = ch.name }
             }
         case .metadata(let meta)?:
-            radio.firmwareVersion = meta.firmwareVersion
+            l.radio.firmwareVersion = meta.firmwareVersion
         case .loraConfig(let lora)?:
-            radio.region = lora.region
-            radio.regionName = lora.regionName
-            radio.hopLimit = lora.hopLimit
+            l.radio.region = lora.region
+            l.radio.regionName = lora.regionName
+            l.radio.hopLimit = lora.hopLimit
         case .configCompleteID(let id)?:
-            guard id == configID else { return }
-            handshakeDone = true
-            handshakeAttempts = 0
-            handshakeTimeout?.cancel()
-            connection = .connected(name: currentDeviceName)
-            if radio.region == 0 {
-                notice = "This radio has no region set. Set it to US 915 MHz in the Meshtastic app, or it will not transmit."
+            guard id == l.configID else { return }
+            l.handshakeDone = true
+            l.handshakeAttempts = 0
+            l.handshakeTimeout?.cancel()
+            l.connection = .connected(name: l.displayName)
+            if l.radio.region == 0 {
+                notice = labelled("This radio has no region set. Set it to US 915 MHz in the Meshtastic app, or it will not transmit.", l)
             }
             scheduleSave()
         case .rebooted?:
-            if connection.isLinkUp { beginHandshake() }
+            if l.connection.isLinkUp { beginHandshake(l) }
         case .queueStatus(let q)?:
             if q.res != 0, q.meshPacketID != 0,
-               let i = messages.lastIndex(where: { $0.isOutgoing && $0.packetID == q.meshPacketID }) {
+               let i = messages.lastIndex(where: { $0.isOutgoing && $0.packetID == q.meshPacketID && $0.network == .meshtastic }) {
                 messages[i].delivery = .failed("Radio is busy, try again")
                 scheduleSave()
             }
         case .clientNotification(let text)?:
-            if !text.isEmpty { notice = text }
+            if !text.isEmpty { notice = labelled(text, l) }
         case .packet(let p)?:
-            handlePacket(p)
+            handlePacket(p, on: l)
         case .otherConfig?, .logRecord?, .unhandled?, nil:
             break
         }
     }
 
-    private func upsert(_ info: MeshPBNodeInfo) {
+    private func upsert(_ info: MeshPBNodeInfo, on l: MeshLink) {
         guard info.num != 0 else { return }
-        var n = nodes[info.num] ?? MeshNode(num: info.num)
-        if let u = info.user { apply(u, to: &n) }
-        if let p = info.position, p.hasFix { apply(p, to: &n) }
-        if info.lastHeard != 0 {
-            let heard = Date(timeIntervalSince1970: TimeInterval(info.lastHeard))
-            n.lastHeard = max(heard, n.lastHeard ?? .distantPast)
+        l.update(info.num) { n in
+            if let u = info.user { apply(u, to: &n) }
+            if let p = info.position, p.hasFix { apply(p, to: &n) }
+            if info.lastHeard != 0 {
+                let heard = Date(timeIntervalSince1970: TimeInterval(info.lastHeard))
+                n.lastHeard = max(heard, n.lastHeard ?? .distantPast)
+            }
+            if info.snr != 0 { n.snr = info.snr }
+            if let h = info.hopsAway { n.hopsAway = h }
+            if let b = info.deviceMetrics?.batteryLevel { n.batteryLevel = b }
         }
-        if info.snr != 0 { n.snr = info.snr }
-        if let h = info.hopsAway { n.hopsAway = h }
-        if let b = info.deviceMetrics?.batteryLevel { n.batteryLevel = b }
-        nodes[info.num] = n
         scheduleSave()
     }
 
@@ -596,14 +796,14 @@ final class MeshService {
         n.altitude = p.altitude
     }
 
-    private func handlePacket(_ p: MeshPBPacket) {
+    private func handlePacket(_ p: MeshPBPacket, on l: MeshLink) {
         // Any packet tells us the sender is alive.
-        if p.from != 0, p.from != radio.myNodeNum {
-            var n = nodes[p.from] ?? MeshNode(num: p.from)
-            n.lastHeard = p.rxTime != 0 ? Date(timeIntervalSince1970: TimeInterval(p.rxTime)) : Date()
-            if p.rxSNR != 0 { n.snr = p.rxSNR }
-            if let h = p.hopsAway { n.hopsAway = h }
-            nodes[p.from] = n
+        if p.from != 0, p.from != l.radio.myNodeNum {
+            l.update(p.from) { n in
+                n.lastHeard = p.rxTime != 0 ? Date(timeIntervalSince1970: TimeInterval(p.rxTime)) : Date()
+                if p.rxSNR != 0 { n.snr = p.rxSNR }
+                if let h = p.hopsAway { n.hopsAway = h }
+            }
             // Packets the radio stored while the phone was away arrive with old
             // receive times; only fresh ones say where the phone is now.
             if p.rxTime == 0 || Date().timeIntervalSince1970 - TimeInterval(p.rxTime) < 120 {
@@ -613,31 +813,27 @@ final class MeshService {
         guard let data = p.decoded else { return } // still encrypted: not for us
         switch MeshPort(rawValue: data.portnum) {
         case .textMessage?:
-            handleText(p, data)
+            handleText(p, data, on: l)
         case .position?:
             if let pos = try? MeshPBPosition.decode(data.payload), pos.hasFix, p.from != 0 {
-                var n = nodes[p.from] ?? MeshNode(num: p.from)
-                apply(pos, to: &n)
-                nodes[p.from] = n
+                l.update(p.from) { apply(pos, to: &$0) }
             }
         case .nodeInfo?:
             if let user = try? MeshPBUser.decode(data.payload), p.from != 0 {
-                var n = nodes[p.from] ?? MeshNode(num: p.from)
-                apply(user, to: &n)
-                nodes[p.from] = n
+                l.update(p.from) { apply(user, to: &$0) }
             }
         case .routing?:
-            handleRouting(p, data)
+            handleRouting(p, data, on: l)
         default:
             break
         }
         scheduleSave()
     }
 
-    private func handleText(_ p: MeshPBPacket, _ data: MeshPBData) {
-        let myNum = radio.myNodeNum
+    private func handleText(_ p: MeshPBPacket, _ data: MeshPBData, on l: MeshLink) {
+        let myNum = l.radio.myNodeNum
         // Drop duplicates (the radio replays its queue after a reconnect).
-        if p.id != 0, messages.contains(where: { $0.packetID == p.id && $0.from == p.from }) { return }
+        if p.id != 0, messages.contains(where: { $0.packetID == p.id && $0.from == p.from && $0.network == .meshtastic }) { return }
         // Only broadcasts and messages addressed to us (or sent by us), never from a blocked radio.
         guard p.to == MeshConstants.broadcastNum || p.to == myNum || p.from == myNum else { return }
         guard !blocked.contains(p.from) else { return }
@@ -647,15 +843,18 @@ final class MeshService {
             packetID: p.id, from: p.from, to: p.to, channel: p.channel, text: text,
             date: min(date, Date()), isOutgoing: p.from == myNum && myNum != 0,
             delivery: p.from == myNum ? .sent : .received,
-            rxSNR: p.rxSNR != 0 ? p.rxSNR : nil, hopsAway: p.hopsAway
+            rxSNR: p.rxSNR != 0 ? p.rxSNR : nil, hopsAway: p.hopsAway, network: .meshtastic
         ))
+        // No bridging: a message heard on one network is never repeated on the
+        // other. A future, opt-in bridge would hook in here (and in coreReceive),
+        // with its own loop and rate limits.
         trimHistory()
     }
 
-    private func handleRouting(_ p: MeshPBPacket, _ data: MeshPBData) {
-        if data.requestID != 0, handlePingRouting(p, data) { return }
+    private func handleRouting(_ p: MeshPBPacket, _ data: MeshPBData, on l: MeshLink) {
+        if data.requestID != 0, handlePingRouting(p, data, on: l) { return }
         guard data.requestID != 0,
-              let i = messages.lastIndex(where: { $0.isOutgoing && $0.packetID == data.requestID }),
+              let i = messages.lastIndex(where: { $0.isOutgoing && $0.packetID == data.requestID && $0.network == .meshtastic }),
               let routing = try? MeshPBRouting.decode(data.payload),
               let reason = routing.errorReason else { return }
         var m = messages[i]
@@ -680,173 +879,175 @@ final class MeshService {
 
     /// MeshCore startup: identify, learn limits, set the clock, then fetch
     /// contacts, channels and any queued messages.
-    private func coreBeginHandshake() {
-        coreReset()
-        handshakeDone = false
-        handshakeAttempts += 1
-        connection = .syncing(name: currentDeviceName)
+    private func coreBeginHandshake(_ l: MeshLink) {
+        coreReset(l)
+        l.handshakeDone = false
+        l.handshakeAttempts += 1
+        l.connection = .syncing(name: l.displayName)
 
-        coreEnqueue(MeshCoreCommand.appStart(appName: "Pocket Nomad"), finishedBy: [5])
-        coreEnqueue(MeshCoreCommand.deviceQuery(), finishedBy: [13]) { [weak self] frame in
+        coreEnqueue(l, MeshCoreCommand.appStart(appName: "Pocket Nomad"), finishedBy: [5])
+        coreEnqueue(l, MeshCoreCommand.deviceQuery(), finishedBy: [13]) { [weak self] frame in
             guard let self, case .deviceInfo(let info) = frame else { return }
-            if !info.version.isEmpty { self.radio.firmwareVersion = "MeshCore \(info.version)" }
+            if !info.version.isEmpty { l.radio.firmwareVersion = "MeshCore \(info.version)" }
             // Channel slots vary by board (1, 8 or 40); list the first eight.
             for i in 0 ..< UInt8(min(max(info.maxChannels, 1), 8)) {
-                self.coreEnqueue(MeshCoreCommand.getChannel(i), finishedBy: [18])
+                self.coreEnqueue(l, MeshCoreCommand.getChannel(i), finishedBy: [18])
             }
         }
-        coreEnqueue(MeshCoreCommand.setDeviceTime(Date()), finishedBy: [0])
-        coreEnqueue(MeshCoreCommand.getContacts(), finishedBy: [4], timeout: .seconds(20)) { [weak self] frame in
+        coreEnqueue(l, MeshCoreCommand.setDeviceTime(Date()), finishedBy: [0])
+        coreEnqueue(l, MeshCoreCommand.getContacts(), finishedBy: [4], timeout: .seconds(20)) { [weak self] frame in
             guard let self, case .endOfContacts = frame else { return }
-            self.handshakeDone = true
-            self.handshakeAttempts = 0
-            self.handshakeTimeout?.cancel()
-            self.connection = .connected(name: self.currentDeviceName)
-            self.coreSyncMessages()
+            l.handshakeDone = true
+            l.handshakeAttempts = 0
+            l.handshakeTimeout?.cancel()
+            l.connection = .connected(name: l.displayName)
+            self.coreSyncMessages(l)
             self.scheduleSave()
         }
 
-        handshakeTimeout?.cancel()
-        let attempt = handshakeAttempts
-        handshakeTimeout = Task { [weak self] in
+        l.handshakeTimeout?.cancel()
+        let attempt = l.handshakeAttempts
+        l.handshakeTimeout = Task { [weak self] in
             try? await Task.sleep(for: .seconds(45))
-            guard let self, !Task.isCancelled, !self.handshakeDone, attempt == self.handshakeAttempts else { return }
-            self.handshakeDone = true
-            self.connection = .connected(name: self.currentDeviceName)
-            self.notice = "The radio did not finish sending its contacts. Messages may still work."
+            guard let self, !Task.isCancelled, !l.handshakeDone, attempt == l.handshakeAttempts else { return }
+            l.handshakeDone = true
+            l.connection = .connected(name: l.displayName)
+            self.notice = self.labelled("The radio did not finish sending its contacts. Messages may still work.", l)
         }
     }
 
-    private func coreEnqueue(_ frame: Data, finishedBy: Set<UInt8>, timeout: Duration = .seconds(5),
+    private func coreEnqueue(_ l: MeshLink, _ frame: Data, finishedBy: Set<UInt8>, timeout: Duration = .seconds(5),
                              onReply: ((MeshCoreFrame) -> Void)? = nil) {
-        coreQueue.append(CoreCommand(frame: frame, finishedBy: finishedBy, timeout: timeout, onReply: onReply))
-        coreSendNext()
+        l.coreQueue.append(MeshLink.CoreCommand(frame: frame, finishedBy: finishedBy, timeout: timeout, onReply: onReply))
+        coreSendNext(l)
     }
 
-    private func coreSendNext() {
-        guard corePending == nil, !coreQueue.isEmpty, connection.isLinkUp else { return }
-        let command = coreQueue.removeFirst()
-        corePending = command
-        transport.write(command.frame)
-        coreTimer?.cancel()
-        coreTimer = Task { [weak self] in
+    private func coreSendNext(_ l: MeshLink) {
+        guard l.corePending == nil, !l.coreQueue.isEmpty, l.connection.isLinkUp, let device = l.deviceID else { return }
+        let command = l.coreQueue.removeFirst()
+        l.corePending = command
+        transport.write(command.frame, to: device)
+        l.coreTimer?.cancel()
+        l.coreTimer = Task { [weak self] in
             try? await Task.sleep(for: command.timeout)
             guard let self, !Task.isCancelled else { return }
             // No answer: give up on this command and move on.
-            self.corePending = nil
-            self.coreSendNext()
+            l.corePending = nil
+            self.coreSendNext(l)
         }
     }
 
-    private func coreReset() {
-        coreQueue.removeAll()
-        corePending = nil
-        coreTimer?.cancel()
+    private func coreReset(_ l: MeshLink) {
+        l.coreQueue.removeAll()
+        l.corePending = nil
+        l.coreTimer?.cancel()
     }
 
     /// Pulls every queued message off the radio, one SYNC at a time.
-    private func coreSyncMessages() {
+    private func coreSyncMessages(_ l: MeshLink) {
         let syncCode = MeshCoreCommand.Code.syncNextMessage
-        guard !coreQueue.contains(where: { $0.frame.first == syncCode }), corePending?.frame.first != syncCode else { return }
-        coreEnqueue(MeshCoreCommand.syncNextMessage(), finishedBy: [7, 8, 10, 16, 17, 27]) { [weak self] frame in
+        guard !l.coreQueue.contains(where: { $0.frame.first == syncCode }), l.corePending?.frame.first != syncCode else { return }
+        coreEnqueue(l, MeshCoreCommand.syncNextMessage(), finishedBy: [7, 8, 10, 16, 17, 27]) { [weak self] frame in
             if case .noMoreMessages = frame { return }
-            self?.coreSyncMessages()
+            self?.coreSyncMessages(l)
         }
     }
 
-    private func coreHandle(_ data: Data) {
+    private func coreHandle(_ data: Data, on l: MeshLink) {
         guard let code = data.first, let frame = MeshCoreFrame.decode(data) else { return }
         switch frame {
         case .selfInfo(let me):
             let num = MeshCoreContact.nodeNum(for: me.publicKey)
-            radio.myNodeNum = num
-            radio.regionName = String(format: "%.3f MHz", locale: Locale(identifier: "en_US_POSIX"), me.frequencyMHz)
-            var n = nodes[num] ?? MeshNode(num: num)
-            n.longName = me.name
-            n.shortName = String(me.name.prefix(4))
-            n.publicKeyPrefix = me.publicKey.prefix(6)
-            n.hasPublicKey = true
-            if let lat = me.latitude, let lon = me.longitude { n.latitude = lat; n.longitude = lon }
-            nodes[num] = n
+            l.radio.myNodeNum = num
+            l.radio.regionName = String(format: "%.3f MHz", locale: Locale(identifier: "en_US_POSIX"), me.frequencyMHz)
+            l.update(num) { n in
+                n.longName = me.name
+                n.shortName = String(me.name.prefix(4))
+                n.publicKeyPrefix = me.publicKey.prefix(6)
+                n.hasPublicKey = true
+                if let lat = me.latitude, let lon = me.longitude { n.latitude = lat; n.longitude = lon }
+            }
         case .contact(let c):
-            coreUpsert(c)
+            coreUpsert(c, on: l)
         case .newAdvert(let c):
-            coreUpsert(c)
+            coreUpsert(c, on: l)
             onHeard?(MeshHeard(node: c.nodeNum, snr: nil, hops: c.pathLength.map(UInt32.init), firmware: .meshcore))
         case .advert(let key):
             let num = MeshCoreContact.nodeNum(for: key)
-            if var n = nodes[num] { n.lastHeard = Date(); nodes[num] = n }
+            if l.nodes[num] != nil { l.update(num) { $0.lastHeard = Date() } }
             onHeard?(MeshHeard(node: num, snr: nil, hops: nil, firmware: .meshcore))
         case .channelInfo(let ch):
             let index = Int32(ch.index)
-            radio.channelNames[index] = ch.isEmpty ? nil : ch.name
-            if ch.index == 0 { radio.primaryChannelName = ch.name }
+            l.radio.channelNames[index] = ch.isEmpty ? nil : ch.name
+            if ch.index == 0 { l.radio.primaryChannelName = ch.name }
         case .directMessage(let m):
-            coreReceive(from: coreNode(forKeyPrefix: m.senderKeyPrefix), to: radio.myNodeNum, channel: 0,
-                        timestamp: m.timestamp, text: m.text, senderName: nil, snr: m.snr, path: m.pathLength)
+            coreReceive(from: coreNode(forKeyPrefix: m.senderKeyPrefix, on: l), to: l.radio.myNodeNum, channel: 0,
+                        timestamp: m.timestamp, text: m.text, senderName: nil, snr: m.snr, path: m.pathLength, on: l)
         case .channelMessage(let m):
-            let sender = m.senderName.flatMap { name in nodes.values.first { $0.longName == name }?.num } ?? 0
+            let sender = m.senderName.flatMap { name in l.nodes.values.first { $0.longName == name }?.num } ?? 0
             coreReceive(from: sender, to: MeshConstants.broadcastNum, channel: UInt32(m.channel),
-                        timestamp: m.timestamp, text: m.text, senderName: m.senderName, snr: m.snr, path: m.pathLength)
-        case .sendConfirmed(let ack, _) where pendingPings[ack] != nil:
-            finishPing(ack, .reached)
+                        timestamp: m.timestamp, text: m.text, senderName: m.senderName, snr: m.snr, path: m.pathLength, on: l)
+        case .sendConfirmed(let ack, _) where l.pendingPings[ack] != nil:
+            finishPing(ack, on: l, .reached)
         case .sendConfirmed(let ack, _):
-            if let i = messages.lastIndex(where: { $0.isOutgoing && $0.packetID == ack && ack != 0 }) {
+            if let i = messages.lastIndex(where: { $0.isOutgoing && $0.packetID == ack && ack != 0 && $0.network == .meshcore }) {
                 messages[i].delivery = .delivered
                 scheduleSave()
             }
         case .messagesWaiting:
-            coreSyncMessages()
+            coreSyncMessages(l)
         case .ok, .error, .contactsStart, .endOfContacts, .sent, .noMoreMessages, .deviceInfo, .other:
             break
         }
         // Push frames (0x80 and up) arrive at any time; anything else answers the pending command.
-        guard code < 0x80, let pending = corePending else { return }
+        guard code < 0x80, let pending = l.corePending else { return }
         let finished = pending.finishedBy.contains(code) || code == 1
         if finished {
-            coreTimer?.cancel()
-            corePending = nil
+            l.coreTimer?.cancel()
+            l.corePending = nil
         }
         pending.onReply?(frame)
-        if finished { coreSendNext() }
+        if finished { coreSendNext(l) }
     }
 
-    private func coreUpsert(_ c: MeshCoreContact) {
+    private func coreUpsert(_ c: MeshCoreContact, on l: MeshLink) {
         let num = c.nodeNum
         guard num != 0 else { return }
-        var n = nodes[num] ?? MeshNode(num: num)
-        n.longName = c.name
-        n.shortName = String(c.name.prefix(4))
-        n.userID = c.publicKey.prefix(6).map { String(format: "%02x", $0) }.joined()
-        n.publicKeyPrefix = c.publicKey.prefix(6)
-        n.hasPublicKey = true
-        n.meshCoreType = c.type
-        if let heard = c.lastAdvert { n.lastHeard = max(heard, n.lastHeard ?? .distantPast) }
-        if let lat = c.latitude, let lon = c.longitude { n.latitude = lat; n.longitude = lon }
-        if let hops = c.pathLength { n.hopsAway = UInt32(hops) }
-        nodes[num] = n
+        l.update(num) { n in
+            n.longName = c.name
+            n.shortName = String(c.name.prefix(4))
+            n.userID = c.publicKey.prefix(6).map { String(format: "%02x", $0) }.joined()
+            n.publicKeyPrefix = c.publicKey.prefix(6)
+            n.hasPublicKey = true
+            n.meshCoreType = c.type
+            if let heard = c.lastAdvert { n.lastHeard = max(heard, n.lastHeard ?? .distantPast) }
+            if let lat = c.latitude, let lon = c.longitude { n.latitude = lat; n.longitude = lon }
+            if let hops = c.pathLength { n.hopsAway = UInt32(hops) }
+        }
         scheduleSave()
     }
 
-    private func coreNode(forKeyPrefix prefix: Data) -> UInt32 {
-        nodes.values.first { $0.publicKeyPrefix == prefix }?.num ?? MeshCoreContact.nodeNum(for: prefix)
+    private func coreNode(forKeyPrefix prefix: Data, on l: MeshLink) -> UInt32 {
+        l.nodes.values.first { $0.publicKeyPrefix == prefix }?.num ?? MeshCoreContact.nodeNum(for: prefix)
     }
 
     private func coreReceive(from: UInt32, to: UInt32, channel: UInt32, timestamp: UInt32, text: String,
-                             senderName: String?, snr: Float?, path: UInt8) {
+                             senderName: String?, snr: Float?, path: UInt8, on l: MeshLink) {
         // The radio's timestamp plus sender and text identify a message well enough to drop repeats.
-        if messages.contains(where: { $0.packetID == timestamp && $0.from == from && $0.text == text }) { return }
+        if messages.contains(where: { $0.packetID == timestamp && $0.from == from && $0.text == text && $0.network == .meshcore }) { return }
         if blocked.contains(from) { return }
         let sent = Date(timeIntervalSince1970: TimeInterval(timestamp))
         messages.append(MeshMessage(
             packetID: timestamp, from: from, to: to, channel: channel, text: text,
             date: timestamp == 0 ? Date() : min(sent, Date()), isOutgoing: false, delivery: .received,
-            rxSNR: snr, hopsAway: path == 0xFF ? nil : UInt32(path & 0x3F), senderName: senderName
+            rxSNR: snr, hopsAway: path == 0xFF ? nil : UInt32(path & 0x3F), senderName: senderName, network: .meshcore
         ))
-        if from != 0, var n = nodes[from] {
-            n.lastHeard = Date()
-            if let snr { n.snr = snr }
-            nodes[from] = n
+        // No bridging to the Meshtastic network (see handleText).
+        if from != 0, l.nodes[from] != nil {
+            l.update(from) { n in
+                n.lastHeard = Date()
+                if let snr { n.snr = snr }
+            }
         }
         // Messages queued on the radio while the phone was away are old; skip those.
         if timestamp == 0 || abs(Date().timeIntervalSince1970 - TimeInterval(timestamp)) < 120 {
@@ -856,7 +1057,7 @@ final class MeshService {
         scheduleSave()
     }
 
-    private func coreSend(_ text: String, to conversation: MeshConversation) -> Bool {
+    private func coreSend(_ text: String, to conversation: MeshConversation, on l: MeshLink) -> Bool {
         let now = Date()
         let frame: Data
         let (to, channel): (UInt32, UInt32)
@@ -865,18 +1066,18 @@ final class MeshService {
             frame = MeshCoreCommand.sendChannelText(text, channel: UInt8(clamping: i), date: now)
             (to, channel) = (MeshConstants.broadcastNum, i)
         case .direct(let n):
-            guard let prefix = nodes[n]?.publicKeyPrefix else {
+            guard let prefix = l.nodes[n]?.publicKeyPrefix else {
                 notice = "This contact has no MeshCore key yet. Wait until its radio is heard, then try again."
                 return false
             }
             frame = MeshCoreCommand.sendText(text, toKeyPrefix: prefix, date: now)
             (to, channel) = (n, 0)
         }
-        let message = MeshMessage(packetID: 0, from: radio.myNodeNum, to: to, channel: channel,
-                                  text: text, date: now, isOutgoing: true, delivery: .sent)
+        let message = MeshMessage(packetID: 0, from: l.radio.myNodeNum, to: to, channel: channel,
+                                  text: text, date: now, isOutgoing: true, delivery: .sent, network: .meshcore)
         let id = message.id
         messages.append(message)
-        coreEnqueue(frame, finishedBy: [6]) { [weak self] reply in
+        coreEnqueue(l, frame, finishedBy: [6]) { [weak self] reply in
             guard let self, let i = self.messages.firstIndex(where: { $0.id == id }) else { return }
             switch reply {
             case .sent(_, let ack, _):
@@ -895,7 +1096,7 @@ final class MeshService {
     }
 
     #if DEBUG
-    /// Screenshots and demos: nodes with positions around downtown Denver.
+    /// Screenshots and demos: nodes with positions around downtown Denver, on both networks.
     func loadDemoNodes() {
         let demo: [(String, Double, Double, MeshCoreContactType?)] = [
             ("Ridge Repeater", 39.7480, -104.9970, .repeater),
@@ -904,14 +1105,14 @@ final class MeshService {
             ("Cherry Creek", 39.7170, -104.9530, nil),
         ]
         for (i, d) in demo.enumerated() {
-            var n = MeshNode(num: UInt32(0xA000 + i))
-            n.longName = d.0
-            n.shortName = String(d.0.prefix(4))
-            n.latitude = d.1
-            n.longitude = d.2
-            n.lastHeard = Date().addingTimeInterval(-Double(i) * 420)
-            n.meshCoreType = d.3
-            nodes[n.num] = n
+            link(d.3 == nil ? .meshtastic : .meshcore).update(UInt32(0xA000 + i)) { n in
+                n.longName = d.0
+                n.shortName = String(d.0.prefix(4))
+                n.latitude = d.1
+                n.longitude = d.2
+                n.lastHeard = Date().addingTimeInterval(-Double(i) * 420)
+                n.meshCoreType = d.3
+            }
         }
     }
     #endif
@@ -944,7 +1145,13 @@ final class MeshService {
     }
 
     func saveNow() {
-        let snap = MeshSnapshot(messages: messages, nodes: Array(nodes.values), radio: radio, lastRead: lastRead)
+        // The default network also goes in the old single-radio fields, so an
+        // older version of the app can still read the file.
+        let main = link(defaultNetwork)
+        let snap = MeshSnapshot(messages: messages, nodes: Array(main.nodes.values), radio: main.radio, lastRead: lastRead,
+                                networks: links.filter(\.hasData).map {
+                                    MeshNetworkSnapshot(firmware: $0.firmware, nodes: Array($0.nodes.values), radio: $0.radio)
+                                })
         try? store.save(snap)
     }
 }

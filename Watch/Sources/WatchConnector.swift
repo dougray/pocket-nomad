@@ -87,7 +87,7 @@ final class WatchConnector: NSObject {
         switch request {
         case .status: return WatchRelay.Response(ok: true, detail: "", status: status)
         case .sos: return WatchRelay.Response(ok: true, detail: "SOS - I need help. (demo, not sent)", status: status)
-        case .reply(let text, _): return WatchRelay.Response(ok: true, detail: "\(text) (demo, not sent)", status: status)
+        case .reply(let text, _, _): return WatchRelay.Response(ok: true, detail: "\(text) (demo, not sent)", status: status)
         }
     }
     #endif

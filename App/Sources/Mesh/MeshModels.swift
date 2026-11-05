@@ -17,8 +17,8 @@ enum MeshBluetoothAvailability: Equatable, Sendable {
 }
 
 /// Which mesh firmware a radio runs. The two networks don't talk to each other,
-/// but the app speaks both protocols.
-enum MeshFirmware: String, Codable, Sendable {
+/// but the app speaks both protocols, and can hold one radio of each at once.
+enum MeshFirmware: String, Codable, CaseIterable, Comparable, Sendable {
     case meshtastic
     case meshcore
 
@@ -36,6 +36,10 @@ enum MeshFirmware: String, Codable, Sendable {
         case .meshtastic: MeshConstants.maxTextBytes
         case .meshcore: 133
         }
+    }
+
+    static func < (a: MeshFirmware, b: MeshFirmware) -> Bool {
+        allCases.firstIndex(of: a)! < allCases.firstIndex(of: b)!
     }
 }
 
@@ -104,6 +108,9 @@ struct MeshMessage: Codable, Identifiable, Equatable, Sendable {
     var hopsAway: UInt32?
     /// MeshCore channel messages name their sender in the text instead of by node.
     var senderName: String?
+    /// Which network (radio) it came in on or went out on. Files from before
+    /// two-radio support have none; MeshService fills it in when loading.
+    var network: MeshFirmware?
 
     var isBroadcast: Bool { to == MeshConstants.broadcastNum }
 }
@@ -127,6 +134,8 @@ struct MeshNode: Codable, Identifiable, Equatable, Sendable {
     var publicKeyPrefix: Data?
     /// MeshCore: what kind of node advertised (person, repeater, room server, sensor).
     var meshCoreType: MeshCoreContactType?
+    /// Which network this node was heard on. Filled in by MeshService.
+    var network: MeshFirmware?
 
     var id: UInt32 { num }
 
@@ -146,6 +155,9 @@ struct MeshNode: Codable, Identifiable, Equatable, Sendable {
 
     var hasPosition: Bool { latitude != nil && longitude != nil }
 
+    /// The network, guessing from MeshCore-only fields for nodes saved before it was stored.
+    var firmware: MeshFirmware { network ?? (meshCoreType != nil || publicKeyPrefix != nil ? .meshcore : .meshtastic) }
+
     static func hexID(_ num: UInt32) -> String { String(format: "!%08x", num) }
 }
 
@@ -160,6 +172,10 @@ enum MeshConversation: Hashable, Codable, Sendable {
         case .direct(let n): return "dm\(n)"
         }
     }
+
+    /// Unread-tracking key. Conversations are per network: channel 0 on
+    /// Meshtastic and channel 0 on MeshCore are different threads.
+    func key(on network: MeshFirmware) -> String { "\(network.rawValue).\(key)" }
 }
 
 /// Settings and identity learned from the connected radio.

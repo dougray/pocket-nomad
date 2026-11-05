@@ -2,8 +2,12 @@
 // Pocket Nomad - Mesh module
 // SPDX-License-Identifier: Apache-2.0
 //
-// Root of the Mesh tab: status, chat tiles, nodes, coverage, SOS. Port of
+// Root of the Mesh tab: radios, chat tiles, nodes, coverage, SOS. Port of
 // MeshView.swift. Sub-screens are a small back stack inside the tab.
+//
+// With two radios (one Meshtastic, one MeshCore) each network keeps its own
+// channels and direct messages; tiles and threads are labelled with their
+// network, and a conversation always sends on the radio it belongs to.
 
 @file:OptIn(ExperimentalMaterial3Api::class)
 
@@ -28,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Hexagon
@@ -82,10 +87,14 @@ import org.nomadpocket.mesh.ui.MeshStatusCard
 import org.nomadpocket.mesh.ui.MeshTheme
 import org.nomadpocket.mesh.ui.MeshUI
 import org.nomadpocket.mesh.ui.UnreadBadge
+import org.nomadpocket.mesh.ui.FirmwareBadge
+import org.nomadpocket.mesh.ui.FirmwareColors
+import org.nomadpocket.mesh.ui.MeshRadioCard
+import org.nomadpocket.mesh.ui.rememberRadiosInUse
 import org.nomadpocket.mesh.ui.rememberPermissionRequest
 
 internal sealed class MeshRoute {
-    data class Chat(val conversation: MeshConversation) : MeshRoute()
+    data class Chat(val conversation: MeshConversation, val firmware: Firmware) : MeshRoute()
     object Nodes : MeshRoute()
     object Info : MeshRoute()
     object Devices : MeshRoute()
@@ -108,8 +117,10 @@ fun MeshScreen(modifier: Modifier = Modifier) {
             null -> MeshScaffold("Mesh", null, modifier, actions = {
                 IconButton(onClick = { open(MeshRoute.Devices) }) { Icon(Icons.Filled.SettingsInputAntenna, "Radios") }
             }) { MeshHome(open) }
-            is MeshRoute.Chat -> MeshScaffold(chatTitle(route.conversation), back, modifier) { MeshChatScreen(route.conversation) }
-            MeshRoute.Nodes -> MeshScaffold("Nodes", back, modifier) { MeshNodeListScreen { open(MeshRoute.Chat(MeshConversation.Direct(it))) } }
+            is MeshRoute.Chat -> MeshScaffold(chatTitle(route.conversation, route.firmware), back, modifier) {
+                MeshChatScreen(route.conversation, Mesh.radios.link(route.firmware))
+            }
+            MeshRoute.Nodes -> MeshScaffold("Nodes", back, modifier) { MeshNodeListScreen { fw, num -> open(MeshRoute.Chat(MeshConversation.Direct(num), fw)) } }
             MeshRoute.Info -> MeshScaffold("What is a mesh radio?", back, modifier) { MeshInfoScreen() }
             MeshRoute.Devices -> MeshScaffold("Radios", back, modifier, actions = {
                 TextButton(onClick = back) { Text("Done", fontWeight = FontWeight.Bold) }
@@ -119,15 +130,17 @@ fun MeshScreen(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun chatTitle(c: MeshConversation): String {
-    val svc = Mesh.service
+private fun chatTitle(c: MeshConversation, firmware: Firmware): String {
+    val svc = Mesh.radios.link(firmware)
     val radio by svc.radioFlow.collectAsStateWithLifecycle()
     val nodes by svc.nodesFlow.collectAsStateWithLifecycle()
-    return when (c) {
+    val title = when (c) {
         is MeshConversation.Channel -> radio.channelNames[c.index.toInt()].orEmpty()
             .ifEmpty { if (c.index == 0L) "Primary channel" else "Channel ${c.index}" }
         is MeshConversation.Direct -> (nodes[c.node] ?: MeshNode(num = c.node)).displayName
     }
+    // Say which network when two radios are in use.
+    return if (rememberRadiosInUse(Mesh.radios).size > 1) "$title · ${firmware.displayName}" else title
 }
 
 @Composable
@@ -151,23 +164,23 @@ internal fun MeshScaffold(title: String, onBack: (() -> Unit)?, modifier: Modifi
 
 @Composable
 private fun MeshHome(open: (MeshRoute) -> Unit) {
-    val svc = Mesh.service
+    val radios = Mesh.radios
     val context = LocalContext.current
-    val connection by svc.connectionFlow.collectAsStateWithLifecycle()
-    val radio by svc.radioFlow.collectAsStateWithLifecycle()
-    val availability by svc.availabilityFlow.collectAsStateWithLifecycle()
-    val pairingHint by svc.pairingHintFlow.collectAsStateWithLifecycle()
-    val notice by svc.noticeFlow.collectAsStateWithLifecycle()
-    val messages by svc.messagesFlow.collectAsStateWithLifecycle()
-    val nodes by svc.nodesFlow.collectAsStateWithLifecycle()
-    val blocked by svc.blockedFlow.collectAsStateWithLifecycle()
-    val lastRead by svc.lastReadFlow.collectAsStateWithLifecycle()
-    val lastDevice by svc.lastDeviceFlow.collectAsStateWithLifecycle()
+    val inUse = rememberRadiosInUse(radios)
+    val two = inUse.size > 1
+    val availability by radios.availabilityFlow.collectAsStateWithLifecycle()
     val drive by Mesh.drive.stateFlow.collectAsStateWithLifecycle()
     val recording by Mesh.coverage.recordingFlow.collectAsStateWithLifecycle()
     val samples by Mesh.coverage.samplesFlow.collectAsStateWithLifecycle()
-    // Read so the screen recomposes when these change.
-    remember(messages, nodes, blocked, lastRead) { 0 }
+    // Read every link's data so the screen recomposes when any of it changes.
+    for (link in radios.links.values) {
+        val messages by link.messagesFlow.collectAsStateWithLifecycle()
+        val nodes by link.nodesFlow.collectAsStateWithLifecycle()
+        val blocked by link.blockedFlow.collectAsStateWithLifecycle()
+        val lastRead by link.lastReadFlow.collectAsStateWithLifecycle()
+        val radio by link.radioFlow.collectAsStateWithLifecycle()
+        remember(messages, nodes, blocked, lastRead, radio) { 0 }
+    }
 
     val scope = rememberCoroutineScope()
     var askSOS by remember { mutableStateOf(false) }
@@ -177,69 +190,89 @@ private fun MeshHome(open: (MeshRoute) -> Unit) {
     fun sendSOS(withLocation: Boolean) {
         sendingSOS = true
         scope.launch {
-            val sent = svc.sendSOS(withLocation)
+            val results = radios.sendSOS(withLocation)
             sendingSOS = false
-            sosResult = if (sent != null) {
-                var msg = "Sent to the mesh:\n$sent"
-                if (withLocation && !sent.contains("Location:")) msg += "\n\nNo GPS fix was available, so it went without coordinates."
-                msg
-            } else "Could not send. Check that the radio is connected, then try again."
+            sosResult = sosSummary(results, withLocation)
         }
     }
     val askLocation = rememberPermissionRequest { sendSOS(true) } // sends either way; without a fix if refused
 
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        MeshStatusCard(connection, radio) { open(MeshRoute.Devices) }
+        if (inUse.isEmpty()) {
+            MeshStatusCard(MeshConnectionState.Idle, MeshRadioInfo()) { open(MeshRoute.Devices) }
+        }
         MeshBluetoothHelp(availability)
-        pairingHint?.let { MeshInfoCard(Icons.Filled.Lock, "Pairing", it, MeshColors.warn) }
-        notice?.let {
-            MeshInfoCard(Icons.Filled.Info, "From the radio", it, MeshColors.warn) {
-                MeshBigButton("Dismiss", { svc.notice = null }, tint = MeshColors.warn, filled = false)
+        for ((fw, link) in inUse) {
+            val label = if (two) "${fw.displayName}: " else ""
+            val pairingHint by link.pairingHintFlow.collectAsStateWithLifecycle()
+            val notice by link.noticeFlow.collectAsStateWithLifecycle()
+            pairingHint?.let { MeshInfoCard(Icons.Filled.Lock, "${label}Pairing", it, MeshColors.warn) }
+            notice?.let {
+                MeshInfoCard(Icons.Filled.Info, if (two) "From the ${fw.displayName} radio" else "From the radio", it, MeshColors.warn) {
+                    MeshBigButton("Dismiss", { link.notice = null }, tint = MeshColors.warn, filled = false)
+                }
             }
         }
-        if (connection == MeshConnectionState.Idle) {
+        if (inUse.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                lastDevice?.let { (_, name) ->
-                    MeshBigButton("Reconnect to $name", { svc.reconnectLast() }, icon = Icons.Filled.Sync)
+                Text("Radios", fontWeight = FontWeight.SemiBold, fontSize = 17.sp, color = MeshColors.secondary)
+                for ((fw, link) in inUse) {
+                    MeshRadioCard(fw, link, onDisconnect = { link.disconnect() }, onForget = { link.forgetDevice() },
+                        onReconnect = { link.reconnectLast() })
                 }
-                MeshBigButton("Find a radio", { open(MeshRoute.Devices) }, icon = Icons.Filled.Search, filled = lastDevice == null)
+                if (radios.canAdd) MeshBigButton("Add a radio", { open(MeshRoute.Devices) }, icon = Icons.Filled.Add, filled = false)
             }
+        } else {
+            MeshBigButton("Find a radio", { open(MeshRoute.Devices) }, icon = Icons.Filled.Search)
         }
 
-        val channel = MeshConversation.Channel(0)
-        TileRow(Icons.Filled.Forum,
-            if (radio.primaryChannelName.isEmpty()) "Channel chat" else "Channel: ${radio.primaryChannelName}",
-            svc.messages(channel).lastOrNull()?.text ?: "Talk to everyone on the primary channel",
-            svc.unreadCount(channel)) { open(MeshRoute.Chat(channel)) }
-        TileRow(Icons.Filled.Groups, "Nodes (${svc.sortedNodes.size})", "Radios your radio has heard", 0) { open(MeshRoute.Nodes) }
+        // One channel tile per network: the networks are never bridged.
+        val tiles = inUse.ifEmpty { listOf(Firmware.MESHTASTIC to radios.link(Firmware.MESHTASTIC)) }
+        for ((fw, link) in tiles) {
+            val channel = MeshConversation.Channel(0)
+            val name = link.radio.primaryChannelName
+            TileRow(Icons.Filled.Forum,
+                if (two) "${fw.displayName} · ${name.ifEmpty { "Channel chat" }}"
+                else if (name.isEmpty()) "Channel chat" else "Channel: $name",
+                link.messages(channel).lastOrNull()?.text ?: "Talk to everyone on the primary channel",
+                link.unreadCount(channel), firmware = if (two) fw else null) { open(MeshRoute.Chat(channel, fw)) }
+        }
+        TileRow(Icons.Filled.Groups, "Nodes (${radios.sortedNodes.size})",
+            if (two) "Radios either of your radios has heard" else "Radios your radio has heard", 0) { open(MeshRoute.Nodes) }
         TileRow(Icons.Filled.Hexagon, "Coverage map",
             when {
                 drive.active -> "Drive mode on · ${drive.sent} pings, ${samples.size} points"
                 recording -> "Recording · ${samples.size} points, private"
+                two -> "Map where both radios hear others"
                 else -> "Map where your radio hears others"
             }, 0) { open(MeshRoute.Coverage) }
 
-        val threads = svc.directThreads
+        val threads = tiles.flatMap { (fw, link) -> link.directThreads.map { Triple(fw, link, it) } }
+            .sortedByDescending { it.third.second.dateMillis }
         if (threads.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Direct messages", fontWeight = FontWeight.SemiBold, fontSize = 17.sp, color = MeshColors.secondary)
-                for ((node, last) in threads) {
-                    MeshCard(onClick = { open(MeshRoute.Chat(MeshConversation.Direct(node.num))) }) {
+                for ((fw, link, thread) in threads) {
+                    val (node, last) = thread
+                    MeshCard(onClick = { open(MeshRoute.Chat(MeshConversation.Direct(node.num), fw)) }) {
                         Row(Modifier.padding(12.dp).heightIn(min = MeshUI.minTap - 24.dp), verticalAlignment = Alignment.CenterVertically) {
                             MeshNodeBadge(node, 44)
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(node.displayName, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(node.displayName, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+                                    if (two) FirmwareBadge(fw, compact = true)
+                                }
                                 Text(last.text, color = MeshColors.secondary, maxLines = 1, fontSize = 15.sp)
                             }
-                            UnreadBadge(svc.unreadCount(MeshConversation.Direct(node.num)))
+                            UnreadBadge(link.unreadCount(MeshConversation.Direct(node.num)))
                         }
                     }
                 }
             }
         }
 
-        val canSend = connection.isConnected
+        val canSend = inUse.any { it.second.connection.isConnected }
         Button(
             onClick = { askSOS = true },
             enabled = canSend && !sendingSOS,
@@ -259,12 +292,15 @@ private fun MeshHome(open: (MeshRoute) -> Unit) {
     }
 
     if (askSOS) {
+        val connectedCount = radios.connected.size
         AlertDialog(
             onDismissRequest = { askSOS = false },
             title = { Text("Send SOS to everyone on the mesh?") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("This message goes to every radio in range on the primary channel:\n\n\"${svc.sosPreview}\"\n\nWith location, your GPS position is added (decimal degrees).")
+                    Text((if (connectedCount > 1) "This message goes out on both your radios (Meshtastic and MeshCore), to every radio in range on each primary channel:"
+                        else "This message goes to every radio in range on the primary channel:") +
+                        "\n\n\"${radios.sosPreview}\"\n\nWith location, your GPS position is added (decimal degrees).")
                     MeshBigButton("Send SOS with my location", {
                         askSOS = false
                         if (MeshPermissions.hasLocation(context)) sendSOS(true) else askLocation(MeshPermissions.location)
@@ -283,11 +319,25 @@ private fun MeshHome(open: (MeshRoute) -> Unit) {
     }
 }
 
+/** What the SOS dialog says afterwards: the text sent, and how each radio did when there are two. */
+internal fun sosSummary(results: List<MeshSOSResult>, withLocation: Boolean): String {
+    val sent = results.firstNotNullOfOrNull { it.text }
+        ?: return "Could not send. Check that the radio is connected, then try again."
+    var msg = "Sent to the mesh:\n$sent"
+    if (results.size > 1) {
+        msg += "\n\n" + results.joinToString("\n") { r ->
+            "${r.firmware.displayName} (${r.radioName}): " + if (r.text != null) "sent" else "NOT sent, check that radio"
+        }
+    }
+    if (withLocation && !sent.contains("Location:")) msg += "\n\nNo GPS fix was available, so it went without coordinates."
+    return msg
+}
+
 @Composable
-private fun TileRow(icon: ImageVector, title: String, subtitle: String, badge: Int, onClick: () -> Unit) {
+private fun TileRow(icon: ImageVector, title: String, subtitle: String, badge: Int, firmware: Firmware? = null, onClick: () -> Unit) {
     MeshCard(onClick = onClick) {
         Row(Modifier.padding(16.dp).heightIn(min = 40.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, tint = MeshColors.accent, modifier = Modifier.size(30.dp))
+            Icon(icon, null, tint = firmware?.let { FirmwareColors.of(it) } ?: MeshColors.accent, modifier = Modifier.size(30.dp))
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, fontSize = 19.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)

@@ -28,13 +28,19 @@ struct CoverageSettingsView: View {
                 Section {
                     Toggle("Record coverage", isOn: $store.recording)
                     LabeledContent("Recordings", value: store.samples.count.formatted())
+                    if Set(store.samples.map(\.firmware)).count > 1 || mesh.rememberedLinks.count > 1 {
+                        ForEach(MeshFirmware.allCases, id: \.self) { net in
+                            let c = store.counts(net)
+                            LabeledContent { Text("\(c.samples) points, \(c.pings) pings") } label: { MeshNetworkBadge(network: net) }
+                        }
+                    }
                     Picker("Keep for", selection: $store.retentionDays) {
                         ForEach(CoverageStore.retentionChoices, id: \.self) { Text("\($0) days").tag($0) }
                     }
                     Button("Delete all coverage data", role: .destructive) { confirmDelete = true }
                         .disabled(store.samples.isEmpty)
                 } header: { Text("Coverage scanner") } footer: {
-                    Text("While Pocket Nomad is open (or in drive mode) and connected to a radio, it notes where your phone was each time the radio hears another node, and how strong the signal was. See it on the map under Layers › Coverage. It stays on this phone.")
+                    Text("While Pocket Nomad is open (or in drive mode) and connected to a radio, it notes where your phone was each time the radio hears another node, and how strong the signal was. With a Meshtastic and a MeshCore radio connected, both record at once and each point is tagged with its network. See it on the map under Layers › Coverage. It stays on this phone.")
                 }
 
                 Section {
@@ -90,15 +96,26 @@ struct CoverageSettingsView: View {
         }
     }
 
+    /// Networks drive mode can ping on: every set-up radio, or the default one.
+    private var driveNetworks: [MeshFirmware] {
+        let set = mesh.rememberedLinks.map(\.firmware)
+        return set.isEmpty ? [mesh.defaultNetwork] : set
+    }
+
     private var driveSection: some View {
         Section {
             Toggle("Drive mode", isOn: Binding(get: { drive.active }, set: { $0 ? drive.start() : drive.stop() }))
             Toggle("Ping test", isOn: $drive.pinging)
             if drive.pinging {
-                Picker("Ping", selection: $drive.target) {
-                    if mesh.firmware != .meshcore { Text("Any radio that repeats it").tag(UInt32?.none) }
-                    ForEach(mesh.sortedNodes.filter { $0.num != mesh.myNodeNum }) { node in
-                        Text(node.displayName).tag(UInt32?.some(node.num))
+                ForEach(driveNetworks, id: \.self) { net in
+                    Picker(driveNetworks.count > 1 ? "Ping on \(net.displayName)" : "Ping",
+                           selection: Binding(get: { drive.target(for: net) }, set: { drive.setTarget($0, for: net) })) {
+                        if net != .meshcore { Text("Any radio that repeats it").tag(UInt32?.none) }
+                        if net == .meshcore && drive.target(for: net) == nil { Text("Choose a radio").tag(UInt32?.none) }
+                        ForEach(mesh.link(net).nodes.values.filter { $0.num != mesh.link(net).radio.myNodeNum && !mesh.isBlocked($0.num) }
+                            .sorted { $0.displayName < $1.displayName }) { node in
+                            Text(node.displayName).tag(UInt32?.some(node.num))
+                        }
                     }
                 }
             }
@@ -107,22 +124,26 @@ struct CoverageSettingsView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     if let note = drive.pingNote {
                         Text(note).foregroundStyle(.secondary)
-                    } else if drive.pinging {
+                    }
+                    if drive.pinging && drive.pingNote == nil || drive.sent > 0 {
                         Text(drive.waiting ? "Waiting for an answer…" : "\(drive.sent) pings sent")
                     }
-                    if drive.sent > 0 {
-                        HStack(spacing: 12) {
-                            Label("\(drive.reached) answered", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                            Label("\(drive.relayed) repeated", systemImage: "arrow.triangle.2.circlepath").foregroundStyle(.orange)
-                            Label("\(drive.unanswered) nothing", systemImage: "xmark.circle").foregroundStyle(.red)
+                    ForEach(MeshFirmware.allCases, id: \.self) { net in
+                        if let t = drive.tallies[net], t.sent > 0 {
+                            HStack(spacing: 12) {
+                                if drive.tallies.count > 1 { MeshNetworkBadge(network: net) }
+                                Label("\(t.reached) answered", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                                Label("\(t.relayed) repeated", systemImage: "arrow.triangle.2.circlepath").foregroundStyle(.orange)
+                                Label("\(t.unanswered) nothing", systemImage: "xmark.circle").foregroundStyle(.red)
+                            }
+                            .labelStyle(.titleAndIcon)
                         }
-                        .labelStyle(.titleAndIcon)
                     }
                 }
                 .font(.footnote)
             }
         } header: { Text("Drive mode") } footer: {
-            Text("Keeps recording while the phone is locked or in another app, and turns itself off after 4 hours. The ping test sends a tiny test message every 300 m (at most every 45 s) and marks the spot green if the radio you chose answered, yellow if another radio only repeated it, or red if nothing heard it. \(mesh.firmware == .meshcore ? "MeshCore pings are a short direct message, so pick your own second radio or a friend's. " : "")Uses battery and GPS: keep the phone on a charger.")
+            Text("Keeps recording while the phone is locked or in another app, and turns itself off after 4 hours. The ping test sends a tiny test message every 300 m (at most every 45 s) and marks the spot green if the radio you chose answered, yellow if another radio only repeated it, or red if nothing heard it. \(driveNetworks.count > 1 ? "With two radios, each pings on its own network, taking turns. " : "")\(driveNetworks.contains(.meshcore) ? "MeshCore pings are a short direct message, so pick your own second radio or a friend's. " : "")Uses battery and GPS: keep the phone on a charger.")
         }
     }
 

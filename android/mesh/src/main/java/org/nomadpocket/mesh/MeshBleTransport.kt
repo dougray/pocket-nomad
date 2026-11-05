@@ -7,8 +7,10 @@
 // its public client API documentation; MeshCore uses the Nordic UART service
 // (docs/companion_protocol.md).
 //
-// Android allows one GATT operation at a time, so reads, writes and
-// notification subscriptions go through a small queue. Every callback is moved
+// Android allows one GATT operation at a time per connection, so reads, writes
+// and notification subscriptions go through a small queue. Each instance holds
+// one connection; with two radios there is one instance per radio, each with
+// its own queue, MTU request and connection priority. Every callback is moved
 // to the main thread before it touches state or emits an event.
 //
 // NOT YET TESTED ON A REAL RADIO: the logic mirrors the iOS transport, which
@@ -93,7 +95,8 @@ class MeshBleTransport(context: Context) : MeshTransport {
     private var coreRX: BluetoothGattCharacteristic? = null
     private var coreTX: BluetoothGattCharacteristic? = null
     private var coreNotifying = false
-    private val seen = mutableMapOf<String, BluetoothDevice>()
+    /** Devices seen while scanning, shared by every transport (one scans, the slot transports connect). */
+    private val seen: MutableMap<String, BluetoothDevice> get() = seenDevices
     /** The device we want to stay connected to. null after a user disconnect. */
     private var wantedID: String? = null
     private var wantsScan = false
@@ -109,6 +112,10 @@ class MeshBleTransport(context: Context) : MeshTransport {
         class Notify(val c: BluetoothGattCharacteristic) : Op()
     }
     private val ops = ArrayDeque<Op>()
+
+    private companion object {
+        val seenDevices = mutableMapOf<String, BluetoothDevice>()
+    }
     private var current: Op? = null
     // A stuck operation must not block the link; a lost FromRadio read ends that read loop.
     private val watchdog = Runnable {

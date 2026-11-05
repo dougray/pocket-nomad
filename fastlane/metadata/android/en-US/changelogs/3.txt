@@ -1,0 +1,1 @@
+New: connect one Meshtastic and one MeshCore radio at the same time. Both feed the coverage scanner and drive mode, and the map shows each network in its own colour with a filter. SOS goes out on both radios.

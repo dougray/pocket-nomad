@@ -65,6 +65,8 @@ import org.nomadpocket.mesh.ui.MeshColors
 import org.nomadpocket.mesh.ui.MeshPermissions
 import org.nomadpocket.mesh.ui.MeshTheme
 import org.nomadpocket.mesh.ui.MeshUI
+import org.nomadpocket.mesh.ui.FirmwareBadge
+import org.nomadpocket.mesh.ui.rememberRadiosInUse
 import org.nomadpocket.mesh.ui.rememberPermissionRequest
 import java.io.File
 
@@ -85,7 +87,7 @@ private fun CoverageContent() {
     val context = LocalContext.current
     val store = Mesh.coverage
     val drive = Mesh.drive
-    val svc = Mesh.service
+    val radios = rememberRadiosInUse(Mesh.radios)
     val location = Mesh.location
     val samples by store.samplesFlow.collectAsStateWithLifecycle()
     val zones by store.zonesFlow.collectAsStateWithLifecycle()
@@ -96,12 +98,9 @@ private fun CoverageContent() {
     val fix by location.fixFlow.collectAsStateWithLifecycle()
     val driveState by drive.stateFlow.collectAsStateWithLifecycle()
     val pinging by drive.pingingFlow.collectAsStateWithLifecycle()
-    val target by drive.targetFlow.collectAsStateWithLifecycle()
+    val targets by drive.targetsFlow.collectAsStateWithLifecycle()
     val keepScreenOn by drive.keepScreenOnFlow.collectAsStateWithLifecycle()
-    val nodes by svc.nodesFlow.collectAsStateWithLifecycle()
-    val radio by svc.radioFlow.collectAsStateWithLifecycle()
-    val blocked by svc.blockedFlow.collectAsStateWithLifecycle()
-    val meshCore = (radio.firmware ?: Firmware.MESHTASTIC) == Firmware.MESHCORE
+    val meshCore = radios.any { it.first == Firmware.MESHCORE }
     var confirmDelete by remember { mutableStateOf(false) }
     var addingZone by remember { mutableStateOf(false) }
     var permissionNote by remember { mutableStateOf<String?>(null) }
@@ -131,6 +130,7 @@ private fun CoverageContent() {
                 "The ping test sends a tiny test message every 300 m (at most every 45 s) and marks the spot green if the radio you chose answered, " +
                 "yellow if another radio only repeated it, or red if nothing heard it. " +
                 (if (meshCore) "MeshCore pings are a short direct message, so pick your own second radio or a friend's. " else "") +
+                (if (radios.size > 1) "With two radios, each pings on its own network, a few seconds apart, and the map shows which network each result is from. " else "") +
                 "Uses battery and GPS: keep the phone on a charger.") {
             SwitchRow("Drive mode", driveState.active) { on ->
                 if (!on) drive.stop()
@@ -139,11 +139,18 @@ private fun CoverageContent() {
             }
             SwitchRow("Ping test", pinging) { drive.pinging = it }
             if (pinging) {
-                val choices = buildList {
-                    if (!meshCore) add(null to "Any radio that repeats it")
-                    MeshService.sortedNodes(nodes, radio.myNodeNum, blocked).forEach { add(it.num to it.displayName) }
+                for ((fw, link) in radios) {
+                    val nodes by link.nodesFlow.collectAsStateWithLifecycle()
+                    val radio by link.radioFlow.collectAsStateWithLifecycle()
+                    val blocked by link.blockedFlow.collectAsStateWithLifecycle()
+                    val choices = buildList {
+                        if (fw != Firmware.MESHCORE) add(null to "Any radio that repeats it")
+                        MeshService.sortedNodes(nodes, radio.myNodeNum, blocked).forEach { add(it.num to it.displayName) }
+                    }
+                    val target = targets[fw]
+                    Picker(if (radios.size > 1) "Ping (${fw.displayName})" else "Ping",
+                        choices.firstOrNull { it.first == target }?.second ?: "Choose a radio", choices) { drive.setTarget(fw, it) }
                 }
-                Picker("Ping", choices.firstOrNull { it.first == target }?.second ?: "Choose a radio", choices) { drive.target = it }
             }
             SwitchRow("Keep screen on", keepScreenOn) { drive.keepScreenOn = it }
             if (driveState.active) {
@@ -152,10 +159,16 @@ private fun CoverageContent() {
                     if (note != null) Text(note, color = MeshColors.secondary, fontSize = 14.sp)
                     else if (pinging) Text(if (driveState.waiting) "Waiting for an answer…" else "${driveState.sent} pings sent", fontSize = 14.sp)
                     if (driveState.sent > 0) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("${driveState.reached} answered", color = MeshColors.ok, fontSize = 14.sp)
-                            Text("${driveState.relayed} repeated", color = MeshColors.accent, fontSize = 14.sp)
-                            Text("${driveState.unanswered} nothing", color = MeshColors.danger, fontSize = 14.sp)
+                        val perRadio = if (radios.size > 1) driveState.radios.entries.filter { it.value.sent > 0 } else emptyList()
+                        if (perRadio.isEmpty()) {
+                            PingCounts(driveState.reached, driveState.relayed, driveState.unanswered)
+                        } else {
+                            for ((fw, r) in perRadio) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    FirmwareBadge(fw, compact = true)
+                                    PingCounts(r.reached, r.relayed, r.unanswered)
+                                }
+                            }
                         }
                     }
                 }
@@ -164,13 +177,17 @@ private fun CoverageContent() {
 
         // Coverage scanner
         FormSection("Coverage scanner",
-            footer = "While Pocket Nomad is open (or in drive mode) and connected to a radio, it notes where your phone was each time the radio hears another node, and how strong the signal was. It stays on this phone.") {
+            footer = "While Pocket Nomad is open (or in drive mode) and connected to a radio, it notes where your phone was each time the radio hears another node, and how strong the signal was. With a Meshtastic and a MeshCore radio connected, it records from both at once and notes which network heard what. It stays on this phone.") {
             SwitchRow("Record coverage", recording) { on ->
                 if (!on) store.recording = false
                 else if (MeshPermissions.hasLocation(context)) store.recording = true
                 else askForRecording(MeshPermissions.location)
             }
             ValueRow("Recordings", "${samples.size}")
+            if (samples.any { it.firmware == Firmware.MESHCORE } && samples.any { it.firmware == Firmware.MESHTASTIC }) {
+                ValueRow("  Meshtastic · MeshCore",
+                    "${samples.count { it.firmware == Firmware.MESHTASTIC }} · ${samples.count { it.firmware == Firmware.MESHCORE }}")
+            }
             if (pings.isNotEmpty()) ValueRow("Drive-test pings", "${pings.size}")
             Text("Keep for", fontSize = 17.sp, modifier = Modifier.padding(top = 8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -207,7 +224,7 @@ private fun CoverageContent() {
             else "Sharing never happens on its own: you export a file and choose where it goes. Preview it on the map's coverage layer.") {
             SwitchRow("Share coverage", sharing, enabled = zones.isNotEmpty()) { store.sharing = it }
             if (sharing) {
-                val cells = remember(samples, pings, zones, nodes) { store.sharedCells }
+                val cells = remember(samples, pings, zones) { store.sharedCells }
                 val hidden = samples.count { s -> zones.any { it.contains(s.latitude, s.longitude) } }
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("What a file would contain", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
@@ -282,6 +299,15 @@ private fun FormSection(title: String, footer: String? = null, content: @Composa
         Text(title.uppercase(), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MeshColors.secondary)
         MeshCard { Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) { content() } }
         footer?.let { Text(it, fontSize = 13.sp, color = MeshColors.secondary) }
+    }
+}
+
+@Composable
+private fun PingCounts(reached: Int, relayed: Int, unanswered: Int) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("$reached answered", color = MeshColors.ok, fontSize = 14.sp)
+        Text("$relayed repeated", color = MeshColors.accent, fontSize = 14.sp)
+        Text("$unanswered nothing", color = MeshColors.danger, fontSize = 14.sp)
     }
 }
 

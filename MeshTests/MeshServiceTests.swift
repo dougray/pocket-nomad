@@ -9,16 +9,20 @@ import XCTest
 @testable import NomadPocket
 #endif
 
-/// Plays the radio side of the Meshtastic BLE contract.
+/// Plays the radio side of the BLE contract, for one or more radios at once.
 @MainActor
 final class FakeMeshTransport: MeshTransport {
     var onEvent: ((MeshTransportEvent) -> Void)?
     var availability: MeshBluetoothAvailability = .poweredOn
-    var writes: [Data] = []
-    /// FromRadio packets waiting to be read.
+    /// Every write in order, with the radio it went to.
+    var sent: [(id: UUID, data: Data)] = []
+    var writes: [Data] { sent.map(\.data) }
+    /// FromRadio packets waiting to be read (Meshtastic: one radio reads at a time).
     var queue: [Data] = []
-    var pendingReads = 0
+    var pendingReads: [UUID: Int] = [:]
+    /// The radio most recently asked for.
     var connectedID: UUID?
+    var connectedIDs: Set<UUID> = []
     var scanning = false
 
     func start() { onEvent?(.availability(.poweredOn)) }
@@ -26,19 +30,31 @@ final class FakeMeshTransport: MeshTransport {
     func stopScan() { scanning = false }
     func connect(id: UUID) {
         connectedID = id
+        connectedIDs.insert(id)
         onEvent?(.connecting(id: id, name: "Test Radio"))
     }
-    func disconnect() {
-        if let connectedID { onEvent?(.disconnected(id: connectedID, reason: nil, willReconnect: false)) }
-        connectedID = nil
+    func disconnect(id: UUID) {
+        guard connectedIDs.remove(id) != nil else { return }
+        if connectedID == id { connectedID = connectedIDs.first }
+        onEvent?(.disconnected(id: id, reason: nil, willReconnect: false))
     }
-    func write(_ toRadio: Data) { writes.append(toRadio) }
-    func readFromRadio() { pendingReads += 1 }
+    func write(_ toRadio: Data, to id: UUID) { sent.append((id, toRadio)) }
+    func readFromRadio(id: UUID) { pendingReads[id, default: 0] += 1 }
 
     // Test helpers
 
-    func becomeReady() {
-        onEvent?(.ready(id: connectedID ?? UUID(), name: "Test Radio"))
+    func writes(to id: UUID) -> [Data] { sent.filter { $0.id == id }.map(\.data) }
+
+    func becomeReady(_ id: UUID? = nil, name: String = "Test Radio", firmware: MeshFirmware = .meshtastic) {
+        onEvent?(.ready(id: id ?? connectedID ?? UUID(), name: name, firmware: firmware))
+    }
+
+    func fromNumChanged(_ id: UUID? = nil) {
+        onEvent?(.fromNumChanged(id: id ?? connectedID ?? UUID()))
+    }
+
+    func frame(_ data: Data, from id: UUID? = nil) {
+        onEvent?(.frame(id: id ?? connectedID ?? UUID(), data))
     }
 
     func enqueue(_ variant: MeshPBFromRadioVariant) {
@@ -48,26 +64,26 @@ final class FakeMeshTransport: MeshTransport {
     /// Answers reads until the service stops asking (like reading until empty).
     func pump() {
         var guardCount = 0
-        while pendingReads > 0, guardCount < 1000 {
-            pendingReads -= 1
+        while let (id, n) = pendingReads.first(where: { $0.value > 0 }), n > 0, guardCount < 1000 {
+            pendingReads[id] = n - 1
             guardCount += 1
-            onEvent?(.fromRadio(queue.isEmpty ? Data() : queue.removeFirst()))
+            onEvent?(.fromRadio(id: id, queue.isEmpty ? Data() : queue.removeFirst()))
         }
     }
 
-    func decodedWrites() throws -> [MeshPBToRadio] {
-        try writes.compactMap { try MeshPBToRadio.decode($0) }
+    func decodedWrites(to id: UUID? = nil) throws -> [MeshPBToRadio] {
+        try (id.map { writes(to: $0) } ?? writes).compactMap { try MeshPBToRadio.decode($0) }
     }
 
-    func lastWantConfigID() throws -> UInt32? {
-        for w in try decodedWrites().reversed() {
-            if case .wantConfigID(let id) = w { return id }
+    func lastWantConfigID(to id: UUID? = nil) throws -> UInt32? {
+        for w in try decodedWrites(to: id).reversed() {
+            if case .wantConfigID(let cfg) = w { return cfg }
         }
         return nil
     }
 
-    func lastSentPacket() throws -> MeshPBPacket? {
-        for w in try decodedWrites().reversed() {
+    func lastSentPacket(to id: UUID? = nil) throws -> MeshPBPacket? {
+        for w in try decodedWrites(to: id).reversed() {
             if case .packet(let p) = w { return p }
         }
         return nil
@@ -174,7 +190,7 @@ final class MeshServiceTests: XCTestCase {
         fake.pump()
         XCTAssertEqual(svc.connection, .syncing(name: "Test Radio"))
         fake.enqueue(.configCompleteID(cfg))
-        fake.onEvent?(.fromNumChanged)
+        fake.fromNumChanged()
         fake.pump()
         XCTAssertEqual(svc.connection, .connected(name: "Test Radio"))
     }
@@ -196,7 +212,7 @@ final class MeshServiceTests: XCTestCase {
         let (svc, fake) = try connected()
         let first = try fake.lastWantConfigID()
         fake.enqueue(.rebooted)
-        fake.onEvent?(.fromNumChanged)
+        fake.fromNumChanged()
         fake.pump()
         XCTAssertEqual(svc.connection, .syncing(name: "Test Radio"))
         XCTAssertNotEqual(try fake.lastWantConfigID(), first)
@@ -206,7 +222,7 @@ final class MeshServiceTests: XCTestCase {
         let (svc, fake) = try connected()
         fake.queue.append(Data([0x12, 0x7F, 0x00])) // length past end
         fake.enqueue(incoming(from: alice, to: MeshConstants.broadcastNum, text: "after junk", id: 50))
-        fake.onEvent?(.fromNumChanged)
+        fake.fromNumChanged()
         fake.pump()
         XCTAssertEqual(svc.messages(in: .channel(0)).map(\.text), ["after junk"])
     }
@@ -217,7 +233,7 @@ final class MeshServiceTests: XCTestCase {
         let (svc, fake) = try connected()
         fake.enqueue(incoming(from: alice, to: MeshConstants.broadcastNum, text: "hello mesh", id: 100))
         fake.enqueue(incoming(from: alice, to: MeshConstants.broadcastNum, text: "hello mesh", id: 100))
-        fake.onEvent?(.fromNumChanged)
+        fake.fromNumChanged()
         fake.pump()
         let thread = svc.messages(in: .channel(0))
         XCTAssertEqual(thread.count, 1)
@@ -234,7 +250,7 @@ final class MeshServiceTests: XCTestCase {
         fake.enqueue(incoming(from: bob, to: me, text: "just you", id: 200))
         fake.enqueue(incoming(from: bob, to: alice, text: "not for me", id: 201))
         fake.enqueue(.packet(MeshPBPacket(from: bob, to: me, encrypted: Data([1, 2]), id: 202)))
-        fake.onEvent?(.fromNumChanged)
+        fake.fromNumChanged()
         fake.pump()
         XCTAssertEqual(svc.messages(in: .direct(bob)).map(\.text), ["just you"])
         XCTAssertEqual(svc.directThreads.map(\.node.num), [bob])
@@ -253,7 +269,7 @@ final class MeshServiceTests: XCTestCase {
                                           decoded: MeshPBData(portnum: MeshPort.position.rawValue,
                                                               payload: MeshPBPosition(latitudeI: -338_688_000, longitudeI: 1_512_093_000).encode()),
                                           id: 301)))
-        fake.onEvent?(.fromNumChanged)
+        fake.fromNumChanged()
         fake.pump()
         let c = try XCTUnwrap(svc.nodes[carol])
         XCTAssertEqual(c.longName, "Carol")
@@ -281,20 +297,20 @@ final class MeshServiceTests: XCTestCase {
 
         // Implicit ACK from our own radio first, then the real one from Alice.
         fake.enqueue(routing(from: me, requestID: p.id, error: 0))
-        fake.onEvent?(.fromNumChanged)
+        fake.fromNumChanged()
         fake.pump()
         m = try XCTUnwrap(svc.messages(in: .direct(alice)).last)
         XCTAssertEqual(m.delivery, .heardByMesh)
 
         fake.enqueue(routing(from: alice, requestID: p.id, error: 0))
-        fake.onEvent?(.fromNumChanged)
+        fake.fromNumChanged()
         fake.pump()
         m = try XCTUnwrap(svc.messages(in: .direct(alice)).last)
         XCTAssertEqual(m.delivery, .delivered)
 
         // A late NAK does not undo a confirmed delivery.
         fake.enqueue(routing(from: me, requestID: p.id, error: 5))
-        fake.onEvent?(.fromNumChanged)
+        fake.fromNumChanged()
         fake.pump()
         XCTAssertEqual(svc.messages(in: .direct(alice)).last?.delivery, .delivered)
     }
@@ -309,7 +325,7 @@ final class MeshServiceTests: XCTestCase {
 
         fake.enqueue(routing(from: me, requestID: first.id, error: 0))
         fake.enqueue(routing(from: me, requestID: second.id, error: MeshRoutingError.maxRetransmit.rawValue))
-        fake.onEvent?(.fromNumChanged)
+        fake.fromNumChanged()
         fake.pump()
         let thread = svc.messages(in: .channel(0))
         // A broadcast nobody repeated was still sent; it isn't a failure.
@@ -319,7 +335,7 @@ final class MeshServiceTests: XCTestCase {
         XCTAssertTrue(svc.send("you there?", to: .direct(alice)))
         let dm = try XCTUnwrap(try fake.lastSentPacket())
         fake.enqueue(routing(from: me, requestID: dm.id, error: MeshRoutingError.maxRetransmit.rawValue))
-        fake.onEvent?(.fromNumChanged)
+        fake.fromNumChanged()
         fake.pump()
         XCTAssertEqual(svc.messages(in: .direct(alice)).last?.delivery, .failed("Their radio didn't answer"))
     }
@@ -362,7 +378,7 @@ final class MeshServiceTests: XCTestCase {
     func testPersistenceRoundTripAndAutoReconnect() throws {
         let (svc, fake) = try connected()
         fake.enqueue(incoming(from: alice, to: MeshConstants.broadcastNum, text: "saved?", id: 400))
-        fake.onEvent?(.fromNumChanged)
+        fake.fromNumChanged()
         fake.pump()
         svc.send("reply", to: .direct(alice))
         svc.saveNow()
@@ -400,10 +416,10 @@ final class MeshServiceTests: XCTestCase {
 
     func testTransportReconnectingState() throws {
         let (svc, fake) = try connected()
-        fake.onEvent?(.disconnected(id: UUID(), reason: "Link lost", willReconnect: true))
+        fake.onEvent?(.disconnected(id: fake.connectedID!, reason: "Link lost", willReconnect: true))
         XCTAssertEqual(svc.connection, .reconnecting(name: "Test Radio"))
         XCTAssertFalse(svc.canSend)
-        fake.onEvent?(.pairingProblem("PIN"))
+        fake.onEvent?(.pairingProblem(id: fake.connectedID!, "PIN"))
         XCTAssertEqual(svc.pairingHint, "PIN")
         fake.becomeReady()
         XCTAssertNil(svc.pairingHint)
@@ -424,7 +440,7 @@ final class MeshServiceTests: XCTestCase {
         XCTAssertTrue(svc.messages(in: .channel(0)).isEmpty)
 
         fake.enqueue(routing(from: me, requestID: p.id, error: 0)) // implicit ACK: a neighbour repeated it
-        fake.onEvent?(.fromNumChanged)
+        fake.fromNumChanged()
         fake.pump()
         XCTAssertEqual(outcome, .relayed)
     }
@@ -436,11 +452,11 @@ final class MeshServiceTests: XCTestCase {
         let p1 = try XCTUnwrap(try fake.lastSentPacket())
         XCTAssertEqual(p1.to, alice)
         fake.enqueue(routing(from: me, requestID: p1.id, error: 0))
-        fake.onEvent?(.fromNumChanged)
+        fake.fromNumChanged()
         fake.pump()
         XCTAssertNil(first, "a relay alone isn't an answer yet")
         fake.enqueue(routing(from: alice, requestID: p1.id, error: 0))
-        fake.onEvent?(.fromNumChanged)
+        fake.fromNumChanged()
         fake.pump()
         XCTAssertEqual(first, .reached)
 
@@ -449,7 +465,7 @@ final class MeshServiceTests: XCTestCase {
         let p2 = try XCTUnwrap(try fake.lastSentPacket())
         fake.enqueue(routing(from: me, requestID: p2.id, error: 0))
         fake.enqueue(routing(from: me, requestID: p2.id, error: 5)) // radio gave up
-        fake.onEvent?(.fromNumChanged)
+        fake.fromNumChanged()
         fake.pump()
         XCTAssertEqual(second, .relayed)
     }

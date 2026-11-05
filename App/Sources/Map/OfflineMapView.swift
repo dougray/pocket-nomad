@@ -60,6 +60,34 @@ enum CoverageLayer: String, CaseIterable, Identifiable {
     }
 }
 
+/// Which network's coverage the map shows. Recordings from both radios are
+/// kept apart by their firmware tag.
+enum CoverageNetworkFilter: String, CaseIterable, Identifiable {
+    case both, meshtastic, meshcore
+    var id: Self { self }
+    var label: String {
+        switch self {
+        case .both: "Both networks"
+        case .meshtastic: "Meshtastic only"
+        case .meshcore: "MeshCore only"
+        }
+    }
+    var network: MeshFirmware? { MeshFirmware(rawValue: rawValue) }
+    func includes(_ f: MeshFirmware) -> Bool { network == nil || network == f }
+}
+
+/// What colours the coverage dots and hexagons.
+enum CoverageColorMode: String, CaseIterable, Identifiable {
+    case signal, network
+    var id: Self { self }
+    var label: String {
+        switch self {
+        case .signal: "Colour by signal"
+        case .network: "Colour by network"
+        }
+    }
+}
+
 @MainActor @Observable
 final class MapController {
     weak var mapView: MLNMapView?
@@ -72,6 +100,12 @@ final class MapController {
     }
     var coverage = CoverageLayer(rawValue: UserDefaults.standard.string(forKey: "map.coverage") ?? "") ?? .off {
         didSet { UserDefaults.standard.set(coverage.rawValue, forKey: "map.coverage") }
+    }
+    var coverageNetwork = CoverageNetworkFilter(rawValue: UserDefaults.standard.string(forKey: "map.coverageNetwork") ?? "") ?? .both {
+        didSet { UserDefaults.standard.set(coverageNetwork.rawValue, forKey: "map.coverageNetwork") }
+    }
+    var coverageColor = CoverageColorMode(rawValue: UserDefaults.standard.string(forKey: "map.coverageColor") ?? "") ?? .signal {
+        didSet { UserDefaults.standard.set(coverageColor.rawValue, forKey: "map.coverageColor") }
     }
 
     func fly(to c: CLLocationCoordinate2D, zoom: Double) {
@@ -104,8 +138,23 @@ struct OfflineMapView: View {
     @State private var showKnownSheet = false
     @State private var tappedRadio: KnownRadio?
 
+    /// Radios heard by either connected radio (each network's own radio left out).
     private var mappedNodes: [MeshNode] {
-        controller.showNodes ? mesh.nodes.values.filter { $0.hasPosition && $0.num != mesh.myNodeNum } : []
+        guard controller.showNodes else { return [] }
+        return mesh.links.flatMap { l in l.nodes.values.filter { $0.hasPosition && $0.num != l.radio.myNodeNum } }
+    }
+
+    private var shownSamples: [CoverageSample] {
+        controller.coverage == .recorded ? coverageStore.samples.filter { controller.coverageNetwork.includes($0.firmware) } : []
+    }
+
+    private var shownPings: [CoveragePing] {
+        controller.coverage == .recorded ? coverageStore.pings.filter { controller.coverageNetwork.includes($0.firmware) } : []
+    }
+
+    /// More than one network has recorded anything (or two radios are set up).
+    private var twoNetworks: Bool {
+        Set(coverageStore.samples.map(\.firmware) + coverageStore.pings.map(\.firmware)).count > 1 || mesh.rememberedLinks.count > 1
     }
 
     var body: some View {
@@ -113,9 +162,11 @@ struct OfflineMapView: View {
             MapLibreView(controller: controller, dark: scheme == .dark, regions: content.maps.map(\.url),
                          nodes: mappedNodes, known: controller.showKnown ? known.radios : [],
                          coverage: controller.coverage,
-                         samples: controller.coverage == .recorded ? coverageStore.samples : [],
-                         pings: controller.coverage == .recorded ? coverageStore.pings : [],
-                         cells: controller.coverage == .shared ? coverageStore.sharedCells : [],
+                         colorMode: controller.coverageColor,
+                         networkKey: controller.coverageNetwork.rawValue,
+                         samples: shownSamples,
+                         pings: shownPings,
+                         cells: controller.coverage == .shared ? coverageStore.sharedCells(for: controller.coverageNetwork.network) : [],
                          onTapRadio: { id in tappedRadio = known.radios.first { $0.id == id } }) { coord in
                 pendingPin = coord
                 pinName = ""
@@ -177,6 +228,16 @@ struct OfflineMapView: View {
                 ForEach(CoverageLayer.allCases) { Text($0.label).tag($0) }
             } label: { Label("Coverage", systemImage: "circle.hexagongrid") }
             .pickerStyle(.menu)
+            if controller.coverage != .off {
+                Picker(selection: $controller.coverageNetwork) {
+                    ForEach(CoverageNetworkFilter.allCases) { Text($0.label).tag($0) }
+                } label: { Label("Coverage networks", systemImage: "point.3.connected.trianglepath.dotted") }
+                .pickerStyle(.menu)
+                Picker(selection: $controller.coverageColor) {
+                    ForEach(CoverageColorMode.allCases) { Text($0.label).tag($0) }
+                } label: { Label("Coverage colours", systemImage: "paintpalette") }
+                .pickerStyle(.menu)
+            }
             Button { showCoverageSettings = true } label: { Label("Coverage settings…", systemImage: "gearshape") }
         } label: {
             Image(systemName: "square.3.layers.3d").font(.title3).frame(width: 48, height: 48)
@@ -187,12 +248,27 @@ struct OfflineMapView: View {
 
     private var coverageLegend: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(controller.coverage == .shared ? "Would be shared" : "Heard here (private)").font(.caption.weight(.semibold))
-            HStack(spacing: 6) {
-                ForEach(Array(CoverageColors.stops.enumerated()), id: \.offset) { _, stop in
-                    Circle().fill(Color(uiColor: stop.1)).frame(width: 10, height: 10)
+            Text((controller.coverage == .shared ? "Would be shared" : "Heard here (private)")
+                 + (controller.coverageNetwork == .both ? "" : " · \(controller.coverageNetwork.network?.displayName ?? "")"))
+                .font(.caption.weight(.semibold))
+            if controller.coverageColor == .signal {
+                HStack(spacing: 6) {
+                    ForEach(Array(CoverageColors.stops.enumerated()), id: \.offset) { _, stop in
+                        Circle().fill(Color(uiColor: stop.1)).frame(width: 10, height: 10)
+                    }
+                    Text("weak → strong").font(.caption2).foregroundStyle(.secondary)
                 }
-                Text("weak → strong").font(.caption2).foregroundStyle(.secondary)
+            }
+            if controller.coverageColor == .network || twoNetworks {
+                // Network colours: the fill in "colour by network", otherwise the ring or hexagon edge.
+                HStack(spacing: 8) {
+                    if controller.coverageNetwork.includes(.meshtastic) { networkKey(RadioColors.meshtastic, "Meshtastic") }
+                    if controller.coverageNetwork.includes(.meshcore) { networkKey(RadioColors.meshcore, "MeshCore") }
+                    if controller.coverage == .shared && controller.coverageNetwork == .both { networkKey(.white, "Both") }
+                }
+                if controller.coverageColor == .signal {
+                    Text(controller.coverage == .shared ? "Edge: network" : "Ring: network").font(.caption2).foregroundStyle(.secondary)
+                }
             }
             if controller.coverage == .recorded && !coverageStore.pings.isEmpty {
                 Text("Drive-test pings").font(.caption.weight(.semibold)).padding(.top, 2)
@@ -234,11 +310,23 @@ struct OfflineMapView: View {
                 Circle().fill(Color.gray).frame(width: 7, height: 7)
                 Text("Other").font(.caption2)
             }
-            Label("Heard by your radio", systemImage: "antenna.radiowaves.left.and.right").font(.caption2)
+            Label(mesh.rememberedLinks.count > 1 ? "Heard by your radios" : "Heard by your radio", systemImage: "antenna.radiowaves.left.and.right").font(.caption2)
         }
         .foregroundStyle(.primary)
         .padding(10)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// A network swatch: filled when colouring by network, a ring otherwise.
+    private func networkKey(_ color: UIColor, _ label: String) -> some View {
+        HStack(spacing: 4) {
+            if controller.coverageColor == .network {
+                Circle().fill(Color(uiColor: color)).frame(width: 10, height: 10)
+            } else {
+                Circle().strokeBorder(Color(uiColor: color), lineWidth: 2.5).frame(width: 12, height: 12)
+            }
+            Text(label).font(.caption2)
+        }
     }
 
     private func legendDot(_ color: UIColor, _ label: String) -> some View {
@@ -359,6 +447,10 @@ enum RadioColors {
     static let meshtastic = UIColor(red: 0.40, green: 0.85, blue: 0.47, alpha: 1)
     static let meshcore = UIColor(red: 0.25, green: 0.55, blue: 0.98, alpha: 1)
     static func color(_ firmware: MeshFirmware) -> UIColor { firmware == .meshcore ? meshcore : meshtastic }
+    /// By a feature's "fw" attribute: meshtastic, meshcore or both (white).
+    static var expression: NSExpression {
+        NSExpression(format: "TERNARY(fw == 'meshcore', %@, TERNARY(fw == 'both', %@, %@))", meshcore, UIColor.white, meshtastic)
+    }
 }
 
 /// A mesh node on the map (drawn with its own icon, unlike saved places).
@@ -374,6 +466,9 @@ struct MapLibreView: UIViewRepresentable {
     var nodes: [MeshNode] = []
     var known: [KnownRadio] = []
     var coverage: CoverageLayer = .off
+    var colorMode: CoverageColorMode = .signal
+    /// Changes when the network filter does, so the layer is rebuilt.
+    var networkKey = ""
     var samples: [CoverageSample] = []
     var pings: [CoveragePing] = []
     var cells: [CoverageShare.Cell] = []
@@ -414,7 +509,8 @@ struct MapLibreView: UIViewRepresentable {
         var parent: MapLibreView
         private var styleKey = ""
         private var shownPins: [UUID: MLNPointAnnotation] = [:]
-        private var shownNodes: [UInt32: NodeAnnotation] = [:]
+        /// By network and number: node numbers are only unique per network.
+        private var shownNodes: [String: NodeAnnotation] = [:]
         private var coverageKey = ""
         private var knownKey = ""
         private var regionsFitted = false
@@ -465,23 +561,23 @@ struct MapLibreView: UIViewRepresentable {
         }
 
         func syncNodes(on view: MLNMapView) {
-            let wanted = Dictionary(uniqueKeysWithValues: parent.nodes.map { ($0.num, $0) })
-            for (num, a) in shownNodes where wanted[num] == nil {
+            let wanted = Dictionary(parent.nodes.map { ($0.listID, $0) }, uniquingKeysWith: { a, _ in a })
+            for (key, a) in shownNodes where wanted[key] == nil {
                 view.removeAnnotation(a)
-                shownNodes[num] = nil
+                shownNodes[key] = nil
             }
             for node in wanted.values {
                 guard let lat = node.latitude, let lon = node.longitude else { continue }
                 let coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
                 let heard = node.lastHeard.map { "heard " + $0.formatted(.relative(presentation: .named)) } ?? "not heard yet"
-                let subtitle = [node.meshCoreType == nil ? "Meshtastic" : "MeshCore", heard].joined(separator: " · ")
-                let firmware: MeshFirmware = node.meshCoreType == nil ? .meshtastic : .meshcore
-                if let a = shownNodes[node.num], a.firmware == firmware {
+                let firmware = node.firmware
+                let subtitle = [firmware.displayName, heard].joined(separator: " · ")
+                if let a = shownNodes[node.listID], a.firmware == firmware {
                     if a.coordinate.latitude != lat || a.coordinate.longitude != lon { a.coordinate = coord }
                     a.title = node.displayName
                     a.subtitle = subtitle
                 } else {
-                    if let old = shownNodes[node.num] { view.removeAnnotation(old) }
+                    if let old = shownNodes[node.listID] { view.removeAnnotation(old) }
                     let a = NodeAnnotation()
                     a.nodeNum = node.num
                     a.firmware = firmware
@@ -489,7 +585,7 @@ struct MapLibreView: UIViewRepresentable {
                     a.title = node.displayName
                     a.subtitle = subtitle
                     view.addAnnotation(a)
-                    shownNodes[node.num] = a
+                    shownNodes[node.listID] = a
                 }
             }
         }
@@ -497,7 +593,7 @@ struct MapLibreView: UIViewRepresentable {
         /// Rebuilds the coverage source and layer when the data or mode changes.
         func syncCoverage(on view: MLNMapView) {
             guard let style = view.style else { return }
-            let key = "\(parent.coverage.rawValue)|\(parent.samples.count)|\(parent.pings.count)|\(parent.cells.count)|\(parent.cells.map(\.count).reduce(0, +))"
+            let key = "\(parent.coverage.rawValue)|\(parent.colorMode.rawValue)|\(parent.networkKey)|\(parent.samples.count)|\(parent.pings.count)|\(parent.cells.count)|\(parent.cells.map(\.count).reduce(0, +))"
             guard key != coverageKey else { return }
             coverageKey = key
             for id in ["coverage-points", "coverage-pings", "coverage-cells", "coverage-outline"] {
@@ -514,23 +610,30 @@ struct MapLibreView: UIViewRepresentable {
                 let features: [MLNPointFeature] = parent.samples.map { s in
                     let f = MLNPointFeature()
                     f.coordinate = CLLocationCoordinate2D(latitude: s.latitude, longitude: s.longitude)
-                    f.attributes = ["snr": Double(s.snr ?? -10)]
+                    f.attributes = ["snr": Double(s.snr ?? -10), "fw": s.firmware.rawValue]
                     return f
                 }
                 let source = MLNShapeSource(identifier: "coverage", features: features, options: nil)
                 style.addSource(source)
                 let layer = MLNCircleStyleLayer(identifier: "coverage-points", source: source)
                 layer.circleRadius = NSExpression(forConstantValue: 6)
-                layer.circleColor = CoverageColors.expression
                 layer.circleOpacity = NSExpression(forConstantValue: 0.85)
-                layer.circleStrokeColor = NSExpression(forConstantValue: UIColor.black.withAlphaComponent(0.4))
-                layer.circleStrokeWidth = NSExpression(forConstantValue: 1)
+                if parent.colorMode == .network {
+                    layer.circleColor = RadioColors.expression
+                    layer.circleStrokeColor = NSExpression(forConstantValue: UIColor.black.withAlphaComponent(0.4))
+                    layer.circleStrokeWidth = NSExpression(forConstantValue: 1)
+                } else {
+                    // Fill is signal; the ring says which radio heard it.
+                    layer.circleColor = CoverageColors.expression
+                    layer.circleStrokeColor = RadioColors.expression
+                    layer.circleStrokeWidth = NSExpression(forConstantValue: 2)
+                }
                 style.addLayer(layer)
                 // Drive-test pings: square-ish larger dots, coloured by what came back.
                 let pingFeatures: [MLNPointFeature] = parent.pings.map { p in
                     let f = MLNPointFeature()
                     f.coordinate = CLLocationCoordinate2D(latitude: p.latitude, longitude: p.longitude)
-                    f.attributes = ["outcome": p.outcome.rawValue]
+                    f.attributes = ["outcome": p.outcome.rawValue, "fw": p.firmware.rawValue]
                     return f
                 }
                 let pingSource = MLNShapeSource(identifier: "coverage-ping-source", features: pingFeatures, options: nil)
@@ -539,8 +642,9 @@ struct MapLibreView: UIViewRepresentable {
                 pings.circleRadius = NSExpression(forConstantValue: 9)
                 pings.circleColor = PingColors.expression
                 pings.circleOpacity = NSExpression(forConstantValue: 0.9)
-                pings.circleStrokeColor = NSExpression(forConstantValue: UIColor.white)
-                pings.circleStrokeWidth = NSExpression(forConstantValue: 2)
+                // Fill is the outcome; the ring is the network that sent the ping.
+                pings.circleStrokeColor = RadioColors.expression
+                pings.circleStrokeWidth = NSExpression(forConstantValue: 3)
                 style.addLayer(pings)
             case .shared:
                 let features: [MLNPolygonFeature] = parent.cells.map { cell in
@@ -549,18 +653,21 @@ struct MapLibreView: UIViewRepresentable {
                     // A hexagon with only pings is coloured as if signal matched its best ping.
                     let snr: Double = if let best = cell.bestSNR { Double(best) }
                         else if cell.pingsReached > 0 { 8 } else if cell.pingsRelayed > 0 { 0 } else { -15 }
-                    f.attributes = ["snr": snr]
+                    let fw = cell.firmwares.count > 1 ? "both" : (cell.firmwares.first?.rawValue ?? "meshtastic")
+                    f.attributes = ["snr": snr, "fw": fw]
                     return f
                 }
                 let source = MLNShapeSource(identifier: "coverage", features: features, options: nil)
                 style.addSource(source)
+                let byNetwork = parent.colorMode == .network
                 let fill = MLNFillStyleLayer(identifier: "coverage-cells", source: source)
-                fill.fillColor = CoverageColors.expression
+                fill.fillColor = byNetwork ? RadioColors.expression : CoverageColors.expression
                 fill.fillOpacity = NSExpression(forConstantValue: 0.45)
                 style.addLayer(fill)
+                // The edge says which networks were heard in the hexagon (white: both).
                 let outline = MLNLineStyleLayer(identifier: "coverage-outline", source: source)
-                outline.lineColor = CoverageColors.expression
-                outline.lineWidth = NSExpression(forConstantValue: 1.2)
+                outline.lineColor = RadioColors.expression
+                outline.lineWidth = NSExpression(forConstantValue: byNetwork ? 1.2 : 2)
                 style.addLayer(outline)
             }
         }

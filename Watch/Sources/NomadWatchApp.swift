@@ -21,7 +21,7 @@ struct NomadWatchApp: App {
 }
 
 enum WatchRoute: Hashable {
-    case signal, compass, firstAid, guide(String), messages, reply(WatchRelay.Conversation, String)
+    case signal, compass, firstAid, guide(String), messages, reply(WatchRelay.Conversation, String, String?)
 
     /// Complication links: nomadpocket-watch://sos and nomadpocket-watch://compass.
     init?(url: URL) {
@@ -44,7 +44,7 @@ enum WatchRoute: Hashable {
         case "compass", "position": return [.compass]
         case "firstaid": return [.firstAid]
         case "messages": return [.messages]
-        case "reply": return [.messages, .reply(.channel(0), "Primary channel")]
+        case "reply": return [.messages, .reply(.channel(0), "Primary channel", nil)]
         default: return []
         }
     }
@@ -72,7 +72,7 @@ struct WatchRootView: View {
                     case .guide(let id):
                         if let card = cards.first(where: { $0.id == id }) { FirstAidDetailView(card: card) }
                     case .messages: MessagesView()
-                    case .reply(let conversation, let title): QuickReplyView(conversation: conversation, title: title)
+                    case .reply(let conversation, let title, let network): QuickReplyView(conversation: conversation, title: title, network: network)
                     }
                 }
         }

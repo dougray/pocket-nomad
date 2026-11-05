@@ -40,53 +40,67 @@ import org.nomadpocket.mesh.Mesh
 import org.nomadpocket.mesh.MeshNode
 import org.nomadpocket.mesh.MeshSOS
 import org.nomadpocket.mesh.MeshService
+import org.nomadpocket.mesh.Firmware
+import org.nomadpocket.mesh.rawValue
 import java.util.Locale
 
 @Composable
-fun MeshNodeListScreen(onMessage: (Long) -> Unit) {
-    val svc = Mesh.service
-    val nodes by svc.nodesFlow.collectAsStateWithLifecycle()
-    val blocked by svc.blockedFlow.collectAsStateWithLifecycle()
-    val radio by svc.radioFlow.collectAsStateWithLifecycle()
-    val connection by svc.connectionFlow.collectAsStateWithLifecycle()
-    val sorted = remember(nodes, blocked, radio.myNodeNum) { MeshService.sortedNodes(nodes, radio.myNodeNum, blocked) }
-    val blockedNodes = remember(nodes, blocked) { svc.blockedNodes }
-    var blocking by remember { mutableStateOf<MeshNode?>(null) }
+fun MeshNodeListScreen(onMessage: (Firmware, Long) -> Unit) {
+    val radios = Mesh.radios
+    val inUse = rememberRadiosInUse(radios)
+    val two = inUse.size > 1
+    for (link in radios.links.values) {
+        val nodes by link.nodesFlow.collectAsStateWithLifecycle()
+        val blocked by link.blockedFlow.collectAsStateWithLifecycle()
+        val radio by link.radioFlow.collectAsStateWithLifecycle()
+        remember(nodes, blocked, radio.myNodeNum) { 0 }
+    }
+    // Both networks in one list, most recently heard first; each row says which network.
+    val sorted = radios.sortedNodes
+    val blockedNodes = radios.links.flatMap { (fw, link) -> link.blockedNodes.map { fw to it } }
+    val anyConnected = inUse.any { it.second.connection.isConnected }
+    var blocking by remember { mutableStateOf<Pair<Firmware, MeshNode>?>(null) }
 
     LazyColumn(contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (sorted.isEmpty()) item {
             MeshInfoCard(Icons.Filled.Groups, "No other radios yet",
-                if (connection.isConnected) "Your radio has not heard anyone. Radios announce themselves every few hours, so leave it on, get higher up, or ask a friend to send a message."
+                if (anyConnected) "Your radio has not heard anyone. Radios announce themselves every few hours, so leave it on, get higher up, or ask a friend to send a message."
                 else "Connect your radio to see who is around.")
         }
-        items(sorted, key = { it.num }) { node ->
-            MeshCard(onClick = { onMessage(node.num) }, onLongClick = { blocking = node }) { MeshNodeRow(node) }
+        items(sorted, key = { "${it.first.rawValue}${it.second.num}" }) { (fw, node) ->
+            MeshCard(onClick = { onMessage(fw, node.num) }, onLongClick = { blocking = fw to node }) {
+                MeshNodeRow(node, if (two) fw else null)
+            }
         }
         if (sorted.isNotEmpty()) item {
             Text("Touch and hold a radio to block it.", fontSize = 13.sp, color = MeshColors.secondary)
         }
         if (blockedNodes.isNotEmpty()) {
             item { Text("Blocked", fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.padding(top = 12.dp)) }
-            items(blockedNodes, key = { "b${it.num}" }) { node ->
+            items(blockedNodes, key = { "b${it.first.rawValue}${it.second.num}" }) { (fw, node) ->
                 MeshCard {
                     Row(Modifier.padding(horizontal = 14.dp).heightIn(min = MeshUI.minTap), verticalAlignment = Alignment.CenterVertically) {
                         Text(node.displayName, color = MeshColors.secondary, modifier = Modifier.weight(1f))
-                        TextButton(onClick = { svc.unblock(node.num) }) { Text("Unblock") }
+                        if (two) FirmwareBadge(fw, compact = true)
+                        TextButton(onClick = { radios.link(fw).unblock(node.num) }) { Text("Unblock") }
                     }
                 }
             }
         }
     }
-    BlockConfirmation(blocking) { blocking = null }
+    blocking.let { b -> BlockConfirmation(b?.second, b?.let { radios.link(it.first) } ?: Mesh.service) { blocking = null } }
 }
 
 @Composable
-fun MeshNodeRow(node: MeshNode) {
+fun MeshNodeRow(node: MeshNode, firmware: Firmware? = null) {
     Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.Top) {
         MeshNodeBadge(node, 52)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(node.displayName, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(node.displayName, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
+                firmware?.let { FirmwareBadge(it, compact = true) }
+            }
             Text(node.hexID, fontSize = 13.sp, fontFamily = FontFamily.Monospace, color = MeshColors.secondary)
             val bits = buildList {
                 add(node.lastHeardMillis?.let { "Heard ${meshRelative(it)}" } ?: "Not heard")

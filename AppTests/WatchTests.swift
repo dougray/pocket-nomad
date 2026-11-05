@@ -110,9 +110,9 @@ final class WatchTests: XCTestCase {
                                     date: Date(timeIntervalSince1970: 100), isOutgoing: false, delivery: .received))
         messages.append(MeshMessage(packetID: 100, from: me, to: 0xA002, channel: 0, text: "reply",
                                     date: Date(timeIntervalSince1970: 101), isOutgoing: true, delivery: .sent))
-        let status = WatchBridge.status(messages: messages, myNum: me, connected: true, radioName: "R",
-                                        maxTextBytes: 200, nodeName: { $0 == 0xA002 ? "Base Camp" : "Ana" },
-                                        channelName: { _ in nil })
+        let status = WatchBridge.status(messages: messages, myNum: { _ in me }, connected: true, radioName: "R",
+                                        maxTextBytes: 200, nodeName: { n, _ in n == 0xA002 ? "Base Camp" : "Ana" },
+                                        channelName: { _, _ in nil })
         XCTAssertEqual(status.messages.count, WatchRelay.maxMessages)
         XCTAssertEqual(status.messages[0].text, "reply")
         XCTAssertEqual(status.messages[0].sender, "Me")

@@ -157,16 +157,24 @@ final class FakeMeshCoreRadio {
     let ana = CoreFrames.key(0xAA)
     var nextAck: UInt32 = 0xA0A0_0001
 
-    init(_ fake: FakeMeshTransport) { self.fake = fake }
+    /// The radio it plays; nil answers every write (one radio connected).
+    var id: UUID?
 
-    /// Replies to every write not yet answered, until the app goes quiet.
+    init(_ fake: FakeMeshTransport, id: UUID? = nil) {
+        self.fake = fake
+        self.id = id
+    }
+
+    /// Replies to every write (to this radio) not yet answered, until the app goes quiet.
     func run() {
         var guardCount = 0
-        while answered < fake.writes.count, guardCount < 200 {
+        while guardCount < 200 {
+            let mine = fake.sent.filter { id == nil || $0.id == id }
+            guard answered < mine.count else { break }
             guardCount += 1
-            let cmd = fake.writes[answered]
+            let cmd = mine[answered]
             answered += 1
-            for reply in replies(to: cmd) { fake.onEvent?(.frame(reply)) }
+            for reply in replies(to: cmd.data) { fake.frame(reply, from: cmd.id) }
         }
     }
 
@@ -246,7 +254,7 @@ final class MeshCoreServiceTests: XCTestCase {
 
         var sent = try XCTUnwrap(svc.messages(in: .direct(ana.num)).last)
         XCTAssertEqual(sent.delivery, .sent)
-        fake.onEvent?(.frame(CoreFrames.sendConfirmed(ack: sent.packetID)))
+        fake.frame(CoreFrames.sendConfirmed(ack: sent.packetID))
         sent = try XCTUnwrap(svc.messages(in: .direct(ana.num)).last)
         XCTAssertEqual(sent.delivery, .delivered)
     }
@@ -262,13 +270,13 @@ final class MeshCoreServiceTests: XCTestCase {
     func testMessagesWaitingPushTriggersSync() {
         let (svc, fake, radio) = connected()
         radio.waiting = [CoreFrames.directMessageV3(prefix: Array(radio.ana.prefix(6)), text: "you ok?", ts: 1_790_000_500)]
-        fake.onEvent?(.frame(Data([0x83])))
+        fake.frame(Data([0x83]))
         radio.run()
         let ana = svc.sortedNodes.first!
         XCTAssertEqual(svc.messages(in: .direct(ana.num)).map(\.text), ["you ok?"])
         // The same message replayed is not shown twice.
         radio.waiting = [CoreFrames.directMessageV3(prefix: Array(radio.ana.prefix(6)), text: "you ok?", ts: 1_790_000_500)]
-        fake.onEvent?(.frame(Data([0x83])))
+        fake.frame(Data([0x83]))
         radio.run()
         XCTAssertEqual(svc.messages(in: .direct(ana.num)).count, 1)
     }
@@ -293,7 +301,7 @@ final class MeshCoreServiceTests: XCTestCase {
         XCTAssertEqual(cmd.first, 2)
         XCTAssertEqual(String(decoding: cmd.suffix(from: 13), as: UTF8.self), MeshService.pingText)
         XCTAssertTrue(svc.messages(in: .direct(ana.num)).isEmpty, "pings are not added to the chat")
-        fake.onEvent?(.frame(CoreFrames.sendConfirmed(ack: ack)))
+        fake.frame(CoreFrames.sendConfirmed(ack: ack))
         XCTAssertEqual(outcome, .reached)
     }
 }

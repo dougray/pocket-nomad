@@ -200,12 +200,12 @@ final class CoverageTests: XCTestCase {
         radio.run()
         XCTAssertTrue(heard.isEmpty, "contacts from the handshake and old messages don't count")
         // A live advert does.
-        fake.onEvent?(.frame(Data([0x80]) + Data(radio.ana)))
+        fake.frame(Data([0x80]) + Data(radio.ana))
         XCTAssertEqual(heard.count, 1)
         XCTAssertEqual(heard.first?.firmware, .meshcore)
         // So does a fresh message.
         radio.waiting = [CoreFrames.channelMessageV3(channel: 0, text: "Ana: hi", ts: UInt32(Date().timeIntervalSince1970))]
-        fake.onEvent?(.frame(Data([0x83])))
+        fake.frame(Data([0x83]))
         radio.run()
         XCTAssertEqual(heard.count, 2)
         XCTAssertEqual(heard.last?.snr, 5.5)

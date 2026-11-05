@@ -6,6 +6,10 @@
 // radios. Meshtastic UUIDs are from its public client API documentation;
 // MeshCore uses the Nordic UART service (docs/companion_protocol.md).
 //
+// One central manager holds every radio (CoreBluetooth allows several
+// connected peripherals per manager); each has its own characteristics and
+// ready flag, and every event carries the peripheral's identifier.
+//
 // The central manager runs on the main queue, so every delegate callback is
 // already on the main actor. State restoration is enabled so iOS can relaunch
 // the app in the background when the radio has data (needs the
@@ -42,18 +46,32 @@ final class MeshBLETransport: NSObject, MeshTransport {
     var onEvent: ((MeshTransportEvent) -> Void)?
     private(set) var availability: MeshBluetoothAvailability = .unknown
 
+    /// One connected (or connecting) radio and the characteristics found on it.
+    private struct Link {
+        var peripheral: CBPeripheral
+        var toRadio: CBCharacteristic?
+        var fromRadio: CBCharacteristic?
+        var fromNum: CBCharacteristic?
+        var meshCoreRX: CBCharacteristic?
+        var meshCoreTX: CBCharacteristic?
+        var readyAnnounced = false
+
+        mutating func clear() {
+            toRadio = nil
+            fromRadio = nil
+            fromNum = nil
+            meshCoreRX = nil
+            meshCoreTX = nil
+            readyAnnounced = false
+        }
+    }
+
     private var central: CBCentralManager?
-    private var peripheral: CBPeripheral?
-    private var toRadioChar: CBCharacteristic?
-    private var fromRadioChar: CBCharacteristic?
-    private var fromNumChar: CBCharacteristic?
-    private var meshCoreRXChar: CBCharacteristic?
-    private var meshCoreTXChar: CBCharacteristic?
+    private var links: [UUID: Link] = [:]
     private var seen: [UUID: CBPeripheral] = [:]
-    /// The device we want to stay connected to. nil after a user disconnect.
-    private var wantedID: UUID?
+    /// The devices we want to stay connected to. A user disconnect removes one.
+    private var wanted: Set<UUID> = []
     private var wantsScan = false
-    private var readyAnnounced = false
 
     func start() {
         guard central == nil else { return }
@@ -93,21 +111,18 @@ final class MeshBLETransport: NSObject, MeshTransport {
 
     func connect(id: UUID) {
         start()
-        wantedID = id
+        wanted.insert(id)
         guard let central, central.state == .poweredOn else { return } // retried on poweredOn
-        if let current = peripheral, current.identifier != id {
-            central.cancelPeripheralConnection(current)
-            clearLink()
-        }
-        let target = seen[id] ?? central.retrievePeripherals(withIdentifiers: [id]).first
+        let target = links[id]?.peripheral ?? seen[id] ?? central.retrievePeripherals(withIdentifiers: [id]).first
         guard let target else {
             emit(.connectFailed(id: id, reason: "That radio is not nearby. Turn it on and scan again."))
             return
         }
-        peripheral = target
+        links[id] = links[id] ?? Link(peripheral: target)
         target.delegate = self
         emit(.connecting(id: id, name: target.name ?? "Mesh radio"))
         if target.state == .connected {
+            links[id]?.clear()
             target.discoverServices(MeshBLEUUID.allServices)
         } else {
             // A pending connect never times out; iOS completes it whenever the
@@ -116,27 +131,24 @@ final class MeshBLETransport: NSObject, MeshTransport {
         }
     }
 
-    func disconnect() {
-        wantedID = nil
-        if let peripheral { central?.cancelPeripheralConnection(peripheral) }
-        if let id = peripheral?.identifier {
-            emit(.disconnected(id: id, reason: nil, willReconnect: false))
-        }
-        clearLink()
-        peripheral = nil
+    func disconnect(id: UUID) {
+        wanted.remove(id)
+        guard let link = links.removeValue(forKey: id) else { return }
+        central?.cancelPeripheralConnection(link.peripheral)
+        emit(.disconnected(id: id, reason: nil, willReconnect: false))
     }
 
-    func write(_ toRadio: Data) {
-        guard let peripheral, let target = toRadioChar ?? meshCoreRXChar else {
-            emit(.writeFailed("Not connected to a radio."))
+    func write(_ toRadio: Data, to id: UUID) {
+        guard let link = links[id], let target = link.toRadio ?? link.meshCoreRX else {
+            emit(.writeFailed(id: id, "Not connected to a radio."))
             return
         }
-        peripheral.writeValue(toRadio, for: target, type: .withResponse)
+        link.peripheral.writeValue(toRadio, for: target, type: .withResponse)
     }
 
-    func readFromRadio() {
-        guard let peripheral, let fromRadioChar else { return }
-        peripheral.readValue(for: fromRadioChar)
+    func readFromRadio(id: UUID) {
+        guard let link = links[id], let fromRadio = link.fromRadio else { return }
+        link.peripheral.readValue(for: fromRadio)
     }
 
     // MARK: - Helpers
@@ -145,23 +157,15 @@ final class MeshBLETransport: NSObject, MeshTransport {
         onEvent?(event)
     }
 
-    private func clearLink() {
-        toRadioChar = nil
-        fromRadioChar = nil
-        fromNumChar = nil
-        meshCoreRXChar = nil
-        meshCoreTXChar = nil
-        readyAnnounced = false
-    }
-
-    private func announceReadyIfPossible() {
-        guard !readyAnnounced, let peripheral else { return }
-        if toRadioChar != nil, fromRadioChar != nil {
-            readyAnnounced = true
-            emit(.ready(id: peripheral.identifier, name: peripheral.name ?? "Meshtastic radio", firmware: .meshtastic))
-        } else if meshCoreRXChar != nil, meshCoreTXChar?.isNotifying == true {
-            readyAnnounced = true
-            emit(.ready(id: peripheral.identifier, name: peripheral.name ?? "MeshCore radio", firmware: .meshcore))
+    private func announceReadyIfPossible(_ id: UUID) {
+        guard let link = links[id], !link.readyAnnounced else { return }
+        let p = link.peripheral
+        if link.toRadio != nil, link.fromRadio != nil {
+            links[id]?.readyAnnounced = true
+            emit(.ready(id: id, name: p.name ?? "Meshtastic radio", firmware: .meshtastic))
+        } else if link.meshCoreRX != nil, link.meshCoreTX?.isNotifying == true {
+            links[id]?.readyAnnounced = true
+            emit(.ready(id: id, name: p.name ?? "MeshCore radio", firmware: .meshcore))
         }
     }
 
@@ -201,30 +205,37 @@ final class MeshBLETransport: NSObject, MeshTransport {
 extension MeshBLETransport: @preconcurrency CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
         // Called before centralManagerDidUpdateState when iOS relaunches us.
-        guard let restored = (dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral])?.first else { return }
-        peripheral = restored
-        wantedID = restored.identifier
-        restored.delegate = self
-        seen[restored.identifier] = restored
+        // Every radio the app had (up to one per firmware) comes back here.
+        for restored in dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] ?? [] {
+            links[restored.identifier] = Link(peripheral: restored)
+            wanted.insert(restored.identifier)
+            restored.delegate = self
+            seen[restored.identifier] = restored
+        }
     }
 
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         availability = Self.availability(from: central.state)
         emit(.availability(availability))
         guard central.state == .poweredOn else {
-            if central.state == .poweredOff || central.state == .resetting { clearLink() }
+            if central.state == .poweredOff || central.state == .resetting {
+                for id in links.keys { links[id]?.clear() }
+            }
             return
         }
         if wantsScan { startScan() }
-        if let restored = peripheral, restored.identifier == wantedID {
-            emit(.connecting(id: restored.identifier, name: restored.name ?? "Mesh radio"))
-            if restored.state == .connected {
-                restored.discoverServices(MeshBLEUUID.allServices)
+        for id in wanted.sorted(by: { $0.uuidString < $1.uuidString }) {
+            if let restored = links[id]?.peripheral {
+                emit(.connecting(id: id, name: restored.name ?? "Mesh radio"))
+                if restored.state == .connected {
+                    links[id]?.clear()
+                    restored.discoverServices(MeshBLEUUID.allServices)
+                } else {
+                    central.connect(restored, options: nil)
+                }
             } else {
-                central.connect(restored, options: nil)
+                connect(id: id)
             }
-        } else if let wantedID {
-            connect(id: wantedID)
         }
     }
 
@@ -242,31 +253,35 @@ extension MeshBLETransport: @preconcurrency CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        guard peripheral.identifier == wantedID else {
+        let id = peripheral.identifier
+        guard wanted.contains(id) else {
             central.cancelPeripheralConnection(peripheral)
             return
         }
-        self.peripheral = peripheral
+        var link = links[id] ?? Link(peripheral: peripheral)
+        link.peripheral = peripheral
+        link.clear()
+        links[id] = link
         peripheral.delegate = self
-        clearLink()
         peripheral.discoverServices(MeshBLEUUID.allServices)
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         let reason = error.flatMap { pairingMessage(for: $0) } ?? error?.localizedDescription ?? "Could not connect."
         emit(.connectFailed(id: peripheral.identifier, reason: reason))
-        if peripheral.identifier == wantedID {
+        if wanted.contains(peripheral.identifier) {
             central.connect(peripheral, options: nil) // keep trying in the background
         }
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-        let mine = peripheral.identifier == self.peripheral?.identifier
-        guard mine else { return }
-        clearLink()
-        let reconnect = peripheral.identifier == wantedID
-        if let error, let msg = pairingMessage(for: error) { emit(.pairingProblem(msg)) }
-        emit(.disconnected(id: peripheral.identifier, reason: error?.localizedDescription, willReconnect: reconnect))
+        let id = peripheral.identifier
+        guard links[id] != nil else { return } // already dropped by disconnect(id:)
+        links[id]?.clear()
+        let reconnect = wanted.contains(id)
+        if !reconnect { links[id] = nil }
+        if let error, let msg = pairingMessage(for: error) { emit(.pairingProblem(id: id, msg)) }
+        emit(.disconnected(id: id, reason: error?.localizedDescription, willReconnect: reconnect))
         if reconnect {
             central.connect(peripheral, options: nil)
         }
@@ -294,32 +309,34 @@ extension MeshBLETransport: @preconcurrency CBPeripheralDelegate {
     }
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        let id = peripheral.identifier
         if let error {
-            emit(.connectFailed(id: peripheral.identifier, reason: pairingMessage(for: error) ?? error.localizedDescription))
+            emit(.connectFailed(id: id, reason: pairingMessage(for: error) ?? error.localizedDescription))
             return
         }
+        guard links[id] != nil else { return }
         if service.uuid == MeshBLEUUID.meshCoreService {
             for c in service.characteristics ?? [] {
-                if c.uuid == MeshBLEUUID.meshCoreRX { meshCoreRXChar = c }
+                if c.uuid == MeshBLEUUID.meshCoreRX { links[id]?.meshCoreRX = c }
                 if c.uuid == MeshBLEUUID.meshCoreTX {
-                    meshCoreTXChar = c
+                    links[id]?.meshCoreTX = c
                     // Subscribing is what makes iOS ask for the radio's PIN.
                     peripheral.setNotifyValue(true, for: c)
                 }
             }
-            if meshCoreRXChar == nil || meshCoreTXChar == nil {
-                emit(.connectFailed(id: peripheral.identifier, reason: "This MeshCore radio is missing its companion service. Flash the Companion (Bluetooth) firmware."))
+            if links[id]?.meshCoreRX == nil || links[id]?.meshCoreTX == nil {
+                emit(.connectFailed(id: id, reason: "This MeshCore radio is missing its companion service. Flash the Companion (Bluetooth) firmware."))
             }
             return
         }
         for c in service.characteristics ?? [] {
             switch c.uuid {
-            case MeshBLEUUID.toRadio: toRadioChar = c
+            case MeshBLEUUID.toRadio: links[id]?.toRadio = c
             case MeshBLEUUID.fromRadio:
-                fromRadioChar = c
+                links[id]?.fromRadio = c
                 if c.properties.contains(.notify) { peripheral.setNotifyValue(true, for: c) }
             case MeshBLEUUID.fromNum:
-                fromNumChar = c
+                links[id]?.fromNum = c
                 // The characteristic is encrypted, so this is usually what
                 // makes iOS show the pairing (PIN) prompt.
                 peripheral.setNotifyValue(true, for: c)
@@ -328,42 +345,44 @@ extension MeshBLETransport: @preconcurrency CBPeripheralDelegate {
             default: break
             }
         }
-        guard toRadioChar != nil, fromRadioChar != nil else {
-            emit(.connectFailed(id: peripheral.identifier, reason: "This radio's firmware is too old or not Meshtastic."))
+        guard links[id]?.toRadio != nil, links[id]?.fromRadio != nil else {
+            emit(.connectFailed(id: id, reason: "This radio's firmware is too old or not Meshtastic."))
             return
         }
-        if fromNumChar == nil { announceReadyIfPossible() }
+        if links[id]?.fromNum == nil { announceReadyIfPossible(id) }
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
+        let id = peripheral.identifier
         if let error {
-            if let msg = pairingMessage(for: error) { emit(.pairingProblem(msg)) }
+            if let msg = pairingMessage(for: error) { emit(.pairingProblem(id: id, msg)) }
             if characteristic.uuid == MeshBLEUUID.fromNum {
                 // Without notifications we can still poll; carry on.
-                announceReadyIfPossible()
+                announceReadyIfPossible(id)
             }
             return
         }
         if characteristic.uuid == MeshBLEUUID.fromNum || characteristic.uuid == MeshBLEUUID.meshCoreTX {
-            announceReadyIfPossible()
+            announceReadyIfPossible(id)
         }
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+        let id = peripheral.identifier
         if let error {
-            if let msg = pairingMessage(for: error) { emit(.pairingProblem(msg)) }
+            if let msg = pairingMessage(for: error) { emit(.pairingProblem(id: id, msg)) }
             if characteristic.uuid == MeshBLEUUID.fromRadio {
-                emit(.fromRadio(Data())) // end this read loop; next FromNum retries
+                emit(.fromRadio(id: id, Data())) // end this read loop; next FromNum retries
             }
             return
         }
         switch characteristic.uuid {
         case MeshBLEUUID.fromRadio:
-            emit(.fromRadio(characteristic.value ?? Data()))
+            emit(.fromRadio(id: id, characteristic.value ?? Data()))
         case MeshBLEUUID.fromNum:
-            emit(.fromNumChanged)
+            emit(.fromNumChanged(id: id))
         case MeshBLEUUID.meshCoreTX:
-            if let value = characteristic.value, !value.isEmpty { emit(.frame(value)) }
+            if let value = characteristic.value, !value.isEmpty { emit(.frame(id: id, value)) }
         default:
             break // log records: ignored
         }
@@ -372,9 +391,9 @@ extension MeshBLETransport: @preconcurrency CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
         guard let error else { return }
         if let msg = pairingMessage(for: error) {
-            emit(.pairingProblem(msg))
+            emit(.pairingProblem(id: peripheral.identifier, msg))
         } else {
-            emit(.writeFailed(error.localizedDescription))
+            emit(.writeFailed(id: peripheral.identifier, error.localizedDescription))
         }
     }
 }

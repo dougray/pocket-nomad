@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.ui.graphics.Color
 import org.json.JSONArray
 import org.json.JSONObject
+import org.nomadpocket.mesh.CoverageData
 import org.nomadpocket.mesh.Firmware
 import org.nomadpocket.mesh.PingOutcome
 import java.io.File
@@ -71,6 +72,33 @@ enum class CoverageLayer(val id: String, val label: String) {
 
     companion object {
         fun from(id: String?) = entries.firstOrNull { it.id == id } ?: OFF
+    }
+}
+
+/**
+ * Which network's coverage the map shows. With two radios (Meshtastic and
+ * MeshCore) recording at once, both are drawn, each ringed in its colour.
+ */
+enum class CoverageNetwork(val id: String, val label: String, val firmware: Firmware?) {
+    BOTH("both", "Both networks", null),
+    MESHTASTIC("meshtastic", "Meshtastic only", Firmware.MESHTASTIC),
+    MESHCORE("meshcore", "MeshCore only", Firmware.MESHCORE);
+
+    fun includes(f: Firmware) = firmware == null || firmware == f
+
+    /** Only this filter's samples and pings. */
+    fun filter(data: CoverageData) = if (firmware == null) data
+        else CoverageData(data.samples.filter { it.firmware == firmware }, data.pings.filter { it.firmware == firmware })
+
+    companion object {
+        fun from(id: String?) = entries.firstOrNull { it.id == id } ?: BOTH
+
+        /** "meshtastic", "meshcore" or "both": the network key a hexagon is outlined by. */
+        fun key(firmwares: Set<Firmware>): String = when {
+            firmwares.size > 1 -> "both"
+            firmwares.contains(Firmware.MESHCORE) -> "meshcore"
+            else -> "meshtastic"
+        }
     }
 }
 

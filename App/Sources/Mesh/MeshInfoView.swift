@@ -11,7 +11,7 @@ struct MeshInfoView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 section("What is it?", symbol: "antenna.radiowaves.left.and.right",
-                        "A mesh radio is a small, cheap LoRa radio that runs free mesh firmware: Meshtastic or MeshCore. Your phone talks to it over Bluetooth, and it sends your text over the air to other radios. Radios pass messages along, so texts can hop across several radios to reach people far away. No cell towers, Wi-Fi or internet are involved, and messages are encrypted. Pocket Nomad works with both kinds, but a Meshtastic radio only talks to other Meshtastic radios and a MeshCore radio only to MeshCore ones, so use the same kind as the people you want to reach.")
+                        "A mesh radio is a small, cheap LoRa radio that runs free mesh firmware: Meshtastic or MeshCore. Your phone talks to it over Bluetooth, and it sends your text over the air to other radios. Radios pass messages along, so texts can hop across several radios to reach people far away. No cell towers, Wi-Fi or internet are involved, and messages are encrypted. Pocket Nomad works with both kinds, but a Meshtastic radio only talks to other Meshtastic radios and a MeshCore radio only to MeshCore ones, so use the same kind as the people you want to reach. You can connect one of each at the same time: each keeps its own chats, both map coverage, and messages are never passed from one network to the other.")
 
                 section("Getting a radio", symbol: "cart",
                         "Look for a LoRa board for the 915 MHz band if you are in the US. Common ones are made by Heltec, RAK Wireless (WisBlock), LilyGO (T-Beam, T-Echo) and Seeed (SenseCAP T1000-E). Most cost about $20 to $80. Get one with a battery or battery holder, and an antenna that is always attached. Never power a radio on without its antenna, which can damage it. Everyone you want to reach needs a radio too.")
@@ -26,7 +26,7 @@ struct MeshInfoView: View {
                         "Messages are short (about 200 letters) and can take seconds to a minute to arrive. \"Heard by mesh\" means another radio repeated your message. \"Delivered\" means the person's radio confirmed it. Keep the app open or in the background to keep receiving messages.")
 
                 section("SOS", symbol: "sos",
-                        "The SOS button sends a short help message, with your GPS position if you allow it, to every radio on the primary channel. It does not reach emergency services unless someone on the mesh passes it on.")
+                        "The SOS button sends a short help message, with your GPS position if you allow it, to every radio on the primary channel. With two radios connected it goes out on both networks. It does not reach emergency services unless someone on the mesh passes it on.")
             }
             .padding(16)
         }

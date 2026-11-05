@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Entry point for :app. Call Mesh.init(context) once from Application.onCreate
-// (on the main thread) so the last radio reconnects at launch, as
-// MeshService.shared.start() does on iOS. The map reads Mesh.repository.
+// (on the main thread) so the remembered radios reconnect at launch, as
+// MeshService.shared.start() does on iOS. The map reads Mesh.repository,
+// which merges both radios (one Meshtastic, one MeshCore) when two are connected.
 
 package org.nomadpocket.mesh
 
@@ -27,18 +28,20 @@ import java.io.File
 @SuppressLint("StaticFieldLeak")
 object Mesh {
     private var scope: CoroutineScope? = null
-    private var _service: MeshService? = null
+    private var _radios: MeshRadios? = null
     private var _coverage: CoverageStore? = null
     private var _drive: DriveMode? = null
     private var _location: MeshLocation? = null
-    private var _transport: MeshBleTransport? = null
+    private var _transports: List<MeshBleTransport> = emptyList()
     internal var appContext: Context? = null
         private set
 
-    val isInitialized: Boolean get() = _service != null
+    val isInitialized: Boolean get() = _radios != null
 
-    /** Radios, chat history and the link. */
-    val service: MeshService get() = _service ?: notReady()
+    /** Both radio slots, scanning, and the merged views (SOS, nodes). */
+    val radios: MeshRadios get() = _radios ?: notReady()
+    /** For single-radio callers: the first radio in use, else the Meshtastic slot. */
+    val service: MeshService get() = radios.inUse.firstOrNull()?.second ?: radios.link(Firmware.MESHTASTIC)
     /** Coverage recordings, pings and private zones. */
     val coverage: CoverageStore get() = _coverage ?: notReady()
     val drive: DriveMode get() = _drive ?: notReady()
@@ -57,27 +60,35 @@ object Mesh {
         this.scope = scope
         val prefs = SharedMeshPrefs(app.getSharedPreferences("mesh", Context.MODE_PRIVATE))
         val location = MeshLocation(app)
-        val transport = MeshBleTransport(app)
+        // One transport per radio slot (each its own GATT connection) plus one that only scans.
+        val scanner = MeshBleTransport(app)
+        val slotTransports = Firmware.entries.associateWith { MeshBleTransport(app) }
         val dir = File(app.filesDir, "mesh")
-        val service = MeshService(transport, MeshStore(dir), prefs, scope,
+        val radios = MeshRadios.create(prefs, dir, scope, scanner, { slotTransports.getValue(it) },
             location = { location.currentLocation() }, locationDenied = { !location.hasPermission() })
         val coverage = CoverageStore(prefs, File(dir, "coverage.json"), scope,
             location = { location.fix },
-            nodeName = { service.nodes[it]?.longName ?: "" },
+            nodeName = { radios.nodeName(it) },
             useLocation = { if (it) location.begin() else location.end() })
-        val drive = DriveMode(service, coverage, prefs, scope, onActiveChanged = {
+        val drive = DriveMode({ radios.inUse }, coverage, prefs, scope, onActiveChanged = {
             if (it) DriveModeService.start(app) else DriveModeService.stop(app)
         })
-        _location = location; _transport = transport; _service = service; _coverage = coverage; _drive = drive
+        _location = location; _transports = listOf(scanner) + slotTransports.values; _radios = radios
+        _coverage = coverage; _drive = drive
 
-        service.onHeard = { coverage.record(it) }
-        service.start()
+        // Both radios feed the coverage scanner at the same time; each MeshHeard carries its firmware.
+        radios.links.values.forEach { it.onHeard = { heard -> coverage.record(heard) } }
+        radios.start()
         coverage.start()
 
         scope.launch {
-            combine(service.nodesFlow, service.blockedFlow, service.radioFlow) { nodes, blocked, radio ->
-                MeshService.sortedNodes(nodes, radio.myNodeNum, blocked).mapNotNull { it.toMapNode() }
-            }.collect { repository.nodesState.value = it }
+            val perLink = radios.links.map { (fw, link) ->
+                combine(link.nodesFlow, link.blockedFlow, link.radioFlow) { nodes, blocked, radio ->
+                    MeshService.sortedNodes(nodes, radio.myNodeNum, blocked).mapNotNull { it.toMapNode(fw) }
+                }
+            }
+            combine(perLink) { lists -> lists.flatMap { it }.sortedByDescending { it.lastHeardMillis ?: Long.MIN_VALUE } }
+                .collect { repository.nodesState.value = it }
         }
         scope.launch {
             combine(coverage.samplesFlow, coverage.pingsFlow) { samples, pings ->
@@ -93,7 +104,7 @@ object Mesh {
 
     /** Call after the user grants Bluetooth or location permission. */
     fun permissionsChanged() {
-        _transport?.updateAvailability()
+        _transports.forEach { it.updateAvailability() }
         _location?.refresh()
     }
 
@@ -126,9 +137,12 @@ class MeshRepository internal constructor() {
     internal val nodesState = MutableStateFlow<List<MapNode>>(emptyList())
     internal val coverageState = MutableStateFlow(CoverageData(emptyList(), emptyList()))
 
-    /** Radios with a position, excluding your own and blocked ones, most recently heard first. */
+    /**
+     * Radios with a position heard by either of your radios, excluding your own
+     * and blocked ones, most recently heard first. Each carries its network.
+     */
     val nodes: StateFlow<List<MapNode>> = nodesState.asStateFlow()
-    /** This phone's coverage recordings and drive-test pings (opted-out radios left out). */
+    /** This phone's coverage recordings and drive-test pings from both radios, each tagged with its firmware (opted-out radios left out). */
     val coverage: StateFlow<CoverageData> = coverageState.asStateFlow()
 }
 
@@ -139,10 +153,9 @@ data class CoverageSample(val latitude: Double, val longitude: Double, val snr: 
 data class CoveragePing(val latitude: Double, val longitude: Double, val outcome: PingOutcome, val firmware: Firmware)
 enum class PingOutcome { REACHED, RELAYED, NONE }
 
-/** MeshCore contacts carry a key prefix; Meshtastic nodes don't. */
-internal fun MeshNode.toMapNode(): MapNode? {
+/** The node's network is the one of the radio that heard it. */
+internal fun MeshNode.toMapNode(firmware: Firmware): MapNode? {
     val lat = latitude ?: return null
     val lon = longitude ?: return null
-    val fw = if (publicKeyPrefix != null || meshCoreType != null) Firmware.MESHCORE else Firmware.MESHTASTIC
-    return MapNode(num, displayName, fw, lat, lon, lastHeardMillis)
+    return MapNode(num, displayName, firmware, lat, lon, lastHeardMillis)
 }

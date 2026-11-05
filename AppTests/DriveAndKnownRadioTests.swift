@@ -24,7 +24,7 @@ final class DriveAndKnownRadioTests: XCTestCase {
 
     private func store(names: [UInt32: String] = [:]) -> CoverageStore {
         CoverageStore(defaults: defaults, fileURL: file, location: { [unowned self] in self.fix },
-                      nodeName: { names[$0] ?? "" }, now: { [unowned self] in self.clock }, controlsGPS: false)
+                      nodeName: { n, _ in names[n] ?? "" }, now: { [unowned self] in self.clock }, controlsGPS: false)
     }
 
     private func at(_ lat: Double, _ lon: Double) -> CLLocation {

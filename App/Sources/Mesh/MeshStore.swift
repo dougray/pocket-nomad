@@ -10,10 +10,22 @@ import Foundation
 
 struct MeshSnapshot: Codable, Equatable, Sendable {
     var messages: [MeshMessage] = []
+    /// One radio's nodes and settings: files from before two-radio support
+    /// have only these. Newer files also keep the main network here, so an
+    /// older app version can still read them.
     var nodes: [MeshNode] = []
     var radio = MeshRadioInfo()
     /// Last read time per conversation key, for unread badges.
     var lastRead: [String: Date] = [:]
+    /// Nodes and radio settings per network (one Meshtastic, one MeshCore).
+    var networks: [MeshNetworkSnapshot]?
+}
+
+/// What is saved for one network.
+struct MeshNetworkSnapshot: Codable, Equatable, Sendable {
+    var firmware: MeshFirmware
+    var nodes: [MeshNode] = []
+    var radio = MeshRadioInfo()
 }
 
 struct MeshStore: Sendable {

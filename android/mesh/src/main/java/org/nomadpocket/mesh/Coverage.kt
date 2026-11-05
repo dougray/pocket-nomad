@@ -8,6 +8,11 @@
 // and even then only a privacy-filtered summary (hexagons, no node names or
 // IDs, no times finer than a month, private zones blanked) is ever written out.
 //
+// With two radios connected both feed the same store at once. Every record and
+// ping carries the firmware of the radio that made it (the field has always
+// been there, so older files read unchanged), and each exported hexagon lists
+// the networks heard in it ("firmware").
+//
 // Ported from App/Sources/Mesh/Coverage.swift. The grid maths and GeoJSON must
 // stay identical to it and to tools/coverage-merge.py (CoverageGoldenTest
 // checks that).
@@ -169,13 +174,14 @@ class CoverageStore(
     /**
      * Notes where the phone is now. Ignored when recording is off or there's no
      * fresh, reasonably accurate fix; one sample per node per 20 s unless the
-     * phone has moved more than 25 m.
+     * phone has moved more than 25 m. Counted per network, so the same number
+     * on Meshtastic and MeshCore is two nodes.
      */
     fun record(heard: MeshHeard) {
         if (!recording || optedOut(heard.node)) return
         val fix = freshFix() ?: return
         val t = now()
-        val last = samples.lastOrNull { it.node == heard.node }
+        val last = samples.lastOrNull { it.node == heard.node && it.firmware == heard.firmware }
         if (last != null && t - last.dateMillis < 20_000 &&
             CoverageShare.distance(last.latitude, last.longitude, fix.latitude, fix.longitude) < 25) return
         _samples.value = samples + CoverageRecord(t, fix.latitude, fix.longitude, fix.accuracy,
@@ -222,7 +228,12 @@ class CoverageStore(
 
     /** What sharing would publish, built from the current samples and zones. */
     val sharedCells: List<CoverageShare.Cell>
-        get() = CoverageShare.cells(samples.filterNot { optedOut(it.node) }, pings, zones)
+        get() = sharedCells(null)
+
+    /** The same for one network only (the map's Meshtastic / MeshCore filter); null means both. */
+    fun sharedCells(firmware: Firmware?): List<CoverageShare.Cell> = CoverageShare.cells(
+        samples.filter { !optedOut(it.node) && (firmware == null || it.firmware == firmware) },
+        pings.filter { firmware == null || it.firmware == firmware }, zones)
 
     /** Writes the privacy-filtered GeoJSON into `directory` for the share sheet. */
     fun exportFile(directory: File): File {

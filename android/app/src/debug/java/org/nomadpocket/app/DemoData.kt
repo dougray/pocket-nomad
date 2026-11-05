@@ -38,6 +38,8 @@ object DemoData {
 
     fun load(context: Context, screen: String?) {
         if (screen == "mesh:demo" || (screen?.startsWith("map:") == true)) loadNodes()
+        // The Mesh tab with a demo Meshtastic and a demo MeshCore radio "connected" (nothing is sent).
+        if (screen == "mesh:demo" && org.nomadpocket.mesh.Mesh.isInitialized) org.nomadpocket.mesh.Mesh.radios.loadDemo()
         if (screen == "map:shared") {
             loadCoverage()
             camera = Triple(39.7440, -104.9960, 12.6)
