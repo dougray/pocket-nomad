@@ -186,6 +186,13 @@ struct MeshRadioInfo: Codable, Equatable, Sendable {
     var region: UInt32?
     var regionName: String?
     var hopLimit: UInt32?
+    /// Meshtastic LoRa config: modem preset and whether it is used.
+    var modemPreset: UInt32?
+    var usePreset: Bool?
+    /// MeshCore radio settings and TX power from SELF_INFO.
+    var meshCoreParams: MeshCoreRadioParams?
+    var txPowerDBm: Int8?
+    var maxTxPowerDBm: Int8?
     var primaryChannelName: String = ""
     var channelNames: [Int32: String] = [:]
 }

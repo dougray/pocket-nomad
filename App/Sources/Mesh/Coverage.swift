@@ -130,8 +130,10 @@ final class CoverageStore {
         sharing = defaults.bool(forKey: Keys.sharing)
         retentionDays = defaults.object(forKey: Keys.retention) as? Int ?? 30
         zones = (defaults.data(forKey: Keys.zones)).flatMap { try? JSONDecoder().decode([CoverageZone].self, from: $0) } ?? []
-        samples = (try? JSONDecoder().decode([CoverageSample].self, from: Data(contentsOf: fileURL))) ?? []
-        pings = (try? JSONDecoder().decode([CoveragePing].self, from: Data(contentsOf: pingsURL))) ?? []
+        let saved = Self.readSaved(fileURL, pingsURL)
+        samples = saved?.samples ?? []
+        pings = saved?.pings ?? []
+        savedWasRead = saved != nil
         if zones.isEmpty { sharing = false }
         prune()
     }
@@ -284,9 +286,33 @@ final class CoverageStore {
     }
 
     func saveNow() {
+        // Saved points that couldn't be read at launch are merged in first, never written over.
+        if !savedWasRead {
+            guard let saved = Self.readSaved(fileURL, pingsURL) else { return }
+            samples = (saved.samples + samples).sorted { $0.date < $1.date }
+            pings = (saved.pings + pings).sorted { $0.date < $1.date }
+            savedWasRead = true
+        }
         try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? JSONEncoder().encode(samples).write(to: fileURL, options: [.atomic, .completeFileProtection])
-        try? JSONEncoder().encode(pings).write(to: pingsURL, options: [.atomic, .completeFileProtection])
+        // Writable while the phone is locked, which is how a drive usually goes.
+        try? JSONEncoder().encode(samples).write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        try? JSONEncoder().encode(pings).write(to: pingsURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    }
+
+    /// False while saved files exist that couldn't be read (iOS relaunched the app
+    /// in the background before the phone was first unlocked).
+    private var savedWasRead = true
+
+    /// The saved samples and pings, empty when there are none; nil when a file
+    /// exists but can't be read yet. A file that reads but doesn't decode counts as empty.
+    private static func readSaved(_ samplesURL: URL, _ pingsURL: URL) -> (samples: [CoverageSample], pings: [CoveragePing])? {
+        func read<T: Decodable>(_ url: URL) -> [T]? {
+            guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+            guard let data = try? Data(contentsOf: url) else { return nil }
+            return (try? JSONDecoder().decode([T].self, from: data)) ?? []
+        }
+        guard let s: [CoverageSample] = read(samplesURL), let p: [CoveragePing] = read(pingsURL) else { return nil }
+        return (s, p)
     }
 }
 

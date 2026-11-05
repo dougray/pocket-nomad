@@ -84,7 +84,35 @@ class MeshCoreCodecTest {
         assertEquals(MeshCoreFrame.MessagesWaiting, MeshCoreFrame.decode(bytes(0x83)))
         assertEquals(MeshCoreFrame.NoMoreMessages, MeshCoreFrame.decode(bytes(0x0A)))
         assertEquals(MeshCoreFrame.Error(2), MeshCoreFrame.decode(bytes(0x01, 0x02)))
-        assertEquals(MeshCoreFrame.Other(0x88), MeshCoreFrame.decode(bytes(0x88, 1, 2, 3)))
+        assertEquals(MeshCoreFrame.Other(0x8F), MeshCoreFrame.decode(bytes(0x8F, 1, 2, 3)))
+    }
+
+    @Test fun rawPacketNamesWhoWeHeard() {
+        // Flood text that passed two repeaters: the last one is in range of us.
+        val relayed = MeshCoreRawPacket.parse(CoreFrames.b(CoreFrames.packet(1, 5, listOf(listOf(0x3A), listOf(0xC7)), listOf(1, 2, 3))))!!
+        assertEquals(MeshCoreRawPacket.HeardFrom.Repeater(Bytes(byteArrayOf(0xC7.toByte()))), relayed.heardFrom)
+        assertEquals(5, relayed.payloadType)
+        // Transport codes are skipped; two-byte hashes are read whole.
+        val transport = MeshCoreRawPacket.parse(CoreFrames.b(CoreFrames.packet(0, 2, listOf(listOf(1, 2), listOf(0xAB, 0xCD)), listOf(7))))!!
+        assertEquals(MeshCoreRawPacket.HeardFrom.Repeater(Bytes(byteArrayOf(0xAB.toByte(), 0xCD.toByte()))), transport.heardFrom)
+        // An advert straight from its sender names it in full.
+        val key = CoreFrames.key(0x5E)
+        val advert = MeshCoreRawPacket.parse(CoreFrames.b(CoreFrames.packet(1, 4, payload = key + listOf(0, 0, 0, 0))))!!
+        assertEquals(MeshCoreRawPacket.HeardFrom.Node(Bytes(CoreFrames.b(key))), advert.heardFrom)
+        // Direct routes drop hashes as they go, so the sender is unknown.
+        assertNull(MeshCoreRawPacket.parse(CoreFrames.b(CoreFrames.packet(2, 2, listOf(listOf(0x44)), listOf(1))))!!.heardFrom)
+        assertNull(MeshCoreRawPacket.parse(bytes(0x05, 0x03, 0x01)))
+    }
+
+    @Test fun receiveLogTraceAndTraceCommand() {
+        val log = (MeshCoreFrame.decode(CoreFrames.rxLog(6.25f, CoreFrames.packet(1, 5, listOf(listOf(0xC7)), listOf(1)), rssi = -97)) as MeshCoreFrame.RxLog).log
+        assertEquals(6.25f, log.snr)
+        assertEquals(-97, log.rssi)
+        assertEquals(MeshCoreRawPacket.HeardFrom.Repeater(Bytes(byteArrayOf(0xC7.toByte()))), log.packet?.heardFrom)
+        assertEquals(MeshCoreFrame.TraceData(0x1234_5678L, -3f), MeshCoreFrame.decode(CoreFrames.traceData(0x1234_5678L, listOf(0xC7))))
+        assertEquals(listOf(36, 4, 3, 2, 1, 0, 0, 0, 0, 0, 0xC7),
+            MeshCoreCommand.sendTrace(0x0102_0304L, byteArrayOf(0xC7.toByte())).map { it.toInt() and 0xFF })
+        assertEquals("flags carry the hash size minus one", 1, MeshCoreCommand.sendTrace(1, byteArrayOf(1, 2))[9].toInt())
     }
 
     @Test fun truncatedFramesAreRejected() {
@@ -194,6 +222,40 @@ class MeshCoreServiceTest {
         assertEquals(MeshService.PING_TEXT, String(cmd.copyOfRange(13, cmd.size)))
         assertTrue("pings are not added to the chat", svc.messages(MeshConversation.Direct(ana.num)).isEmpty())
         fake.emit(MeshTransportEvent.Frame(CoreFrames.sendConfirmed(ack)))
+        assertEquals(PingOutcome.REACHED, outcome)
+    }
+
+    @Test fun everyPacketHeardIsACoveragePointAndARepeaterInRange() {
+        val (svc, fake, _) = connected()
+        val heard = mutableListOf<MeshHeard>()
+        svc.onHeard = { heard += it }
+        fake.emit(MeshTransportEvent.Frame(CoreFrames.rxLog(7.5f, CoreFrames.packet(1, 5, listOf(listOf(0x3A), listOf(0xC7)), listOf(1, 2, 3)))))
+        val c7 = MeshCoreContact.nodeNumForHash(byteArrayOf(0xC7.toByte()))
+        assertEquals(MeshHeard(c7, 7.5f, 2, Firmware.MESHCORE), heard.single())
+        assertEquals("the repeater just heard is the ping target", c7, svc.autoPingTarget())
+        // A packet from a known contact's repeater hash is credited to that contact.
+        fake.emit(MeshTransportEvent.Frame(CoreFrames.rxLog(2f, CoreFrames.packet(1, 5, listOf(listOf(0xAA)), listOf(1)))))
+        val ana = svc.sortedNodes.first { it.longName == "Ana" }
+        assertEquals(ana.num, heard.last().node)
+        assertEquals(2f, svc.nodes[ana.num]?.snr)
+        fake.emit(MeshTransportEvent.Frame(bytes(0x88, 0, 0, 0x05)))
+        assertEquals(2, heard.size)
+    }
+
+    @Test fun repeaterPingIsATraceAnsweredByTraceData() {
+        val (svc, fake, radio) = connected()
+        fake.emit(MeshTransportEvent.Frame(CoreFrames.rxLog(5f, CoreFrames.packet(1, 5, listOf(listOf(0xC7)), listOf(1)))))
+        val c7 = svc.autoPingTarget()!!
+        var outcome: PingOutcome? = null
+        assertTrue(svc.ping(c7) { outcome = it })
+        radio.run()
+        val cmd = fake.writes.last()
+        assertEquals(36, cmd[0].toInt())
+        assertEquals(0xC7, cmd.last().toInt() and 0xFF)
+        val tag = (0 until 4).fold(0L) { acc, i -> acc or ((cmd[1 + i].toLong() and 0xFF) shl (8 * i)) }
+        fake.emit(MeshTransportEvent.Frame(CoreFrames.traceData(tag xor 1, listOf(0xC7))))
+        assertNull("someone else's trace", outcome)
+        fake.emit(MeshTransportEvent.Frame(CoreFrames.traceData(tag, listOf(0xC7))))
         assertEquals(PingOutcome.REACHED, outcome)
     }
 }

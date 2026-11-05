@@ -152,8 +152,10 @@ struct MeshStatusCard: View {
         case .connected:
             var bits: [String] = []
             if let f = radio.firmware { bits.append(f.displayName) }
-            if let r = radio.regionName { bits.append(r) }
-            bits.append(radio.primaryChannelName.isEmpty ? "Primary channel" : radio.primaryChannelName)
+            let channel = radio.primaryChannelName.isEmpty ? "Primary channel" : radio.primaryChannelName
+            if let r = radio.settingsSummary { bits.append(r) }
+            // Meshtastic names its default channel after the preset ("US · LongFast"): say it once.
+            if radio.settingsSummary?.hasSuffix("· \(channel)") != true { bits.append(channel) }
             return bits.joined(separator: " · ")
         case .reconnecting: return "Will reconnect by itself when the radio is in range."
         case .failed(let why): return why
@@ -252,10 +254,57 @@ struct MeshRadioCard: View {
     let link: MeshLink
     var onTap: () -> Void = {}
     @State private var confirmForget = false
+    @State private var showSettings = false
+    @State private var known = KnownRadioStore.shared
 
     private var mesh: MeshService { MeshService.shared }
 
+    /// "Most radios near you use 910.525 MHz" when this MeshCore radio is on other settings.
+    private var hint: String? {
+        guard link.firmware == .meshcore, link.connection.isConnected else { return nil }
+        return MeshCoreRadioHint.text(current: link.radio.meshCoreParams,
+                                      nearby: MeshCoreNearbyConsensus.compute(known.radios))
+    }
+
+    private var regionUnset: Bool {
+        link.firmware == .meshtastic && link.connection.isConnected && link.radio.region == MeshtasticRegion.unset
+    }
+
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            cardRow
+            if let hint {
+                hintButton("\(hint) — Radio settings")
+            } else if regionUnset {
+                hintButton("No region set, so this radio can't transmit — Radio settings")
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 80, alignment: .leading)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: MeshUI.corner))
+        .overlay(RoundedRectangle(cornerRadius: MeshUI.corner).strokeBorder(tint, lineWidth: 2))
+        .sheet(isPresented: $showSettings) { RadioSettingsView(link: link) }
+        .confirmationDialog("Forget \(link.displayName)?", isPresented: $confirmForget, titleVisibility: .visible) {
+            Button("Forget", role: .destructive) { mesh.forgetDevice(link.firmware) }
+        } message: {
+            Text("It disconnects and won't reconnect. Its messages stay on this phone.")
+        }
+    }
+
+    private func hintButton(_ text: String) -> some View {
+        Button { showSettings = true } label: {
+            Label(text, systemImage: "exclamationmark.circle")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(MeshUI.warn)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 10)
+        .accessibilityHint("Opens radio settings")
+    }
+
+    private var cardRow: some View {
         HStack(spacing: 12) {
             Button(action: onTap) {
                 HStack(spacing: 12) {
@@ -288,6 +337,9 @@ struct MeshRadioCard: View {
                 } else {
                     Button("Disconnect", systemImage: "xmark.circle") { mesh.disconnect(link.firmware) }
                 }
+                if link.connection.isConnected {
+                    Button("Radio Settings…", systemImage: "slider.horizontal.3") { showSettings = true }
+                }
                 Button("Forget This Radio", systemImage: "trash", role: .destructive) { confirmForget = true }
             } label: {
                 Image(systemName: "ellipsis.circle").font(.title2)
@@ -297,13 +349,6 @@ struct MeshRadioCard: View {
         }
         .padding(.leading, 16)
         .frame(maxWidth: .infinity, minHeight: 80, alignment: .leading)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: MeshUI.corner))
-        .overlay(RoundedRectangle(cornerRadius: MeshUI.corner).strokeBorder(tint, lineWidth: 2))
-        .confirmationDialog("Forget \(link.displayName)?", isPresented: $confirmForget, titleVisibility: .visible) {
-            Button("Forget", role: .destructive) { mesh.forgetDevice(link.firmware) }
-        } message: {
-            Text("It disconnects and won't reconnect. Its messages stay on this phone.")
-        }
     }
 
     private var isFailed: Bool {
@@ -344,8 +389,10 @@ struct MeshRadioCard: View {
         case .syncing: return "Syncing: downloading nodes and settings"
         case .connected:
             var bits = ["Connected"]
-            if let r = link.radio.regionName { bits.append(r) }
-            bits.append(link.radio.primaryChannelName.isEmpty ? "Primary channel" : link.radio.primaryChannelName)
+            let channel = link.radio.primaryChannelName.isEmpty ? "Primary channel" : link.radio.primaryChannelName
+            if let r = link.radio.settingsSummary { bits.append(r) }
+            // Meshtastic names its default channel after the preset ("US · LongFast"): say it once.
+            if link.radio.settingsSummary?.hasSuffix("· \(channel)") != true { bits.append(channel) }
             return bits.joined(separator: " · ")
         case .reconnecting: return "Waiting. Reconnects by itself when the radio is in range."
         case .failed(let why): return why

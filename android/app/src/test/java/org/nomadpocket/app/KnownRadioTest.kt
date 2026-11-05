@@ -7,6 +7,8 @@ import org.junit.Test
 import org.nomadpocket.app.map.KnownRadio
 import org.nomadpocket.app.map.KnownRadioParser
 import org.nomadpocket.mesh.Firmware
+import org.nomadpocket.mesh.MeshCoreRadioParams
+import org.nomadpocket.mesh.NearbyRadioParams
 import org.nomadpocket.mesh.OptOut
 import java.time.Instant
 
@@ -90,5 +92,29 @@ class KnownRadioTest {
         assertEquals(updated, saved.updated)
         assertEquals("Denver", saved.areaName)
         assertEquals(list, saved.radios)
+    }
+
+    @Test fun parsesMeshCoreRadioSettings() {
+        // map.meshcore.io sends params as numbers in MHz/kHz, sometimes ints, sometimes empty or missing.
+        val json = """
+        [{"public_key": "aa01", "type": 2, "adv_name": "Ridge", "adv_lat": 39.74, "adv_lon": -104.99, "params": {"freq": 910.525, "bw": 62.5, "sf": 7, "cr": 5}},
+         {"public_key": "aa02", "type": 1, "adv_name": "Park", "adv_lat": 39.75, "adv_lon": -104.98, "params": {"freq": 910.52502, "bw": 62.5, "cr": 5, "sf": 7}},
+         {"public_key": "aa03", "type": 1, "adv_name": "Hill", "adv_lat": 39.76, "adv_lon": -104.97, "params": {"freq": 927, "bw": 125, "sf": 9, "cr": 8}},
+         {"public_key": "aa04", "type": 1, "adv_name": "Empty", "adv_lat": 39.77, "adv_lon": -104.96, "params": {}},
+         {"public_key": "aa05", "type": 1, "adv_name": "None", "adv_lat": 39.78, "adv_lon": -104.95}]
+        """
+        val radios = KnownRadioParser.parseMeshCore(json).associateBy { it.name }
+        assertEquals(MeshCoreRadioParams(910.525, 62.5, 7, 5), radios.getValue("Ridge").params)
+        assertEquals(910_525L, radios.getValue("Park").params!!.frequencyKHz)
+        assertEquals(MeshCoreRadioParams(927.0, 125.0, 9, 8), radios.getValue("Hill").params)
+        assertEquals(null, radios.getValue("Empty").params)
+        assertEquals(null, radios.getValue("None").params)
+        val match = NearbyRadioParams.mostCommon(radios.values.map { it.params })!!
+        assertEquals(2, match.count)
+        assertEquals(3, match.total)
+
+        // Saved and read back for offline use.
+        val saved = KnownRadioParser.fromJson(KnownRadioParser.toJson(Instant.ofEpochSecond(1_790_000_000), null, radios.values.toList()))
+        assertEquals(radios.values.map { it.params }, saved.radios.map { it.params })
     }
 }

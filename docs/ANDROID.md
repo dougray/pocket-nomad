@@ -211,6 +211,7 @@ so the FTS5 checks run against the same SQLite sources and flags as the app.
 | Known radios from meshmap.net and map.meshcore.io | ✓ | ✓ Same parsing, radius, opt-out and wording |
 | Mesh: chat, DMs, nodes, SOS, coverage scanner, drive mode | ✓ | `:mesh` (see its own docs) |
 | Two radios at once (one Meshtastic + one MeshCore) | ✓ Not yet tried with real radios | ✓ See [Two radios](#two-radios). Not yet tried with real radios |
+| Radio settings: MeshCore frequency/presets, Meshtastic region/preset | ✓ | ✓ See [Radio settings](#radio-settings). Not yet tried with real radios |
 | Settings: always dark, privacy summary, licences | ✓ | ✓ |
 | Library: Kiwix .zim books, reader, delete | ✓ | ✓ Same ZIM reader, ported (ZIM 5 and 6, old and new namespaces, xz/zstd/zlib) |
 | Library: full-text search across books | ✓ | ✓ Prebuilt `.nomadidx` or built on the phone (books up to 200,000 articles automatically, bigger on request) |
@@ -271,6 +272,40 @@ the coverage scanner and drive mode map both networks in one drive.
   connection priority per link, pairing two radios back to back, and drive mode with
   two links in the background. Some phones limit concurrent BLE connections or slow
   down when two links ask for high priority.
+
+## Radio settings
+
+Each radio card has **Radio settings…**, so a radio can be put on the right
+frequency without another app. The card also shows what the radio is tuned to, and
+for MeshCore a hint when at least three downloaded nearby radios agree on settings
+this radio does not use. Nothing is sent until **Apply** (with a confirmation);
+the screen then shows each step and the values the radio reports afterwards.
+Rules, presets and the "nearby" choice are in `:mesh` `RadioSettings.kt`; the radio
+commands in `MeshService` (`applyMeshCore`, `applyMeshtastic`).
+
+- **MeshCore** (companion firmware; layout from `examples/companion_radio/MyMesh.cpp`
+  at `companion-v1.18.0`): `CMD_SET_RADIO_PARAMS` (11) = freq u32 kHz, bw u32 Hz,
+  sf u8, cr u8, then `CMD_SET_RADIO_TX_POWER` (12) if the power changed. Each waits
+  for OK (0) or ERR (1, code 6 = out of range). The firmware saves and retunes at
+  once, so there is **no reboot**; the app re-sends `APP_START` and checks the new
+  `SELF_INFO`. Choices: **Match radios near you** (the most used settings among the
+  downloaded MeshCore known radios, from map.meshcore.io's `params`, "used by N of M
+  nearby radios"; ties go to a MeshCore preset, then the lower frequency; works
+  offline after the download, and offers the download), **MeshCore preset** (the
+  community list from `api.meshcore.nz/api/v1/config`, built in as of 2026-11-04;
+  USA = 910.525 MHz, 62.5 kHz, SF7, CR5) or **Custom** (150–960 MHz, the LoRa chip's
+  bandwidth steps 7.8–500 kHz, SF 5–12, CR 5–8, power −9 dBm to the radio's maximum).
+  The firmware's own default is 869.618 MHz, 62.5 kHz, SF8, CR5, which is why a new
+  radio in the US hears nothing.
+- **Meshtastic** (field numbers from meshtastic/protobufs `admin.proto`,
+  `config.proto`): an AdminMessage on ADMIN_APP (6) to the radio's own node asks
+  `get_config_request = LORA_CONFIG`; the reply carries the LoRa config and an
+  8-byte `session_passkey`, which goes back with `set_config { lora }`. The whole
+  LoRa config is sent back with only region, modem preset and use_preset changed;
+  fields the app does not model are kept byte for byte. The radio restarts; the app
+  reconnects and confirms from the handshake. Regions are the 26 in the firmware's
+  region table (`RadioInterface.cpp`), suggested from the phone's country; presets
+  default to Long Fast.
 
 ## Phase 2 (Library, Ask, release, Wear OS)
 

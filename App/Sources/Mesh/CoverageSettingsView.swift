@@ -110,8 +110,7 @@ struct CoverageSettingsView: View {
                 ForEach(driveNetworks, id: \.self) { net in
                     Picker(driveNetworks.count > 1 ? "Ping on \(net.displayName)" : "Ping",
                            selection: Binding(get: { drive.target(for: net) }, set: { drive.setTarget($0, for: net) })) {
-                        if net != .meshcore { Text("Any radio that repeats it").tag(UInt32?.none) }
-                        if net == .meshcore && drive.target(for: net) == nil { Text("Choose a radio").tag(UInt32?.none) }
+                        Text(net == .meshcore ? "Nearest repeater" : "Any radio that repeats it").tag(UInt32?.none)
                         ForEach(mesh.link(net).nodes.values.filter { $0.num != mesh.link(net).radio.myNodeNum && !mesh.isBlocked($0.num) }
                             .sorted { $0.displayName < $1.displayName }) { node in
                             Text(node.displayName).tag(UInt32?.some(node.num))
@@ -143,7 +142,7 @@ struct CoverageSettingsView: View {
                 .font(.footnote)
             }
         } header: { Text("Drive mode") } footer: {
-            Text("Keeps recording while the phone is locked or in another app, and turns itself off after 4 hours. The ping test sends a tiny test message every 300 m (at most every 45 s) and marks the spot green if the radio you chose answered, yellow if another radio only repeated it, or red if nothing heard it. \(driveNetworks.count > 1 ? "With two radios, each pings on its own network, taking turns. " : "")\(driveNetworks.contains(.meshcore) ? "MeshCore pings are a short direct message, so pick your own second radio or a friend's. " : "")Uses battery and GPS: keep the phone on a charger.")
+            Text("Keeps recording while the phone is locked or in another app, and turns itself off after 4 hours. The ping test sends a tiny test message every 300 m (at most every 45 s) and marks the spot green if the radio you chose answered, yellow if another radio only repeated it, or red if nothing heard it. \(driveNetworks.count > 1 ? "With two radios, each pings on its own network, taking turns. " : "")\(driveNetworks.contains(.meshcore) ? "On MeshCore the ping is a trace to the repeater heard most recently (or one you pick), which repeaters answer on their own; a person's radio gets a short direct message instead. " : "")Uses battery and GPS: keep the phone on a charger.")
         }
     }
 

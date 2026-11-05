@@ -169,7 +169,27 @@ data class MeshRadioInfo(
     val hopLimit: Long? = null,
     val primaryChannelName: String = "",
     val channelNames: Map<Int, String> = emptyMap(),
-)
+    /** MeshCore: frequency, bandwidth, SF and CR from SELF_INFO. */
+    val meshCoreParams: MeshCoreRadioParams? = null,
+    /** MeshCore: transmit power now set, and the radio's maximum (dBm). */
+    val txPowerDbm: Int? = null,
+    val maxTxPowerDbm: Int? = null,
+    /** Meshtastic LoRa config: modem preset, whether it is used, whether the radio may transmit. */
+    val modemPreset: Long? = null,
+    val usePreset: Boolean? = null,
+    val txEnabled: Boolean? = null,
+) {
+    /** One line for the radio card: what the radio is tuned to. */
+    val settingsSummary: String?
+        get() = when (firmware) {
+            Firmware.MESHCORE -> meshCoreParams?.summary
+            Firmware.MESHTASTIC -> region?.let { r ->
+                val preset = if (usePreset == false) "custom modem settings" else MeshtasticModemPresets.name(modemPreset ?: 0)
+                "Region: ${MeshtasticRegions.name(r)} · $preset"
+            }
+            null -> null
+        }
+}
 
 /** Builds the emergency text. Kept short to fit the 200-byte limit. */
 object MeshSOS {

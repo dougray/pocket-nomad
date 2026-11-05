@@ -18,7 +18,7 @@ import UIKit
 
 @MainActor @Observable
 final class DriveMode {
-    static let shared = DriveMode()
+    static let shared = DriveMode(log: .shared)
 
     /// At most one ping per 45 s per radio, and only after moving 300 m (about one map hexagon).
     static let minInterval: TimeInterval = 45
@@ -58,8 +58,8 @@ final class DriveMode {
     var pinging: Bool {
         didSet { defaults.set(pinging, forKey: Keys.pinging) }
     }
-    /// Radio to ping on each network; none means "any radio that repeats it"
-    /// (Meshtastic only: MeshCore pings need a target).
+    /// Radio to ping on each network; none means "any radio that repeats it" on
+    /// Meshtastic and "the repeater heard most recently" on MeshCore.
     private(set) var targets: [MeshFirmware: UInt32] = [:]
     var keepScreenOn: Bool {
         didSet {
@@ -75,6 +75,12 @@ final class DriveMode {
     private var loop: Task<Void, Never>?
     private var lastPing: [MeshFirmware: (date: Date, location: CLLocation)] = [:]
     private var coverageWasOn = false
+    private let log: DriveLog?
+    /// For the drive log: what was last written about each radio, and when the last heartbeat went in.
+    private var loggedConnection: [MeshFirmware: String] = [:]
+    private var loggedNotes: [MeshFirmware: String] = [:]
+    private var lastHeartbeat: Date?
+    private var samplesAtHeartbeat = 0
 
     private enum Keys {
         static let pinging = "drive.pinging"
@@ -82,10 +88,14 @@ final class DriveMode {
         static let target = "drive.target"
         static func target(_ f: MeshFirmware) -> String { "drive.target.\(f.rawValue)" }
         static let screen = "drive.keepScreenOn"
+        /// Set while a drive runs, so a drive survives iOS closing the app.
+        static let activeSince = "drive.activeSince"
+        static let coverageWasOn = "drive.coverageWasOn"
     }
 
     init(mesh: MeshService = .shared, coverage: CoverageStore = .shared,
-         defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init) {
+         defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init, log: DriveLog? = nil) {
+        self.log = log
         self.mesh = mesh
         self.coverage = coverage
         self.defaults = defaults
@@ -114,13 +124,41 @@ final class DriveMode {
 
     func start() {
         guard !active else { return }
+        coverageWasOn = coverage.recording
+        begin(at: now())
+        log?.note("drive mode on")
+    }
+
+    /// Picks a drive back up after iOS closed the app mid-drive (it relaunches
+    /// it in the background for Bluetooth or location). Call once at launch.
+    func resumeIfNeeded() {
+        guard !active, let since = defaults.object(forKey: Keys.activeSince) as? Date else { return }
+        guard now().timeIntervalSince(since) < Self.maxDuration else {
+            defaults.removeObject(forKey: Keys.activeSince)
+            if !defaults.bool(forKey: Keys.coverageWasOn) { coverage.recording = false }
+            log?.note("drive mode off: it ran past 4 hours while the app was closed")
+            return
+        }
+        coverageWasOn = defaults.bool(forKey: Keys.coverageWasOn)
+        let inBackground = UIApplication.shared.applicationState == .background
+        begin(at: since)
+        log?.note("drive mode resumed after iOS closed the app" + (inBackground ? " (relaunched in the background)" : ""))
+    }
+
+    private func begin(at since: Date) {
         active = true
-        startedAt = now()
+        startedAt = since
+        defaults.set(since, forKey: Keys.activeSince)
+        defaults.set(coverageWasOn, forKey: Keys.coverageWasOn)
         tallies = [:]
         lastPing = [:]
         waitingOn = []
-        coverageWasOn = coverage.recording
+        loggedConnection = [:]
+        loggedNotes = [:]
+        lastHeartbeat = nil
+        samplesAtHeartbeat = coverage.samples.count
         coverage.recording = true
+        log?.watchApp { [weak self] in self?.active == true }
         LocationService.shared.beginBackground()
         UIApplication.shared.isIdleTimerDisabled = keepScreenOn
         loop = Task { [weak self] in
@@ -131,9 +169,11 @@ final class DriveMode {
         }
     }
 
-    func stop() {
+    func stop(reason: String = "turned off") {
         guard active else { return }
+        log?.note("drive mode off: \(reason) · \(sent) pings, \(reached) reached, \(relayed) relayed, \(unanswered) unanswered")
         active = false
+        defaults.removeObject(forKey: Keys.activeSince)
         loop?.cancel()
         loop = nil
         LocationService.shared.endBackground()
@@ -145,10 +185,11 @@ final class DriveMode {
     /// One check: sends at most one ping, from the connected radio that pinged
     /// longest ago and is due. The other radio gets its turn on a later tick.
     func tick() {
-        if let startedAt, now().timeIntervalSince(startedAt) > Self.maxDuration { stop(); return }
+        if let startedAt, now().timeIntervalSince(startedAt) > Self.maxDuration { stop(reason: "4 hours are up"); return }
+        logState()
         guard pinging else { notes = [:]; return }
         var newNotes: [MeshFirmware: String] = [:]
-        defer { notes = newNotes }
+        defer { notes = newNotes; logNotes(newNotes) }
         let candidates = mesh.links.filter { $0.isRemembered || $0.connection.isConnected }
         guard !candidates.isEmpty else { newNotes[mesh.defaultNetwork] = "Waiting for the radio"; return }
         var pinged = false
@@ -158,9 +199,11 @@ final class DriveMode {
         for l in order {
             let network = l.firmware
             guard l.connection.isConnected else { newNotes[network] = "Waiting for the radio"; continue }
-            let target = targets[network]
-            if network == .meshcore && target == nil { newNotes[network] = "MeshCore pings need a radio to ping"; continue }
-            if let target, l.nodes[target] == nil { newNotes[network] = "The radio to ping isn't known on this mesh"; continue }
+            let target = targets[network] ?? mesh.autoPingTarget(on: network)
+            if network == .meshcore && target == nil { newNotes[network] = "Waiting to hear a repeater"; continue }
+            if let target, l.nodes[target] == nil, l.neighbors[target] == nil {
+                newNotes[network] = "The radio to ping isn't known on this mesh"; continue
+            }
             guard let fix = coverage.freshFix() else { newNotes[network] = "Waiting for GPS"; continue }
             guard !pinged, !waitingOn.contains(network) else { continue }
             if let last = lastPing[network] {
@@ -179,13 +222,58 @@ final class DriveMode {
                 }
                 self.tallies[network] = t
                 self.coverage.recordPing(outcome, at: fix, firmware: network)
+                self.log?.note("\(network.displayName) ping: \(outcome)")
             }
             if sentOK {
+                log?.note("\(network.displayName) ping sent" + (target.map { " to \(MeshNode.hexID($0))" } ?? ""))
                 pinged = true
                 waitingOn.insert(network)
                 tallies[network, default: Tally()].sent += 1
                 lastPing[network] = (now(), fix)
             }
+        }
+    }
+
+    // MARK: Drive log
+
+    /// Radio links coming and going, and a heartbeat each minute.
+    private func logState() {
+        guard let log else { return }
+        for l in mesh.links where l.isRemembered || l.connection.isConnected {
+            let state = l.connection.isConnected ? "connected" : "not connected (\(l.connection))"
+            if loggedConnection[l.firmware] != state {
+                loggedConnection[l.firmware] = state
+                log.note("\(l.firmware.displayName) radio \(state)")
+            }
+        }
+        let t = now()
+        if let last = lastHeartbeat, t.timeIntervalSince(last) < 60 { return }
+        lastHeartbeat = t
+        let gps: String
+        if let fix = coverage.freshFix() {
+            gps = "GPS ±\(Int(fix.horizontalAccuracy)) m"
+        } else {
+            gps = "no fresh GPS fix"
+        }
+        let points = coverage.samples.count
+        log.note("still running · \(gps) · \(points - samplesAtHeartbeat) new coverage points · app \(Self.appState)")
+        samplesAtHeartbeat = points
+    }
+
+    private func logNotes(_ new: [MeshFirmware: String]) {
+        guard let log else { return }
+        for f in MeshFirmware.allCases where loggedNotes[f] != new[f] {
+            if let note = new[f] { log.note("\(f.displayName) pings waiting: \(note)") }
+            loggedNotes[f] = new[f]
+        }
+    }
+
+    private static var appState: String {
+        switch UIApplication.shared.applicationState {
+        case .active: "in front"
+        case .inactive: "inactive"
+        case .background: "in the background"
+        @unknown default: "unknown"
         }
     }
 }

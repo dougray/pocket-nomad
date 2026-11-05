@@ -24,8 +24,13 @@ import org.nomadpocket.mesh.proto.Bytes
 import org.nomadpocket.mesh.proto.MeshConstants
 import org.nomadpocket.mesh.proto.MeshCoreCommand
 import org.nomadpocket.mesh.proto.MeshCoreContact
+import org.nomadpocket.mesh.proto.MeshCoreContactType
 import org.nomadpocket.mesh.proto.MeshCoreFrame
+import org.nomadpocket.mesh.proto.MeshCoreRawPacket
+import org.nomadpocket.mesh.proto.MeshCoreRxLog
+import org.nomadpocket.mesh.proto.MeshPBAdmin
 import org.nomadpocket.mesh.proto.MeshPBChannel
+import org.nomadpocket.mesh.proto.MeshPBLoRaConfig
 import org.nomadpocket.mesh.proto.MeshPBData
 import org.nomadpocket.mesh.proto.MeshPBFromRadio
 import org.nomadpocket.mesh.proto.MeshPBFromRadioVariant
@@ -65,6 +70,7 @@ class MeshService(
     private val _notice = MutableStateFlow<String?>(null)
     private val _isScanning = MutableStateFlow(false)
     private val _lastDevice = MutableStateFlow<Pair<String, String>?>(null)
+    private val _apply = MutableStateFlow<RadioApplyState>(RadioApplyState.Idle)
 
     val availabilityFlow: StateFlow<MeshBluetoothAvailability> = _availability.asStateFlow()
     val connectionFlow: StateFlow<MeshConnectionState> = _connection.asStateFlow()
@@ -80,6 +86,8 @@ class MeshService(
     /** One-line notice from the radio or about a failure. UI may clear it. */
     val noticeFlow: StateFlow<String?> = _notice.asStateFlow()
     val isScanningFlow: StateFlow<Boolean> = _isScanning.asStateFlow()
+    /** Progress of the last Radio settings Apply. */
+    val applyFlow: StateFlow<RadioApplyState> = _apply.asStateFlow()
     /** (id, name) of the remembered radio. */
     val lastDeviceFlow: StateFlow<Pair<String, String>?> = _lastDevice.asStateFlow()
 
@@ -127,6 +135,7 @@ class MeshService(
         val finishedBy: Set<Int>,
         val timeoutMillis: Long = 5_000,
         val onReply: ((MeshCoreFrame) -> Unit)? = null,
+        val onTimeout: (() -> Unit)? = null,
     )
     private val coreQueue = ArrayDeque<CoreCommand>()
     private var corePending: CoreCommand? = null
@@ -344,6 +353,19 @@ class MeshService(
         if (connection !is MeshConnectionState.Connected) return false
         if (firmware == Firmware.MESHCORE) {
             if (target == null) return false
+            // A repeater answers a trace without a login; anyone else gets a direct text.
+            traceHash(target)?.let { hash ->
+                val tag = Random.nextLong(1, 0xFFFF_FFFFL)
+                coreEnqueue(MeshCoreCommand.sendTrace(tag, hash.array), setOf(6)) { reply ->
+                    if (reply is MeshCoreFrame.Sent) {
+                        val wait = minOf(30.0, maxOf(10.0, reply.timeoutMS / 1000.0 * 2))
+                        trackPing(tag, target, wait, done)
+                    } else {
+                        done(PingOutcome.NONE)
+                    }
+                }
+                return true
+            }
             val prefix = nodes[target]?.publicKeyPrefix ?: return false
             coreEnqueue(MeshCoreCommand.sendText(PING_TEXT, prefix.array, now() / 1000), setOf(6)) { reply ->
                 if (reply is MeshCoreFrame.Sent && reply.expectedAck != 0L) {
@@ -369,6 +391,48 @@ class MeshService(
         trackPing(id, target, 45.0, done)
         startReading()
         return true
+    }
+
+    /** A MeshCore repeater heard directly (the last hop of a flood packet). */
+    data class Neighbor(val hash: Bytes, val lastHeardMillis: Long, val snr: Float)
+
+    /** Keyed by `MeshCoreContact.nodeNumForHash`. */
+    private val _neighbors = MutableStateFlow<Map<Long, Neighbor>>(emptyMap())
+    val neighbors get() = _neighbors.value
+
+    /** The repeater to ping when none was chosen: the one heard most recently, within 10 minutes. */
+    fun autoPingTarget(): Long? {
+        if (firmware != Firmware.MESHCORE) return null
+        val t = now()
+        return neighbors.filterValues { t - it.lastHeardMillis <= NEIGHBOR_WINDOW_MS }.maxByOrNull { it.value.lastHeardMillis }?.key
+    }
+
+    /** Path hash for a trace ping: a repeater heard in range, or a repeater contact (first key byte, MeshCore's default hash size). */
+    private fun traceHash(target: Long): Bytes? {
+        neighbors[target]?.let { return it.hash }
+        val node = nodes[target] ?: return null
+        val prefix = node.publicKeyPrefix ?: return null
+        return if (node.meshCoreType == MeshCoreContactType.REPEATER && !prefix.isEmpty()) prefix.prefix(1) else null
+    }
+
+    /**
+     * Every packet the radio hears is a coverage point, whoever it was for: the
+     * sender is the repeater that passed it to us (or, for a straight-from-the-source
+     * advert, the node itself).
+     */
+    private fun coreHeardPacket(log: MeshCoreRxLog) {
+        val packet = log.packet ?: return
+        val node = when (val from = packet.heardFrom) {
+            is MeshCoreRawPacket.HeardFrom.Repeater -> {
+                val num = MeshCoreContact.nodeNumForHash(from.hash.array)
+                _neighbors.value = neighbors + (num to Neighbor(from.hash, now(), log.snr))
+                nodes.values.firstOrNull { it.publicKeyPrefix?.startsWith(from.hash) == true }?.num ?: num
+            }
+            is MeshCoreRawPacket.HeardFrom.Node -> MeshCoreContact.nodeNum(from.publicKey.array)
+            null -> 0L
+        }
+        if (node != 0L) nodes[node]?.let { putNode(it.copy(lastHeardMillis = now(), snr = log.snr)) }
+        onHeard?.invoke(MeshHeard(node, log.snr, packet.path.size.toLong(), Firmware.MESHCORE))
     }
 
     private fun trackPing(id: Long, target: Long?, waitSeconds: Double, done: (PingOutcome) -> Unit) {
@@ -457,6 +521,18 @@ class MeshService(
                 isReading = false
                 handshakeTimeout?.cancel()
                 coreReset()
+                if (_apply.value is RadioApplyState.Working && firmware == Firmware.MESHCORE) {
+                    failApply("The radio disconnected before it answered. Check its settings after it reconnects.")
+                }
+                if (_apply.value == RadioApplyState.Restarting && !event.willReconnect && autoReconnect) {
+                    // The radio restarts for its new settings: come back to it.
+                    _connection.value = MeshConnectionState.Reconnecting(currentDeviceName)
+                    scope.launch {
+                        delay(RESTART_RECONNECT_DELAY)
+                        if (connection is MeshConnectionState.Reconnecting) lastDeviceID?.let { transport.connect(it) }
+                    }
+                    return
+                }
                 if (event.willReconnect) {
                     _connection.value = MeshConnectionState.Reconnecting(currentDeviceName)
                 } else {
@@ -574,16 +650,17 @@ class MeshService(
                 }
             }
             is MeshPBFromRadioVariant.Metadata -> _radio.value = radio.copy(firmwareVersion = v.metadata.firmwareVersion)
-            is MeshPBFromRadioVariant.LoraConfig -> _radio.value = radio.copy(
-                region = v.config.region, regionName = v.config.regionName, hopLimit = v.config.hopLimit)
+            is MeshPBFromRadioVariant.LoraConfig -> applyLora(v.config)
             is MeshPBFromRadioVariant.ConfigCompleteID -> {
                 if (v.id != configID) return
                 handshakeDone = true
                 handshakeAttempts = 0
                 handshakeTimeout?.cancel()
                 _connection.value = MeshConnectionState.Connected(currentDeviceName)
-                if (radio.region == 0L) {
-                    notice = "This radio has no region set. Set it to US 915 MHz in the Meshtastic app, or it will not transmit."
+                if (meshtasticConfirm()) {
+                    // Radio settings just changed: the result is shown there.
+                } else if (radio.region == 0L) {
+                    notice = NO_REGION_NOTICE
                 }
                 scheduleSave()
             }
@@ -659,6 +736,7 @@ class MeshService(
                 if (user != null && p.from != 0L) putNode(apply(user, node(p.from)))
             }
             MeshPort.ROUTING -> handleRouting(p, data)
+            MeshPort.ADMIN -> handleAdmin(p, data)
         }
         scheduleSave()
     }
@@ -683,6 +761,13 @@ class MeshService(
 
     private fun handleRouting(p: MeshPBPacket, data: MeshPBData) {
         if (data.requestID != 0L && handlePingRouting(p, data)) return
+        if (data.requestID != 0L && data.requestID == adminSetID) {
+            val reason = runCatching { MeshPBRouting.decode(data.payload) }.getOrNull()?.errorReason
+            if (reason != null && reason != MeshRoutingError.NONE) {
+                failApply("The radio refused the new settings: ${MeshRoutingError.describe(reason)}.")
+            }
+            return
+        }
         if (data.requestID == 0L) return
         val i = messages.indexOfLast { it.isOutgoing && it.packetID == data.requestID }
         if (i < 0) return
@@ -749,8 +834,8 @@ class MeshService(
     }
 
     private fun coreEnqueue(frame: ByteArray, finishedBy: Set<Int>, timeoutMillis: Long = 5_000,
-                            onReply: ((MeshCoreFrame) -> Unit)? = null) {
-        coreQueue.addLast(CoreCommand(frame, finishedBy, timeoutMillis, onReply))
+                            onTimeout: (() -> Unit)? = null, onReply: ((MeshCoreFrame) -> Unit)? = null) {
+        coreQueue.addLast(CoreCommand(frame, finishedBy, timeoutMillis, onReply, onTimeout))
         coreSendNext()
     }
 
@@ -764,6 +849,7 @@ class MeshService(
             delay(command.timeoutMillis)
             // No answer: give up on this command and move on.
             corePending = null
+            command.onTimeout?.invoke()
             coreSendNext()
         }
     }
@@ -792,7 +878,9 @@ class MeshService(
                 val me = frame.info
                 val num = MeshCoreContact.nodeNum(me.publicKey.array)
                 _radio.value = radio.copy(myNodeNum = num,
-                    regionName = String.format(Locale.ROOT, "%.3f MHz", me.frequencyMHz))
+                    regionName = String.format(Locale.ROOT, "%.3f MHz", me.frequencyMHz),
+                    meshCoreParams = MeshCoreRadioParams(me.frequencyMHz, me.bandwidthKHz, me.spreadingFactor, me.codingRate),
+                    txPowerDbm = me.txPowerDbm, maxTxPowerDbm = me.maxTxPowerDbm.takeIf { it > 0 })
                 var n = node(num).copy(longName = me.name, shortName = me.name.take(4),
                     publicKeyPrefix = me.publicKey.prefix(6), hasPublicKey = true)
                 if (me.latitude != null && me.longitude != null) n = n.copy(latitude = me.latitude, longitude = me.longitude)
@@ -836,6 +924,8 @@ class MeshService(
                 }
             }
             MeshCoreFrame.MessagesWaiting -> coreSyncMessages()
+            is MeshCoreFrame.RxLog -> coreHeardPacket(frame.log)
+            is MeshCoreFrame.TraceData -> if (pendingPings.containsKey(frame.tag)) finishPing(frame.tag, PingOutcome.REACHED)
             else -> {}
         }
         // Push frames (0x80 and up) arrive at any time; anything else answers the pending command.
@@ -929,6 +1019,192 @@ class MeshService(
         return true
     }
 
+    // MARK: - Radio settings
+
+    /** Meshtastic Apply in progress: what to set, and where it is. */
+    private var loraTarget: MeshPBLoRaConfig? = null
+    private var adminGetID = 0L
+    private var adminSetID = 0L
+    private var applyTimer: Job? = null
+
+    private fun applyLora(c: MeshPBLoRaConfig) {
+        if (c.region != MeshtasticRegions.UNSET && notice == NO_REGION_NOTICE) notice = null
+        _radio.value = radio.copy(region = c.region, regionName = c.regionName, hopLimit = c.hopLimit,
+            modemPreset = c.modemPreset, usePreset = c.usePreset, txEnabled = c.txEnabled)
+    }
+
+    /** Clears a finished or failed Apply so the screen starts fresh. */
+    fun clearApply() {
+        if (!_apply.value.isBusy) _apply.value = RadioApplyState.Idle
+    }
+
+    private fun failApply(reason: String) {
+        applyTimer?.cancel()
+        loraTarget = null
+        adminGetID = 0; adminSetID = 0
+        _apply.value = RadioApplyState.Failed(reason)
+    }
+
+    private fun finishApply(confirmed: String) {
+        applyTimer?.cancel()
+        loraTarget = null
+        adminGetID = 0; adminSetID = 0
+        _apply.value = RadioApplyState.Done(confirmed)
+    }
+
+    /**
+     * MeshCore: sends frequency, bandwidth, SF and CR (and transmit power when
+     * given and different), waits for OK after each, then asks for SELF_INFO
+     * again and reports what the radio now says. The companion firmware
+     * applies these at once and needs no restart (MyMesh.cpp, companion-v1.18.0).
+     */
+    fun applyMeshCore(params: MeshCoreRadioParams, txPowerDbm: Int? = null) {
+        if (_apply.value.isBusy) return
+        if (firmware != Firmware.MESHCORE || !connection.isConnected) {
+            _apply.value = RadioApplyState.Failed("Connect the MeshCore radio first.")
+            return
+        }
+        val problems = MeshCoreRadioLimits.problems(params, txPowerDbm, radio.maxTxPowerDbm)
+        if (problems.isNotEmpty()) {
+            _apply.value = RadioApplyState.Failed(problems.joinToString(" "))
+            return
+        }
+        val target = params.normalized()
+        val noAnswer = { failApply("The radio did not answer. Nothing may have changed; try again.") }
+        _apply.value = RadioApplyState.Working("Sending the new settings to the radio…")
+        coreEnqueue(MeshCoreCommand.setRadioParams(target.frequencyKHz, target.bandwidthHz, target.spreadingFactor, target.codingRate),
+            setOf(0), onTimeout = noAnswer) { reply ->
+            when (reply) {
+                is MeshCoreFrame.Ok -> {
+                    if (txPowerDbm != null && txPowerDbm != radio.txPowerDbm) {
+                        _apply.value = RadioApplyState.Working("Setting transmit power…")
+                        coreEnqueue(MeshCoreCommand.setTxPower(txPowerDbm), setOf(0), onTimeout = noAnswer) { r ->
+                            when (r) {
+                                is MeshCoreFrame.Ok -> coreConfirm(target, txPowerDbm)
+                                is MeshCoreFrame.Error -> failApply("The frequency changed, but the radio refused that transmit power (${coreErrorText(r.code)}).")
+                                else -> {}
+                            }
+                        }
+                    } else {
+                        coreConfirm(target, null)
+                    }
+                }
+                is MeshCoreFrame.Error -> failApply("The radio refused these settings (${coreErrorText(reply.code)}). Nothing changed.")
+                else -> {}
+            }
+        }
+    }
+
+    /** Re-reads SELF_INFO and checks the radio holds what was sent. */
+    private fun coreConfirm(target: MeshCoreRadioParams, txPowerDbm: Int?) {
+        _apply.value = RadioApplyState.Working("Checking the radio's settings…")
+        coreEnqueue(MeshCoreCommand.appStart("Pocket Nomad"), setOf(5),
+            onTimeout = { failApply("The radio took the settings but did not report back. Reconnect to check them.") }) { reply ->
+            if (reply !is MeshCoreFrame.SelfInfo) return@coreEnqueue
+            val now = radio.meshCoreParams
+            when {
+                now == null || !now.sameAs(target) ->
+                    failApply("The radio now reports ${now?.summary ?: "nothing"}, not ${target.summary}.")
+                txPowerDbm != null && radio.txPowerDbm != txPowerDbm ->
+                    failApply("The radio now reports ${radio.txPowerDbm} dBm, not $txPowerDbm dBm.")
+                else -> finishApply("The radio now uses ${now.summary}" +
+                    (radio.txPowerDbm?.let { ", $it dBm" } ?: "") + ".")
+            }
+            scheduleSave()
+        }
+    }
+
+    private fun coreErrorText(code: Int?): String = when (code) {
+        6 -> "a value is out of range"
+        1 -> "this firmware does not support it"
+        null -> "no reason given"
+        else -> "error $code"
+    }
+
+    /**
+     * Meshtastic: asks the radio for its LoRa config (the answer carries the
+     * session passkey), changes region, modem preset and use_preset in that
+     * config, and sends it back with the passkey. The radio saves it and
+     * restarts; the link reconnects and the handshake's LoRa config confirms it.
+     */
+    fun applyMeshtastic(region: Long, modemPreset: Long, usePreset: Boolean = true) {
+        if (_apply.value.isBusy) return
+        if (firmware != Firmware.MESHTASTIC || !connection.isConnected || radio.myNodeNum == 0L) {
+            _apply.value = RadioApplyState.Failed("Connect the Meshtastic radio first.")
+            return
+        }
+        if (MeshtasticRegions.of(region) == null) {
+            _apply.value = RadioApplyState.Failed("Pick your region first.")
+            return
+        }
+        loraTarget = MeshPBLoRaConfig(region = region, modemPreset = modemPreset, usePreset = usePreset)
+        adminSetID = 0
+        adminGetID = newPacketID()
+        _apply.value = RadioApplyState.Working("Reading the radio's settings…")
+        sendAdmin(adminGetID, MeshPBAdmin.getLoraConfig(), wantResponse = true)
+        applyTimer?.cancel()
+        applyTimer = scope.launch {
+            delay(ADMIN_TIMEOUT)
+            if (adminGetID != 0L && adminSetID == 0L) failApply("The radio did not answer. Nothing changed; try again.")
+        }
+    }
+
+    private fun sendAdmin(id: Long, admin: MeshPBAdmin, wantResponse: Boolean) {
+        // To our own node; `from` stays 0, which the firmware treats as the local phone link.
+        val packet = MeshPBPacket(
+            to = radio.myNodeNum, channel = 0,
+            decoded = MeshPBData(portnum = MeshPort.ADMIN, payload = admin.encode(), wantResponse = wantResponse),
+            id = id, hopLimit = hopLimit, wantAck = true,
+        )
+        transport.write(MeshPBToRadio.Packet(packet).encode())
+        startReading()
+    }
+
+    private fun handleAdmin(p: MeshPBPacket, data: MeshPBData) {
+        if (p.from != radio.myNodeNum && p.from != 0L) return
+        val admin = runCatching { MeshPBAdmin.decode(data.payload) }.getOrNull() ?: return
+        val current = admin.loraConfigResponse ?: return
+        applyLora(current)
+        val target = loraTarget ?: return
+        if (adminGetID == 0L || adminSetID != 0L) return
+        if (data.requestID != 0L && data.requestID != adminGetID) return
+        val updated = current.copy(
+            region = target.region, modemPreset = target.modemPreset, usePreset = target.usePreset,
+            // The firmware turns transmit on itself when a region is first set.
+            txEnabled = current.txEnabled || current.region == MeshtasticRegions.UNSET,
+        )
+        if (updated == current) {
+            finishApply("The radio already uses ${radio.settingsSummary ?: "these settings"}.")
+            return
+        }
+        adminSetID = newPacketID()
+        _apply.value = RadioApplyState.Restarting
+        sendAdmin(adminSetID, MeshPBAdmin.setLora(updated, admin.sessionPasskey), wantResponse = false)
+        applyTimer?.cancel()
+        applyTimer = scope.launch {
+            // Some changes apply without a restart: read the config again.
+            delay(NO_RESTART_RECHECK)
+            if (_apply.value == RadioApplyState.Restarting && connection.isConnected) beginHandshake()
+            delay(RESTART_GIVE_UP)
+            if (_apply.value == RadioApplyState.Restarting) {
+                failApply("The radio has not come back yet. When it reconnects, check its settings here.")
+            }
+        }
+    }
+
+    /** After the handshake: finishes a Meshtastic Apply. Returns true if one was waiting. */
+    private fun meshtasticConfirm(): Boolean {
+        val target = loraTarget ?: return false
+        if (_apply.value != RadioApplyState.Restarting) return false
+        val r = radio
+        if (r.region == target.region && (r.modemPreset ?: 0) == target.modemPreset && (r.usePreset ?: false) == target.usePreset) {
+            finishApply("The radio now uses ${r.settingsSummary}.")
+        } else {
+            failApply("The radio came back with ${r.settingsSummary ?: "different settings"}. Try again.")
+        }
+        return true
+    }
+
     /**
      * Screenshots and demos: shows this link as connected to a made-up radio,
      * with a couple of nodes and messages. Nothing is sent; no transport is used.
@@ -938,7 +1214,11 @@ class MeshService(
         currentDeviceName = name
         _lastDevice.value = "demo-${firmware.rawValue}" to name
         _radio.value = MeshRadioInfo(firmware = firmware, myNodeNum = myNum, firmwareVersion = "demo",
-            primaryChannelName = channel, channelNames = mapOf(0 to channel))
+            primaryChannelName = channel, channelNames = mapOf(0 to channel),
+            // Demo settings: Meshtastic set up for the US, MeshCore still on its out-of-the-box frequency.
+            region = if (firmware == Firmware.MESHTASTIC) 1L else null, modemPreset = 0L, usePreset = true, txEnabled = true,
+            meshCoreParams = if (firmware == Firmware.MESHCORE) MeshCoreRadioParams.FIRMWARE_DEFAULT else null,
+            txPowerDbm = if (firmware == Firmware.MESHCORE) 10 else null, maxTxPowerDbm = if (firmware == Firmware.MESHCORE) 22 else null)
         putNode(MeshNode(num = myNum, longName = name, shortName = name.take(4), batteryLevel = battery))
         others.forEach { putNode(it) }
         val t = now()
@@ -993,6 +1273,15 @@ class MeshService(
         /** Meshtastic's private app port: other apps ignore it, so pings never show up as chat. */
         const val PING_PORT: Long = MeshPort.PRIVATE_APP
         const val PING_TEXT = "Pocket Nomad ping"
+        /** How long a repeater counts as "in range" for an automatic drive-test ping. */
+        const val NEIGHBOR_WINDOW_MS = 10 * 60 * 1000L
+        const val NO_REGION_NOTICE = "This radio has no region set, so it will not transmit. " +
+            "Tap Radio settings on its card and pick your region (US 915 MHz in the United States)."
+        /** Radio settings timings (ms). */
+        const val ADMIN_TIMEOUT = 10_000L
+        const val NO_RESTART_RECHECK = 20_000L
+        const val RESTART_GIVE_UP = 70_000L
+        const val RESTART_RECONNECT_DELAY = 4_000L
 
         fun conversation(m: MeshMessage, myNum: Long): MeshConversation {
             if (m.to == MeshConstants.BROADCAST_NUM) return MeshConversation.Channel(m.channel)

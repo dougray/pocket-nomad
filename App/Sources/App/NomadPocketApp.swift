@@ -10,6 +10,7 @@ struct NomadPocketApp: App {
         MeshService.shared.onHeard = { CoverageStore.shared.record($0) }
         MeshService.shared.start()
         CoverageStore.shared.start()
+        DriveMode.shared.resumeIfNeeded()
         WatchBridge.shared.start()
         #if DEBUG
         // -screen map:demo (recordings) or map:shared (what sharing would publish); mesh:demo for the nodes and two demo radios

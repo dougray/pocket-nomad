@@ -154,6 +154,18 @@ public struct MeshProtoWriter: Sendable {
     public mutating func writeBytesIfNotEmpty(_ field: Int, _ value: Data) {
         if !value.isEmpty { writeBytes(field, value) }
     }
+
+    /// Writes a field exactly as it was read, so a message can be edited
+    /// without losing the fields this app does not model.
+    public mutating func writeField(_ f: MeshProtoField) {
+        switch f.wireType {
+        case .varint: writeVarint(f.number, f.scalar)
+        case .fixed32: writeFixed32(f.number, f.uint32)
+        case .fixed64: writeFixed64(f.number, f.scalar)
+        case .lengthDelimited: writeBytes(f.number, f.bytes)
+        case .startGroup, .endGroup: break // never returned by the reader
+        }
+    }
 }
 
 // MARK: - Zigzag

@@ -450,6 +450,20 @@ final class MeshService {
         let l = link(network ?? defaultNetwork)
         guard case .connected = l.connection, let device = l.deviceID else { return false }
         if l.firmware == .meshcore {
+            // A repeater answers a trace without a login; anyone else gets a direct text.
+            if let target, let hash = traceHash(for: target, on: l) {
+                let tag = UInt32.random(in: 1 ... .max)
+                coreEnqueue(l, MeshCoreCommand.sendTrace(tag: tag, path: hash), finishedBy: [6]) { [weak self] reply in
+                    guard let self else { return }
+                    if case .sent(_, _, let timeoutMS) = reply {
+                        let wait = min(30, max(10, Double(timeoutMS) / 1000 * 2))
+                        self.trackPing(tag, on: l, target: target, wait: wait, done: done)
+                    } else {
+                        done(.none)
+                    }
+                }
+                return true
+            }
             guard let target, let prefix = l.nodes[target]?.publicKeyPrefix else { return false }
             coreEnqueue(l, MeshCoreCommand.sendText(Self.pingText, toKeyPrefix: prefix, date: Date()), finishedBy: [6]) { [weak self] reply in
                 guard let self else { return }
@@ -476,6 +490,24 @@ final class MeshService {
         trackPing(id, on: l, target: target, wait: 45, done: done)
         startReading(l)
         return true
+    }
+
+    /// How long a repeater counts as "in range" for an automatic drive-test ping.
+    static let neighborWindow: TimeInterval = 10 * 60
+
+    /// The repeater to ping on a network when none was chosen: the one heard most recently.
+    func autoPingTarget(on network: MeshFirmware) -> UInt32? {
+        network == .meshcore ? link(network).latestNeighbor(within: Self.neighborWindow) : nil
+    }
+
+    /// Path hash for a trace ping: a repeater heard in range, or a repeater contact
+    /// (whose hash is the first byte of its key, MeshCore's default hash size).
+    private func traceHash(for target: UInt32, on l: MeshLink) -> Data? {
+        if let n = l.neighbors[target] { return n.hash }
+        if let node = l.nodes[target], node.meshCoreType == .repeater, let prefix = node.publicKeyPrefix, !prefix.isEmpty {
+            return prefix.prefix(1)
+        }
+        return nil
     }
 
     private func trackPing(_ id: UInt32, on l: MeshLink, target: UInt32?, wait: Double, done: @escaping (MeshPingOutcome) -> Void) {
@@ -570,6 +602,7 @@ final class MeshService {
             l.isReading = false
             l.handshakeTimeout?.cancel()
             coreReset(l)
+            radioLinkDropped(l)
             if willReconnect {
                 l.connection = .reconnecting(name: l.displayName)
             } else {
@@ -740,17 +773,17 @@ final class MeshService {
         case .metadata(let meta)?:
             l.radio.firmwareVersion = meta.firmwareVersion
         case .loraConfig(let lora)?:
-            l.radio.region = lora.region
-            l.radio.regionName = lora.regionName
-            l.radio.hopLimit = lora.hopLimit
+            store(lora, on: l)
         case .configCompleteID(let id)?:
             guard id == l.configID else { return }
             l.handshakeDone = true
             l.handshakeAttempts = 0
             l.handshakeTimeout?.cancel()
             l.connection = .connected(name: l.displayName)
-            if l.radio.region == 0 {
-                notice = labelled("This radio has no region set. Set it to US 915 MHz in the Meshtastic app, or it will not transmit.", l)
+            if l.awaitingRestart, let lora = l.lastLoRa {
+                finishLoRaApply(lora, on: l)
+            } else if l.radio.region == 0 {
+                notice = labelled("This radio has no region set, so it will not transmit. Open its Radio settings and choose your region (US 915 MHz in the United States).", l)
             }
             scheduleSave()
         case .rebooted?:
@@ -828,6 +861,8 @@ final class MeshService {
             }
         case .routing?:
             handleRouting(p, data, on: l)
+        case .admin?:
+            handleAdmin(p, data, on: l)
         default:
             break
         }
@@ -857,6 +892,10 @@ final class MeshService {
 
     private func handleRouting(_ p: MeshPBPacket, _ data: MeshPBData, on l: MeshLink) {
         if data.requestID != 0, handlePingRouting(p, data, on: l) { return }
+        if data.requestID != 0, data.requestID == l.adminSetID {
+            handleAdminAck(data, on: l)
+            return
+        }
         guard data.requestID != 0,
               let i = messages.lastIndex(where: { $0.isOutgoing && $0.packetID == data.requestID && $0.network == .meshtastic }),
               let routing = try? MeshPBRouting.decode(data.payload),
@@ -921,8 +960,9 @@ final class MeshService {
     }
 
     private func coreEnqueue(_ l: MeshLink, _ frame: Data, finishedBy: Set<UInt8>, timeout: Duration = .seconds(5),
-                             onReply: ((MeshCoreFrame) -> Void)? = nil) {
-        l.coreQueue.append(MeshLink.CoreCommand(frame: frame, finishedBy: finishedBy, timeout: timeout, onReply: onReply))
+                             onReply: ((MeshCoreFrame) -> Void)? = nil, onTimeout: (() -> Void)? = nil) {
+        l.coreQueue.append(MeshLink.CoreCommand(frame: frame, finishedBy: finishedBy, timeout: timeout,
+                                                onReply: onReply, onTimeout: onTimeout))
         coreSendNext(l)
     }
 
@@ -937,6 +977,7 @@ final class MeshService {
             guard let self, !Task.isCancelled else { return }
             // No answer: give up on this command and move on.
             l.corePending = nil
+            command.onTimeout?()
             self.coreSendNext(l)
         }
     }
@@ -964,6 +1005,10 @@ final class MeshService {
             let num = MeshCoreContact.nodeNum(for: me.publicKey)
             l.radio.myNodeNum = num
             l.radio.regionName = String(format: "%.3f MHz", locale: Locale(identifier: "en_US_POSIX"), me.frequencyMHz)
+            l.radio.meshCoreParams = me.radioParams
+            l.radio.txPowerDBm = me.txPowerDBm
+            l.radio.maxTxPowerDBm = me.maxTxPowerDBm
+            if l.awaitingRestart { finishCoreApply(me, on: l) }
             l.update(num) { n in
                 n.longName = me.name
                 n.shortName = String(me.name.prefix(4))
@@ -1000,6 +1045,12 @@ final class MeshService {
             }
         case .messagesWaiting:
             coreSyncMessages(l)
+        case .rxLog(let log):
+            coreHeardPacket(log, on: l)
+        case .traceData(let tag, _) where l.pendingPings[tag] != nil:
+            finishPing(tag, on: l, .reached)
+        case .traceData:
+            break
         case .ok, .error, .contactsStart, .endOfContacts, .sent, .noMoreMessages, .deviceInfo, .other:
             break
         }
@@ -1029,6 +1080,31 @@ final class MeshService {
             if let hops = c.pathLength { n.hopsAway = UInt32(hops) }
         }
         scheduleSave()
+    }
+
+    /// Every packet the radio hears is a coverage point, whoever it was for: the
+    /// sender is the repeater that passed it to us (or, for a straight-from-the-source
+    /// advert, the node itself).
+    private func coreHeardPacket(_ log: MeshCoreRxLog, on l: MeshLink) {
+        guard let packet = log.packet else { return }
+        let node: UInt32
+        switch packet.heardFrom {
+        case .repeater(let hash)?:
+            node = l.nodes.values.first { $0.publicKeyPrefix?.starts(with: hash) == true }?.num
+                ?? MeshCoreContact.nodeNum(forHash: hash)
+            l.neighbors[MeshCoreContact.nodeNum(forHash: hash)] = MeshLink.Neighbor(hash: hash, lastHeard: Date(), snr: log.snr)
+        case .node(let key)?:
+            node = MeshCoreContact.nodeNum(for: key)
+        case nil:
+            node = 0
+        }
+        if node != 0, l.nodes[node] != nil {
+            l.update(node) { n in
+                n.lastHeard = Date()
+                n.snr = log.snr
+            }
+        }
+        onHeard?(MeshHeard(node: node, snr: log.snr, hops: UInt32(packet.path.count), firmware: .meshcore))
     }
 
     private func coreNode(forKeyPrefix prefix: Data, on l: MeshLink) -> UInt32 {
@@ -1099,6 +1175,274 @@ final class MeshService {
         return true
     }
 
+    // MARK: - Radio settings
+
+    /// Puts a MeshCore radio on new radio settings (and TX power), then
+    /// restarts it and checks what it reports after reconnecting.
+    ///
+    /// CMD_SET_RADIO_PARAMS already saves and retunes the radio before it
+    /// answers OK (MyMesh.cpp, companion-v1.18.0), so the restart is not
+    /// strictly needed; it is done so the radio comes back up cleanly on the
+    /// new channel and the read-back proves the settings were saved.
+    func applyMeshCoreRadio(_ params: MeshCoreRadioParams, txPowerDBm: Int8? = nil) {
+        let l = link(.meshcore)
+        guard l.connection.isConnected, l.deviceID != nil else {
+            l.radioApply = .failed("Connect the radio first.")
+            return
+        }
+        if let problem = params.validationError {
+            l.radioApply = .failed(problem)
+            return
+        }
+        if let tx = txPowerDBm, let maxTx = l.radio.maxTxPowerDBm,
+           tx < MeshCoreRadioParams.minTxPowerDBm || tx > maxTx {
+            l.radioApply = .failed("TX power must be \(MeshCoreRadioParams.minTxPowerDBm) to \(maxTx) dBm on this radio.")
+            return
+        }
+        l.applyTimer?.cancel()
+        l.awaitingRestart = false
+        l.wantedCore = params
+        l.wantedTxPower = txPowerDBm == l.radio.txPowerDBm ? nil : txPowerDBm
+        l.radioApply = .working("Sending \(params.fullSummary)…")
+        coreEnqueue(l, MeshCoreCommand.setRadioParams(params), finishedBy: [0], onReply: { [weak self] reply in
+            guard let self else { return }
+            switch reply {
+            case .ok: self.coreSetTxPowerThenRestart(l)
+            case .error(let code): self.failApply(l, Self.describeCoreError(code))
+            default: break
+            }
+        }, onTimeout: { [weak self] in
+            self?.failApply(l, "The radio did not answer. Nothing was changed. Try again.")
+        })
+    }
+
+    private func coreSetTxPowerThenRestart(_ l: MeshLink) {
+        guard let tx = l.wantedTxPower else { return coreRestartAfterApply(l) }
+        l.radioApply = .working("Setting TX power to \(tx) dBm…")
+        coreEnqueue(l, MeshCoreCommand.setRadioTxPower(tx), finishedBy: [0], onReply: { [weak self] reply in
+            guard let self else { return }
+            if case .error(let code) = reply {
+                self.notice = self.labelled("TX power not changed: \(Self.describeCoreError(code))", l)
+                l.wantedTxPower = nil
+            }
+            self.coreRestartAfterApply(l)
+        }, onTimeout: { [weak self] in
+            // The radio settings are saved already; restart anyway and read back.
+            self?.coreRestartAfterApply(l)
+        })
+    }
+
+    private func coreRestartAfterApply(_ l: MeshLink) {
+        l.awaitingRestart = true
+        l.radioApply = .waitingForRadio("Saved. The radio is restarting to use them; it reconnects by itself in about 10–20 seconds.")
+        // CMD_REBOOT has no reply; the short timeout frees the queue if the radio ignores it.
+        coreEnqueue(l, MeshCoreCommand.reboot(), finishedBy: [], timeout: .seconds(3))
+        watchForRestart(l)
+    }
+
+    /// Restarts a MeshCore radio (no settings change).
+    func restartMeshCoreRadio() {
+        let l = link(.meshcore)
+        guard l.connection.isConnected else { return }
+        coreEnqueue(l, MeshCoreCommand.reboot(), finishedBy: [], timeout: .seconds(3))
+    }
+
+    /// After a restart: compare what the radio reports with what was asked for.
+    private func finishCoreApply(_ me: MeshCoreSelfInfo, on l: MeshLink) {
+        guard let want = l.wantedCore else { return }
+        l.applyTimer?.cancel()
+        l.awaitingRestart = false
+        let got = me.radioParams
+        var problems: [String] = []
+        if !got.sameChannel(as: want) { problems.append("it reports \(got.fullSummary) instead of \(want.fullSummary)") }
+        if let tx = l.wantedTxPower, tx != me.txPowerDBm { problems.append("TX power is \(me.txPowerDBm) dBm, not \(tx) dBm") }
+        l.wantedCore = nil
+        l.wantedTxPower = nil
+        l.radioApply = problems.isEmpty
+            ? .done("The radio confirmed \(got.fullSummary) · \(me.txPowerDBm) dBm.")
+            : .failed("The radio did not take every setting: \(problems.joined(separator: "; ")).")
+        scheduleSave()
+    }
+
+    nonisolated static func describeCoreError(_ code: UInt8?) -> String {
+        switch code {
+        case 1?: return "This radio's firmware can't change that setting from the app."
+        case 6?: return "The radio refused these settings (out of its range)."
+        case 4?: return "The radio is busy. Try again in a moment."
+        default: return "The radio refused the change (error \(code.map { String($0) } ?? "unknown"))."
+        }
+    }
+
+    /// Puts a Meshtastic radio on a region and modem preset. Reads the radio's
+    /// whole LoRa config first (which also hands out the admin session key),
+    /// changes only region, modem_preset and use_preset, and writes it back.
+    func applyMeshtasticLoRa(region: UInt32, modemPreset: UInt32) {
+        let l = link(.meshtastic)
+        guard l.connection.isConnected, l.deviceID != nil, l.radio.myNodeNum != 0 else {
+            l.radioApply = .failed("Connect the radio first.")
+            return
+        }
+        guard region != MeshtasticRegion.unset else {
+            l.radioApply = .failed("Choose your region.")
+            return
+        }
+        l.applyTimer?.cancel()
+        l.awaitingRestart = false
+        l.adminSetID = 0
+        l.wantedLoRa = (region, modemPreset)
+        l.radioApply = .working("Reading the radio's current settings…")
+        requestLoRaConfig(on: l)
+    }
+
+    private func requestLoRaConfig(on l: MeshLink) {
+        let id = Self.newPacketID()
+        l.adminGetID = id
+        sendAdmin(.getLoRaConfig(), id: id, wantResponse: true, on: l)
+        applyAfter(l, .seconds(15)) { [weak self] in
+            guard let self, l.adminGetID == id else { return }
+            l.adminGetID = 0
+            self.failApply(l, "The radio did not answer. Nothing was changed. Try again.")
+        }
+    }
+
+    /// An AdminMessage to our own radio (MeshPacket.to = my node number,
+    /// portnum ADMIN_APP), the way Meshtastic's own apps send local settings.
+    private func sendAdmin(_ admin: MeshPBAdmin, id: UInt32, wantResponse: Bool, on l: MeshLink) {
+        guard let device = l.deviceID else { return }
+        let packet = MeshPBPacket(
+            to: l.radio.myNodeNum,
+            channel: 0,
+            decoded: MeshPBData(portnum: MeshPort.admin.rawValue, payload: admin.encode(), wantResponse: wantResponse),
+            id: id,
+            wantAck: true
+        )
+        transport.write(MeshPBToRadio.packet(packet).encode(), to: device)
+        startReading(l)
+    }
+
+    private func handleAdmin(_ p: MeshPBPacket, _ data: MeshPBData, on l: MeshLink) {
+        guard let admin = try? MeshPBAdmin.decode(data.payload),
+              case .getConfigResponse(let lora?)? = admin.variant else { return }
+        store(lora, on: l)
+        // Only the answer to our own request (request_id = its packet id).
+        guard l.adminGetID != 0, data.requestID == l.adminGetID else { return }
+        l.adminGetID = 0
+        l.applyTimer?.cancel()
+        if l.awaitingRestart {
+            // Read back after a change that needed no restart.
+            finishLoRaApply(lora, on: l)
+            return
+        }
+        guard let want = l.wantedLoRa else { return }
+        let updated = lora.with(region: want.region, modemPreset: want.preset)
+        if updated == lora {
+            finishLoRaApply(lora, on: l)
+            return
+        }
+        let id = Self.newPacketID()
+        l.adminSetID = id
+        l.radioApply = .working("Saving \(MeshtasticRegion.shortName(want.region)) · \(MeshtasticModemPreset.shortName(want.preset))…")
+        // set_config must carry the session key from the get_config_response.
+        sendAdmin(.setLoRaConfig(updated, passkey: admin.sessionPasskey), id: id, wantResponse: false, on: l)
+        applyAfter(l, .seconds(20)) { [weak self] in
+            // No ACK and no restart seen: read the config back to find out.
+            guard let self, l.adminSetID == id else { return }
+            l.adminSetID = 0
+            l.awaitingRestart = true
+            self.requestLoRaConfig(on: l)
+        }
+    }
+
+    private func handleAdminAck(_ data: MeshPBData, on l: MeshLink) {
+        guard let reason = (try? MeshPBRouting.decode(data.payload))?.errorReason else { return }
+        l.adminSetID = 0
+        if reason != MeshRoutingError.none.rawValue {
+            failApply(l, "The radio refused the change: \(MeshRoutingError.describe(reason)).")
+            return
+        }
+        l.awaitingRestart = true
+        l.radioApply = .waitingForRadio("Saved. The radio restarts to use the new settings and reconnects by itself in about 10–30 seconds.")
+        applyAfter(l, .seconds(30)) { [weak self] in
+            // Still connected after 30 s: no restart was needed, so read back now.
+            guard let self, l.awaitingRestart, l.connection.isConnected else { return }
+            self.requestLoRaConfig(on: l)
+        }
+    }
+
+    private func finishLoRaApply(_ lora: MeshPBLoRaConfig, on l: MeshLink) {
+        guard let want = l.wantedLoRa else { return }
+        l.applyTimer?.cancel()
+        l.awaitingRestart = false
+        l.wantedLoRa = nil
+        let got = "\(MeshtasticRegion.shortName(lora.region)) · \(lora.usePreset ? MeshtasticModemPreset.shortName(lora.modemPreset) : "Custom")"
+        if lora.region == want.region, lora.usePreset, lora.modemPreset == want.preset {
+            l.radioApply = .done("The radio confirmed \(got).")
+        } else {
+            l.radioApply = .failed("The radio reports \(got), not \(MeshtasticRegion.shortName(want.region)) · \(MeshtasticModemPreset.shortName(want.preset)). This firmware may not support that choice.")
+        }
+        scheduleSave()
+    }
+
+    private func store(_ lora: MeshPBLoRaConfig, on l: MeshLink) {
+        l.lastLoRa = lora
+        l.radio.region = lora.region
+        l.radio.regionName = lora.regionName
+        l.radio.hopLimit = lora.hopLimit
+        l.radio.modemPreset = lora.modemPreset
+        l.radio.usePreset = lora.usePreset
+    }
+
+    /// The Bluetooth link went down while a change was in progress.
+    private func radioLinkDropped(_ l: MeshLink) {
+        if l.firmware == .meshtastic, l.adminSetID != 0 {
+            // set_config sent, no ACK yet: a restart is the likely reason.
+            l.adminSetID = 0
+            l.awaitingRestart = true
+        }
+        l.adminGetID = 0
+        if l.awaitingRestart {
+            l.radioApply = .waitingForRadio("The radio is restarting. It reconnects by itself; the new settings are checked then.")
+            watchForRestart(l)
+        } else if case .working = l.radioApply {
+            failApply(l, "The radio disconnected before it confirmed. Check the settings here once it reconnects.")
+        }
+    }
+
+    /// Gives a restarting radio 90 seconds to come back before saying so.
+    private func watchForRestart(_ l: MeshLink) {
+        applyAfter(l, .seconds(90)) {
+            guard l.awaitingRestart else { return }
+            l.awaitingRestart = false
+            l.radioApply = .failed("The radio hasn't come back yet. It reconnects by itself when it's ready; then check its settings here.")
+        }
+    }
+
+    private func failApply(_ l: MeshLink, _ why: String) {
+        l.applyTimer?.cancel()
+        l.awaitingRestart = false
+        l.wantedCore = nil
+        l.wantedTxPower = nil
+        l.wantedLoRa = nil
+        l.adminGetID = 0
+        l.adminSetID = 0
+        l.radioApply = .failed(why)
+    }
+
+    private func applyAfter(_ l: MeshLink, _ delay: Duration, _ body: @escaping @MainActor () -> Void) {
+        l.applyTimer?.cancel()
+        l.applyTimer = Task {
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            body()
+        }
+    }
+
+    /// Clears a finished or failed result (the screen calls this when it opens).
+    func clearRadioApply(_ network: MeshFirmware) {
+        let l = link(network)
+        if !l.radioApply.isBusy { l.radioApply = .idle }
+    }
+
     #if DEBUG
     /// Screenshots and demos: nodes with positions around downtown Denver, on both networks.
     func loadDemoNodes() {
@@ -1139,6 +1483,16 @@ final class MeshService {
             l.radio.firmware = firmware
             l.radio.myNodeNum = num
             l.radio.primaryChannelName = channel
+            if firmware == .meshcore {
+                // Fresh from flashing: still on the firmware's default (European) settings.
+                l.radio.meshCoreParams = .firmwareDefault
+                l.radio.txPowerDBm = 10
+                l.radio.maxTxPowerDBm = 22
+            } else {
+                l.radio.region = MeshtasticRegion.us
+                l.radio.modemPreset = MeshtasticModemPreset.longFast
+                l.radio.usePreset = true
+            }
             l.update(num) { n in
                 n.longName = name
                 n.shortName = String(name.suffix(4))

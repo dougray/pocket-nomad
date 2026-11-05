@@ -340,10 +340,48 @@ class MeshRadiosTest {
         fix = Fix(10.2, -20.4, 5.0, clock)
         d.start()
         d.tick()
-        assertEquals("MeshCore: MeshCore pings need a radio to ping", d.state.pingNote)
+        assertEquals("MeshCore: Waiting to hear a repeater", d.state.pingNote)
         assertEquals(1, d.state.sent) // Meshtastic still pings
         r.link(Firmware.MESHTASTIC).disconnect()
         d.tick()
-        assertEquals("Meshtastic: Waiting for the radio · MeshCore: MeshCore pings need a radio to ping", d.state.pingNote)
+        assertEquals("Meshtastic: Waiting for the radio · MeshCore: Waiting to hear a repeater", d.state.pingNote)
+    }
+
+    @Test fun driveModePingsTheRepeaterHeardWithoutAChoice() {
+        val r = both()
+        val c = coverage(r)
+        val d = DriveMode({ r.inUse }, c, h.prefs, h.scope, now = { clock })
+        fix = Fix(10.2, -20.4, 5.0, clock)
+        mc.emit(MeshTransportEvent.Frame(CoreFrames.rxLog(5f, CoreFrames.packet(1, 5, listOf(listOf(0xC7)), listOf(1)))))
+        d.start()
+        d.tick()
+        clock += DriveMode.STAGGER_MILLIS
+        fix = Fix(10.2, -20.4, 5.0, clock)
+        d.tick()
+        core.run()
+        assertEquals(1, d.state.radios[Firmware.MESHCORE]?.sent)
+        assertEquals(1, coreWritesWithCode(36).size)
+    }
+
+    @Test fun driveModeSurvivesTheAppBeingClosedAndLogsWhy() {
+        val r = both()
+        val c = coverage(r)
+        val log = DriveLog(File(h.dir, "drive-log.txt"), now = { clock })
+        val d = DriveMode({ r.inUse }, c, h.prefs, h.scope, now = { clock }, log = log::note)
+        d.start()
+        val started = d.state.startedAtMillis
+        d.tick()
+        // Android closes the app; a new launch picks the drive back up with the same start time.
+        val again = DriveMode({ r.inUse }, c, h.prefs, h.scope, now = { clock }, log = log::note)
+        again.resumeIfNeeded()
+        assertTrue(again.state.active)
+        assertEquals(started, again.state.startedAtMillis)
+        again.stop()
+        val third = DriveMode({ r.inUse }, c, h.prefs, h.scope, now = { clock }, log = log::note)
+        third.resumeIfNeeded()
+        assertFalse("a drive turned off stays off", third.state.active)
+        val text = File(h.dir, "drive-log.txt").readText()
+        listOf("drive mode on", "MeshCore radio connected", "still running", "drive mode resumed", "drive mode off: turned off")
+            .forEach { assertTrue(it, text.contains(it)) }
     }
 }

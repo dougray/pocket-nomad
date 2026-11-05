@@ -66,10 +66,30 @@ final class MeshLink: Identifiable {
         let finishedBy: Set<UInt8>
         var timeout: Duration = .seconds(5)
         var onReply: ((MeshCoreFrame) -> Void)?
+        /// Called when no reply came in time.
+        var onTimeout: (() -> Void)?
     }
     @ObservationIgnored var coreQueue: [CoreCommand] = []
     @ObservationIgnored var corePending: CoreCommand?
     @ObservationIgnored var coreTimer: Task<Void, Never>?
+
+    // MARK: Radio settings
+
+    /// Progress of a change made on the Radio settings screen.
+    var radioApply: RadioApplyState = .idle
+    /// Meshtastic: the whole LoRa config as the radio last sent it.
+    @ObservationIgnored var lastLoRa: MeshPBLoRaConfig?
+    /// Meshtastic: the region and preset the user asked for, until the radio confirms.
+    @ObservationIgnored var wantedLoRa: (region: UInt32, preset: UInt32)?
+    /// Meshtastic: packet ids of the admin request in flight (0 = none).
+    @ObservationIgnored var adminGetID: UInt32 = 0
+    @ObservationIgnored var adminSetID: UInt32 = 0
+    /// MeshCore: what the radio should report after its restart.
+    @ObservationIgnored var wantedCore: MeshCoreRadioParams?
+    @ObservationIgnored var wantedTxPower: Int8?
+    /// Saved on the radio, waiting for it to restart and report back.
+    @ObservationIgnored var awaitingRestart = false
+    @ObservationIgnored var applyTimer: Task<Void, Never>?
 
     // MARK: Drive-test pings
 
@@ -80,6 +100,24 @@ final class MeshLink: Identifiable {
         var timeout: Task<Void, Never>?
     }
     @ObservationIgnored var pendingPings: [UInt32: PendingPing] = [:]
+
+    // MARK: MeshCore: repeaters heard directly (the last hop of flood packets)
+
+    struct Neighbor: Equatable, Sendable {
+        var hash: Data
+        var lastHeard: Date
+        var snr: Float
+    }
+
+    /// Keyed by `MeshCoreContact.nodeNum(forHash:)`.
+    var neighbors: [UInt32: Neighbor] = [:]
+
+    /// The repeater heard most recently within `window`, for drive-test pings
+    /// when no radio was chosen.
+    func latestNeighbor(within window: TimeInterval, now: Date = Date()) -> UInt32? {
+        neighbors.filter { now.timeIntervalSince($0.value.lastHeard) <= window }
+            .max { $0.value.lastHeard < $1.value.lastHeard }?.key
+    }
 }
 
 /// What one radio did with an SOS.

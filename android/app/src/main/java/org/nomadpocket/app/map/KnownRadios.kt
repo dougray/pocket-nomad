@@ -18,6 +18,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import org.nomadpocket.mesh.Firmware
+import org.nomadpocket.mesh.MeshCoreRadioParams
 import org.nomadpocket.mesh.OptOut
 import java.io.File
 import java.net.HttpURLConnection
@@ -38,6 +39,8 @@ data class KnownRadio(
     val latitude: Double,
     val longitude: Double,
     val lastSeen: Instant? = null,
+    /** MeshCore only: the radio settings it uploaded, when known. */
+    val params: MeshCoreRadioParams? = null,
 ) {
     enum class Role {
         /** Repeaters and routers: the fixed sites that carry the mesh. */
@@ -86,7 +89,10 @@ object KnownRadioParser {
         }.toList()
     }
 
-    /** map.meshcore.io: `[ { public_key, type (1 client, 2 repeater, 3 room, 4 sensor), adv_name, adv_lat, adv_lon, last_advert, updated_date } ]`. */
+    /**
+     * map.meshcore.io: `[ { public_key, type (1 client, 2 repeater, 3 room, 4 sensor), adv_name, adv_lat, adv_lon,
+     * last_advert, updated_date, params: { freq (MHz), bw (kHz), sf, cr } } ]`. `params` may be missing or empty.
+     */
     fun parseMeshCore(json: String): List<KnownRadio> {
         val arr = JSONArray(json)
         return (0 until arr.length()).mapNotNull { i ->
@@ -109,8 +115,20 @@ object KnownRadioParser {
                 // The server's update time; a radio's own advert clock is often wrong.
                 lastSeen = (n.optStringOrNull("updated_date") ?: n.optStringOrNull("last_advert"))
                     ?.let { runCatching { Instant.parse(it) }.getOrNull() },
+                params = n.optJSONObject("params")?.let { parseParams(it) },
             )
         }
+    }
+
+    /** `{ freq, bw, sf, cr }` with numbers (MHz, kHz); null when any part is missing. */
+    fun parseParams(p: JSONObject): MeshCoreRadioParams? {
+        if (listOf("freq", "bw", "sf", "cr").any { !p.has(it) || p.isNull(it) }) return null
+        val freq = p.optDouble("freq")
+        val bw = p.optDouble("bw")
+        val sf = p.optDouble("sf")
+        val cr = p.optDouble("cr")
+        if (listOf(freq, bw, sf, cr).any { it.isNaN() }) return null
+        return MeshCoreRadioParams(freq, bw, sf.toInt(), cr.toInt()).normalized()
     }
 
     private fun JSONObject.optStringOrNull(name: String): String? = if (has(name) && !isNull(name)) optString(name) else null
@@ -134,7 +152,10 @@ object KnownRadioParser {
         areaName?.let { put("areaName", it) }
         put("radios", JSONArray(radios.map { r ->
             JSONObject().put("id", r.id).put("firmware", r.firmware.name).put("name", r.name).put("role", r.role.name)
-                .put("latitude", r.latitude).put("longitude", r.longitude).apply { r.lastSeen?.let { put("lastSeen", it.toEpochMilli()) } }
+                .put("latitude", r.latitude).put("longitude", r.longitude).apply {
+                    r.lastSeen?.let { put("lastSeen", it.toEpochMilli()) }
+                    r.params?.let { put("params", JSONObject().put("freq", it.frequencyMHz).put("bw", it.bandwidthKHz).put("sf", it.spreadingFactor).put("cr", it.codingRate)) }
+                }
         }))
     }.toString()
 
@@ -152,6 +173,7 @@ object KnownRadioParser {
                     r.getString("id"), Firmware.valueOf(r.getString("firmware")), r.getString("name"),
                     KnownRadio.Role.valueOf(r.getString("role")), r.getDouble("latitude"), r.getDouble("longitude"),
                     if (r.has("lastSeen")) Instant.ofEpochMilli(r.getLong("lastSeen")) else null,
+                    r.optJSONObject("params")?.let { parseParams(it) },
                 )
             },
         )

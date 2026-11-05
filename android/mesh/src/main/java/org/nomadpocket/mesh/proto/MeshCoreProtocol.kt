@@ -25,8 +25,13 @@ object MeshCoreCommand {
         const val SET_DEVICE_TIME: Int = 6
         const val SEND_SELF_ADVERT: Int = 7
         const val SYNC_NEXT_MESSAGE: Int = 10
+        const val SET_RADIO_PARAMS: Int = 11
+        const val SET_RADIO_TX_POWER: Int = 12
+        const val REBOOT: Int = 19
         const val DEVICE_QUERY: Int = 22
         const val GET_CHANNEL: Int = 31
+        /** CMD_SEND_TRACE_PATH (MyMesh.cpp, companion-v1.18.0). */
+        const val SEND_TRACE_PATH: Int = 36
     }
 
     /** The protocol version this app understands; asks for the V3 message formats. */
@@ -60,6 +65,21 @@ object MeshCoreCommand {
             it.write(text.toByteArray(Charsets.UTF_8))
         }
 
+    /**
+     * CMD_SEND_TRACE_PATH: [36][tag u32][auth u32][flags][path hashes]. Flags' low
+     * two bits are the hash size minus one. The radio answers SENT (6) with the tag
+     * in place of an ack, and PUSH_CODE_TRACE_DATA (0x89) with the same tag when the
+     * trace comes back. Repeaters answer traces without a login, which makes a trace
+     * to a repeater in range the MeshCore drive-test ping.
+     */
+    fun sendTrace(tag: Long, path: ByteArray): ByteArray =
+        frame(Code.SEND_TRACE_PATH) {
+            it.le32(tag)
+            it.le32(0)
+            it.write((maxOf(1, path.size) - 1) and 0x03)
+            it.write(path)
+        }
+
     fun sendChannelText(text: String, channel: Int, epochSeconds: Long): ByteArray =
         frame(Code.SEND_CHANNEL_TEXT) {
             it.write(MeshCoreTextType.PLAIN)
@@ -67,6 +87,36 @@ object MeshCoreCommand {
             it.le32(clampU32(epochSeconds))
             it.write(text.toByteArray(Charsets.UTF_8))
         }
+
+    /**
+     * CMD_SET_RADIO_PARAMS (11): [11][freq u32 kHz (MHz x 1000)][bw u32 Hz
+     * (kHz x 1000)][sf u8][cr u8]. Layout from the handler in
+     * examples/companion_radio/MyMesh.cpp (companion-v1.18.0). Firmware 9+
+     * reads an optional 12th byte, "client repeat"; leaving it out turns that
+     * off, which is right for a phone's radio. The firmware saves the settings
+     * and retunes at once (radio_driver.setParams), then answers OK (0) or
+     * ERR (1, ERR_CODE_ILLEGAL_ARG = 6) when a value is out of range. No reboot.
+     */
+    fun setRadioParams(frequencyKHz: Long, bandwidthHz: Long, spreadingFactor: Int, codingRate: Int): ByteArray =
+        frame(Code.SET_RADIO_PARAMS) {
+            it.le32(clampU32(frequencyKHz))
+            it.le32(clampU32(bandwidthHz))
+            it.write(spreadingFactor and 0xFF)
+            it.write(codingRate and 0xFF)
+        }
+
+    /**
+     * CMD_SET_RADIO_TX_POWER (12): [12][dBm as int8]. The firmware accepts
+     * -9..MAX_LORA_TX_POWER, saves it, applies it and answers OK, else ERR 6.
+     */
+    fun setTxPower(dbm: Int): ByteArray = byteArrayOf(Code.SET_RADIO_TX_POWER.toByte(), dbm.coerceIn(-128, 127).toByte())
+
+    /**
+     * CMD_REBOOT (19) followed by the ASCII word "reboot" (the firmware checks
+     * all six bytes). It restarts at once and sends no reply. Radio settings
+     * do not need it; kept for completeness.
+     */
+    fun reboot(): ByteArray = byteArrayOf(Code.REBOOT.toByte()) + "reboot".toByteArray(Charsets.US_ASCII)
 
     private fun clampU32(v: Long): Long = v.coerceIn(0, 0xFFFFFFFFL)
 
@@ -98,6 +148,10 @@ enum class MeshCoreContactType(val raw: Int) {
 
 data class MeshCoreSelfInfo(
     val publicKey: Bytes,
+    /** Transmit power now set, in dBm. */
+    val txPowerDbm: Int = 0,
+    /** The most this radio allows, in dBm. */
+    val maxTxPowerDbm: Int = 0,
     val latitude: Double?,
     val longitude: Double?,
     val frequencyMHz: Double,
@@ -136,6 +190,9 @@ data class MeshCoreContact(
             return (key[0].toLong() and 0xFF) or ((key[1].toLong() and 0xFF) shl 8) or
                 ((key[2].toLong() and 0xFF) shl 16) or ((key[3].toLong() and 0xFF) shl 24)
         }
+
+        /** Stand-in node number for a repeater known only by its path hash (1-3 key bytes): the hash padded with zeros. */
+        fun nodeNumForHash(hash: ByteArray): Long = nodeNum(hash.copyOf(4).also { for (i in minOf(3, hash.size) until 4) it[i] = 0 })
     }
 }
 
@@ -186,6 +243,10 @@ sealed class MeshCoreFrame {
     data class NewAdvert(val contact: MeshCoreContact) : MeshCoreFrame()
     data class SendConfirmed(val ack: Long, val roundTripMS: Long) : MeshCoreFrame()
     object MessagesWaiting : MeshCoreFrame()
+    /** PUSH_CODE_LOG_RX_DATA: every packet the radio's LoRa receiver decoded. */
+    data class RxLog(val log: MeshCoreRxLog) : MeshCoreFrame()
+    /** PUSH_CODE_TRACE_DATA: a trace this radio sent came back. */
+    data class TraceData(val tag: Long, val finalSNR: Float) : MeshCoreFrame()
     data class Other(val code: Int) : MeshCoreFrame()
 
     companion object {
@@ -221,6 +282,24 @@ sealed class MeshCoreFrame {
                     SendConfirmed(ack, r.u32() ?: 0)
                 }
                 0x83 -> MessagesWaiting
+                0x88 -> {
+                    // [0x88][snr*4 i8][rssi i8][raw packet] (MyMesh::logRxRaw).
+                    val snr = r.i8() ?: return null
+                    val rssi = r.i8() ?: return null
+                    RxLog(MeshCoreRxLog(snr / 4f, rssi, MeshCoreRawPacket.parse(r.rest())))
+                }
+                0x89 -> {
+                    // [0x89][reserved][path len][flags][tag u32][auth u32][hashes][snrs][final snr]
+                    r.u8() ?: return null
+                    val pathLen = r.u8() ?: return null
+                    val flags = r.u8() ?: return null
+                    val tag = r.u32() ?: return null
+                    r.u32() ?: return null
+                    r.bytes(pathLen) ?: return null
+                    r.bytes(pathLen shr (flags and 0x03)) ?: return null
+                    val final = r.i8() ?: return null
+                    TraceData(tag, final / 4f)
+                }
                 else -> Other(code)
             }
         }
@@ -249,8 +328,10 @@ sealed class MeshCoreFrame {
         }
 
         private fun decodeSelfInfo(r: MeshCoreReader): MeshCoreSelfInfo? {
-            // advert type, tx power, max tx power
-            r.u8() ?: return null; r.u8() ?: return null; r.u8() ?: return null
+            // RESP_CODE_SELF_INFO: advert type, tx power (int8 dBm), max tx power
+            r.u8() ?: return null
+            val tx = r.i8() ?: return null
+            val maxTx = r.i8() ?: return null
             val key = r.bytes(32) ?: return null
             val lat = r.i32() ?: return null
             val lon = r.i32() ?: return null
@@ -262,6 +343,7 @@ sealed class MeshCoreFrame {
             val hasPosition = lat != 0 || lon != 0
             return MeshCoreSelfInfo(
                 publicKey = Bytes(key),
+                txPowerDbm = tx, maxTxPowerDbm = maxTx,
                 latitude = if (hasPosition) lat / 1e6 else null,
                 longitude = if (hasPosition) lon / 1e6 else null,
                 frequencyMHz = freq / 1000.0,
@@ -334,6 +416,68 @@ sealed class MeshCoreFrame {
     }
 }
 
+/** One packet as the radio heard it off the air. */
+data class MeshCoreRxLog(val snr: Float, val rssi: Int, val packet: MeshCoreRawPacket?)
+
+/**
+ * A raw over-the-air MeshCore packet (src/Packet.cpp `readFrom`):
+ * [header][transport codes: 4 bytes, transport routes only][path len][path][payload].
+ * The header's low two bits are the route type and the next four the payload
+ * type; the path length's low six bits count the hashes and its top two bits are
+ * the hash size minus one.
+ */
+data class MeshCoreRawPacket(
+    val isFlood: Boolean,
+    val payloadType: Int,
+    /** Repeater hashes, in the order the packet passed them. */
+    val path: List<Bytes>,
+    val payload: Bytes,
+) {
+    sealed class HeardFrom {
+        data class Repeater(val hash: Bytes) : HeardFrom()
+        data class Node(val publicKey: Bytes) : HeardFrom()
+    }
+
+    /**
+     * Who sent the packet we just heard: in flood mode each repeater adds its hash
+     * before passing a packet on, so the last hash is the repeater in range of us.
+     * A packet with no path came straight from its sender, which only an advert
+     * names in full. Direct-routed packets drop hashes as they go, so their sender
+     * is unknown.
+     */
+    val heardFrom: HeardFrom?
+        get() = when {
+            isFlood && path.isNotEmpty() -> HeardFrom.Repeater(path.last())
+            path.isEmpty() && payloadType == PAYLOAD_ADVERT && payload.size >= 32 -> HeardFrom.Node(payload.prefix(32))
+            else -> null
+        }
+
+    companion object {
+        const val PAYLOAD_ADVERT = 0x04
+
+        fun parse(raw: ByteArray): MeshCoreRawPacket? {
+            if (raw.isEmpty()) return null
+            val header = raw[0].toInt() and 0xFF
+            val route = header and 0x03
+            var i = 1
+            if (route == 0x00 || route == 0x03) i += 4 // transport codes
+            if (i >= raw.size) return null
+            val pathLen = raw[i].toInt() and 0xFF
+            i += 1
+            val size = (pathLen shr 6) + 1
+            val count = pathLen and 0x3F
+            if (size > 3 || i + size * count >= raw.size) return null
+            val path = (0 until count).map { Bytes(raw.copyOfRange(i + it * size, i + (it + 1) * size)) }
+            return MeshCoreRawPacket(
+                isFlood = route == 0x00 || route == 0x01,
+                payloadType = (header shr 2) and 0x0F,
+                path = path,
+                payload = Bytes(raw.copyOfRange(i + size * count, raw.size)),
+            )
+        }
+    }
+}
+
 /** Bounds-checked little-endian reader. Every read returns null past the end. */
 class MeshCoreReader(private val bytes: ByteArray) {
     private var pos = 0
@@ -369,6 +513,13 @@ class MeshCoreReader(private val bytes: ByteArray) {
         val raw = bytes(n) ?: return null
         val end = raw.indexOf(0).let { if (it < 0) raw.size else it }
         return String(raw, 0, end, Charsets.UTF_8).trim(' ', '\t')
+    }
+
+    /** Everything left, as bytes. */
+    fun rest(): ByteArray {
+        val rest = if (pos < bytes.size) bytes.copyOfRange(pos, bytes.size) else ByteArray(0)
+        pos = bytes.size
+        return rest
     }
 
     /** Everything left, as text (trailing NULs dropped). */

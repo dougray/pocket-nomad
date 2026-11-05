@@ -50,6 +50,19 @@ object Mesh {
     /** Map data. Exists before init (empty), so it is safe to collect at any time. */
     val repository: MeshRepository = MeshRepository()
 
+    /**
+     * MeshCore radios from the downloaded community map, with their settings,
+     * for Radio settings' "Match radios near you" and the radio card's hint.
+     * :app fills it from its known-radios store; empty until then.
+     */
+    val nearbyMeshCore = MutableStateFlow(NearbyMeshCore())
+
+    /**
+     * :app sets this: downloads the known radios around the phone (needs
+     * internet once). Returns a plain-word problem, or null when it worked.
+     */
+    var downloadNearby: (suspend () -> String?)? = null
+
     private fun notReady(): Nothing = error("Call Mesh.init(context) from Application.onCreate first.")
 
     fun init(context: Context) {
@@ -70,9 +83,10 @@ object Mesh {
             location = { location.fix },
             nodeName = { radios.nodeName(it) },
             useLocation = { if (it) location.begin() else location.end() })
+        val driveLog = DriveLog(File(dir, "drive-log.txt"))
         val drive = DriveMode({ radios.inUse }, coverage, prefs, scope, onActiveChanged = {
             if (it) DriveModeService.start(app) else DriveModeService.stop(app)
-        })
+        }, log = driveLog::note)
         _location = location; _transports = listOf(scanner) + slotTransports.values; _radios = radios
         _coverage = coverage; _drive = drive
 
@@ -80,6 +94,7 @@ object Mesh {
         radios.links.values.forEach { it.onHeard = { heard -> coverage.record(heard) } }
         radios.start()
         coverage.start()
+        drive.resumeIfNeeded()
 
         scope.launch {
             val perLink = radios.links.map { (fw, link) ->
@@ -144,6 +159,11 @@ class MeshRepository internal constructor() {
     val nodes: StateFlow<List<MapNode>> = nodesState.asStateFlow()
     /** This phone's coverage recordings and drive-test pings from both radios, each tagged with its firmware (opted-out radios left out). */
     val coverage: StateFlow<CoverageData> = coverageState.asStateFlow()
+}
+
+/** Downloaded MeshCore radios near the phone: one entry per radio, null when its settings are unknown. */
+data class NearbyMeshCore(val downloaded: Boolean = false, val params: List<MeshCoreRadioParams?> = emptyList()) {
+    val match: NearbyRadioMatch? by lazy { NearbyRadioParams.mostCommon(params) }
 }
 
 data class MapNode(val num: Long, val name: String, val firmware: Firmware, val latitude: Double, val longitude: Double, val lastHeardMillis: Long?)

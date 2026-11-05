@@ -30,6 +30,9 @@ struct KnownRadio: Codable, Equatable, Sendable, Identifiable {
     var latitude: Double
     var longitude: Double
     var lastSeen: Date?
+    /// MeshCore radios: the radio settings they advertise (map.meshcore.io
+    /// `params`). nil for Meshtastic and for lists downloaded before this was kept.
+    var params: MeshCoreRadioParams?
 
     var roleLabel: String {
         switch role {
@@ -170,9 +173,26 @@ final class KnownRadioStore {
         }
     }
 
-    /// map.meshcore.io: `[ { public_key, type (1 client, 2 repeater, 3 room, 4 sensor), adv_name, adv_lat, adv_lon, last_advert, updated_date } ]`.
+    /// map.meshcore.io: `[ { public_key, type (1 client, 2 repeater, 3 room, 4 sensor), adv_name, adv_lat, adv_lon,
+    /// last_advert, updated_date, params: { freq (MHz), bw (kHz), sf, cr } } ]`.
     nonisolated static func parseMeshCore(_ data: Data) throws -> [KnownRadio] {
+        /// Never fails: a missing or odd `params` just means no settings.
+        struct Params: Decodable {
+            var value: MeshCoreRadioParams?
+            enum Keys: String, CodingKey { case freq, bw, sf, cr }
+            init(from decoder: Decoder) throws {
+                guard let c = try? decoder.container(keyedBy: Keys.self),
+                      let freq = try? c.decode(Double.self, forKey: .freq),
+                      let bw = try? c.decode(Double.self, forKey: .bw),
+                      let sf = try? c.decode(Int.self, forKey: .sf),
+                      let cr = try? c.decode(Int.self, forKey: .cr),
+                      freq.isFinite, bw.isFinite, freq > 0, freq < 10_000, bw > 0, bw < 10_000,
+                      let sf8 = UInt8(exactly: sf), let cr8 = UInt8(exactly: cr) else { return }
+                value = MeshCoreRadioParams(frequencyMHz: freq, bandwidthKHz: bw, spreadingFactor: sf8, codingRate: cr8)
+            }
+        }
         struct Node: Decodable {
+            var params: Params?
             var public_key: String?
             var type: Int?
             var adv_name: String?
@@ -195,7 +215,8 @@ final class KnownRadioStore {
             return KnownRadio(id: "c" + key.prefix(16), firmware: .meshcore, name: n.adv_name ?? String(key.prefix(8)),
                               role: role, latitude: lat, longitude: lon,
                               // The server's update time; a radio's own advert clock is often wrong.
-                              lastSeen: (n.updated_date ?? n.last_advert).flatMap { iso.date(from: $0) })
+                              lastSeen: (n.updated_date ?? n.last_advert).flatMap { iso.date(from: $0) },
+                              params: n.params?.value)
         }
     }
 }

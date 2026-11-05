@@ -404,10 +404,54 @@ final class MeshDualRadioTests: XCTestCase {
         let drive = DriveMode(mesh: svc, coverage: store, defaults: defaults)
         drive.pinging = true
         drive.tick()
-        XCTAssertEqual(drive.notes[.meshcore], "MeshCore pings need a radio to ping")
+        XCTAssertEqual(drive.notes[.meshcore], "Waiting to hear a repeater")
         XCTAssertNil(drive.notes[.meshtastic])
         XCTAssertEqual(drive.tallies[.meshtastic]?.sent, 1, "the other radio still pings")
-        XCTAssertEqual(drive.pingNote, "MeshCore pings need a radio to ping")
+        XCTAssertEqual(drive.pingNote, "Waiting to hear a repeater")
+    }
+
+    func testDriveModeSurvivesTheAppBeingClosedAndLogsWhy() throws {
+        let (svc, _, _) = try dual()
+        let store = CoverageStore(defaults: defaults, fileURL: dir.appending(path: "cov.json"), location: { nil },
+                                  nodeName: { _, _ in "" }, controlsGPS: false)
+        let log = DriveLog(fileURL: dir.appending(path: "drive-log.txt"))
+        let drive = DriveMode(mesh: svc, coverage: store, defaults: defaults, log: log)
+        drive.start()
+        let started = try XCTUnwrap(drive.startedAt)
+        drive.tick()
+        // iOS closes the app; a new launch picks the drive back up with the same start time.
+        let again = DriveMode(mesh: svc, coverage: store, defaults: defaults, log: log)
+        XCTAssertFalse(again.active)
+        again.resumeIfNeeded()
+        XCTAssertTrue(again.active)
+        XCTAssertEqual(again.startedAt, started)
+        again.stop()
+        let third = DriveMode(mesh: svc, coverage: store, defaults: defaults, log: log)
+        third.resumeIfNeeded()
+        XCTAssertFalse(third.active, "a drive turned off stays off")
+        let text = try String(contentsOf: dir.appending(path: "drive-log.txt"), encoding: .utf8)
+        XCTAssertTrue(text.contains("drive mode on"))
+        XCTAssertTrue(text.contains("MeshCore radio connected"))
+        XCTAssertTrue(text.contains("still running"))
+        XCTAssertTrue(text.contains("drive mode resumed after iOS closed the app"))
+        XCTAssertTrue(text.contains("drive mode off: turned off"))
+    }
+
+    func testDriveModePingsTheRepeaterHeardWithoutAChoice() throws {
+        let (svc, fake, radio) = try dual()
+        let fix = CLLocation(coordinate: .init(latitude: 39.74, longitude: -104.99), altitude: 0, horizontalAccuracy: 8,
+                             verticalAccuracy: 10, timestamp: Date())
+        let store = CoverageStore(defaults: defaults, fileURL: dir.appending(path: "cov.json"), location: { fix },
+                                  nodeName: { _, _ in "" }, controlsGPS: false)
+        let drive = DriveMode(mesh: svc, coverage: store, defaults: defaults)
+        drive.pinging = true
+        fake.frame(CoreFrames.rxLog(snr: 5, CoreFrames.packet(route: 1, type: 5, path: [[0xC7]], payload: [1])), from: core)
+        drive.tick() // Meshtastic pings first (both never pinged; ties go by network)
+        drive.tick()
+        radio.run()
+        XCTAssertNil(drive.notes[.meshcore])
+        XCTAssertEqual(drive.tallies[.meshcore]?.sent, 1)
+        XCTAssertEqual(fake.writes(to: core).last?.first, 36)
     }
 
     func testOldDriveTargetMovesToTheNetworkThatKnowsIt() throws {

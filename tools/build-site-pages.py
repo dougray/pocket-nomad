@@ -31,6 +31,7 @@ FEATURES = [
     ("Saved places (water, shelter, rally points)", {"ios": (Y, ""), "android": (Y, ""), "pwa": (Y, "")}),
     ("Mesh texting (Meshtastic and MeshCore)", {"ios": (Y, ""), "android": (Y, ""), "pwa": (P, "Chrome or Edge on Android and computers; not on iPhone")}),
     ("Two radios at once (one Meshtastic + one MeshCore), both mapping coverage", {"ios": (Y, ""), "android": (Y, ""), "pwa": (N, "One radio at a time")}),
+    ("Radio settings: frequency, preset and power, with \"match radios near you\"", {"ios": (Y, ""), "android": (Y, ""), "pwa": (N, "Set it in the radio's own app")}),
     ("Coverage scanner", {"ios": (Y, ""), "android": (Y, ""), "pwa": (N, "Browsers pause in the background")}),
     ("Drive mode and ping test", {"ios": (Y, ""), "android": (Y, ""), "pwa": (N, "Needs the screen off and GPS in the background")}),
     ("Known radios from the community maps", {"ios": (Y, ""), "android": (Y, ""), "pwa": (N, "Those sites don't allow browser downloads")}),
@@ -185,7 +186,8 @@ ANDROID = page("android", "Pocket Nomad for Android",
       <li><b>Map:</b> OpenStreetMap, download the area on screen for offline use, saved places, live mesh radios, known radios from meshmap.net and map.meshcore.io, coverage layer.</li>
       <li><b>Mesh:</b> Meshtastic and MeshCore over Bluetooth, channel chat, direct messages with delivery receipts, SOS, blocking.</li>
       <li><b>Two radios:</b> connect a Meshtastic and a MeshCore radio together; both map coverage and drive-mode pings at once, shown in their own colours.</li>
-      <li><b>Drive mode:</b> keeps mapping coverage with the screen off, with the ping test; shows a notification while it runs and stops itself after 4 hours.</li>
+      <li><b>Radio settings:</b> change a radio's frequency, preset and transmit power from the app; "Match radios near you" picks the settings most radios around you use.</li>
+      <li><b>Drive mode:</b> keeps mapping coverage with the screen off, with the ping test; every MeshCore packet heard becomes a map point, and MeshCore pings trace the nearest repeater. Shows a notification while it runs, picks up again if the app is closed, and stops itself after 4 hours.</li>
       <li><b>Library:</b> download Kiwix books (WikiMed, field medicine manuals, water treatment and more) and search all of them offline, or open a <code>.zim</code> file you already have.</li>
       <li><b>Ask:</b> plain-language questions answered by a free AI model that runs on the phone, only from your guides and books, with every source cited. Without the model, or on phones short of memory, it shows the best passages.</li>
       <li><b>Wear OS:</b> a separate watch app with the SOS light, compass and position, and the urgent first-aid steps. It works on its own, without the phone.</li>

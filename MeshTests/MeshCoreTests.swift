@@ -52,9 +52,62 @@ enum CoreFrames {
 
     static func sent(ack: UInt32) -> Data { Data([6, 0] + le(ack) + le(UInt32(5000))) }
     static func sendConfirmed(ack: UInt32) -> Data { Data([0x82] + le(ack) + le(UInt32(800))) }
+
+    /// An over-the-air packet: header (route | payload type << 2), path length, path, payload.
+    static func packet(route: UInt8, type: UInt8, path: [[UInt8]] = [], payload: [UInt8]) -> [UInt8] {
+        let size = UInt8(path.first?.count ?? 1)
+        return [route | type << 2] + (route == 0 || route == 3 ? [9, 9, 9, 9] : [])
+            + [(size - 1) << 6 | UInt8(path.count)] + path.flatMap { $0 } + payload
+    }
+
+    static func rxLog(snr: Float, rssi: Int8 = -100, _ raw: [UInt8]) -> Data {
+        Data([0x88, UInt8(bitPattern: Int8(snr * 4)), UInt8(bitPattern: rssi)] + raw)
+    }
+
+    static func traceData(tag: UInt32, hashes: [UInt8]) -> Data {
+        Data([0x89, 0, UInt8(hashes.count), 0] + le(tag) + le(UInt32(0)) + hashes
+             + [UInt8](repeating: 24, count: hashes.count) + [UInt8(bitPattern: Int8(-12))])
+    }
 }
 
 final class MeshCoreCodecTests: XCTestCase {
+    func testRawPacketNamesWhoWeHeard() throws {
+        // Flood text that passed two repeaters: the last one is in range of us.
+        let relayed = try XCTUnwrap(MeshCoreRawPacket(Data(CoreFrames.packet(route: 1, type: 5, path: [[0x3A], [0xC7]], payload: [1, 2, 3]))))
+        XCTAssertEqual(relayed.heardFrom, .repeater(hash: Data([0xC7])))
+        XCTAssertEqual(relayed.payloadType, 5)
+        XCTAssertEqual(relayed.payload, Data([1, 2, 3]))
+        // Transport codes are skipped; two-byte hashes are read whole.
+        let transport = try XCTUnwrap(MeshCoreRawPacket(Data(CoreFrames.packet(route: 0, type: 2, path: [[0x01, 0x02], [0xAB, 0xCD]], payload: [7]))))
+        XCTAssertEqual(transport.heardFrom, .repeater(hash: Data([0xAB, 0xCD])))
+        // An advert straight from its sender names it in full.
+        let key = CoreFrames.key(0x5E)
+        let advert = try XCTUnwrap(MeshCoreRawPacket(Data(CoreFrames.packet(route: 1, type: 4, payload: key + [0, 0, 0, 0]))))
+        XCTAssertEqual(advert.heardFrom, .node(publicKey: Data(key)))
+        // Direct routes drop hashes as they go, so the sender is unknown.
+        let direct = try XCTUnwrap(MeshCoreRawPacket(Data(CoreFrames.packet(route: 2, type: 2, path: [[0x44]], payload: [1]))))
+        XCTAssertNil(direct.heardFrom)
+        // Too short for its path.
+        XCTAssertNil(MeshCoreRawPacket(Data([0x05, 0x03, 0x01])))
+    }
+
+    func testReceiveLogAndTraceFramesDecode() {
+        guard case .rxLog(let log)? = MeshCoreFrame.decode(CoreFrames.rxLog(snr: 6.25, rssi: -97, CoreFrames.packet(route: 1, type: 5, path: [[0xC7]], payload: [1]))) else {
+            return XCTFail("expected a receive log")
+        }
+        XCTAssertEqual(log.snr, 6.25)
+        XCTAssertEqual(log.rssi, -97)
+        XCTAssertEqual(log.packet?.heardFrom, .repeater(hash: Data([0xC7])))
+        guard case .traceData(let tag, let snr)? = MeshCoreFrame.decode(CoreFrames.traceData(tag: 0x1234_5678, hashes: [0xC7])) else {
+            return XCTFail("expected trace data")
+        }
+        XCTAssertEqual(tag, 0x1234_5678)
+        XCTAssertEqual(snr, -3)
+        XCTAssertEqual([UInt8](MeshCoreCommand.sendTrace(tag: 0x0102_0304, path: Data([0xC7]))),
+                       [36, 4, 3, 2, 1, 0, 0, 0, 0, 0, 0xC7])
+        XCTAssertEqual(MeshCoreCommand.sendTrace(tag: 1, path: Data([0xAB, 0xCD]))[9], 1, "flags carry the hash size minus one")
+    }
+
     func testCommandsMatchTheDocumentedBytes() {
         XCTAssertEqual([UInt8](MeshCoreCommand.appStart(appName: "mccli")),
                        [0x01, 0, 0, 0, 0, 0, 0, 0, 0x6d, 0x63, 0x63, 0x6c, 0x69])
@@ -130,7 +183,7 @@ final class MeshCoreCodecTests: XCTestCase {
         XCTAssertEqual(MeshCoreFrame.decode(Data([0x83])), .messagesWaiting)
         XCTAssertEqual(MeshCoreFrame.decode(Data([0x0A])), .noMoreMessages)
         XCTAssertEqual(MeshCoreFrame.decode(Data([0x01, 0x02])), .error(2))
-        XCTAssertEqual(MeshCoreFrame.decode(Data([0x88, 1, 2, 3])), .other(0x88))
+        XCTAssertEqual(MeshCoreFrame.decode(Data([0x8F, 1, 2, 3])), .other(0x8F))
     }
 
     func testTruncatedFramesAreRejected() {
@@ -186,6 +239,7 @@ final class FakeMeshCoreRadio {
         case 6: return [Data([0])]
         case 4: return [Data([2] + CoreFrames.le(UInt32(1))), CoreFrames.contact(key: ana, name: "Ana"), Data([4, 0, 0, 0, 0])]
         case 10: return [waiting.isEmpty ? Data([10]) : waiting.removeFirst()]
+        case 36: return [CoreFrames.sent(ack: UInt32(cmd[1]) | UInt32(cmd[2]) << 8 | UInt32(cmd[3]) << 16 | UInt32(cmd[4]) << 24)]
         case 2, 3:
             defer { nextAck += 1 }
             return [CoreFrames.sent(ack: cmd.first == 2 ? nextAck : 0)]
@@ -303,5 +357,56 @@ final class MeshCoreServiceTests: XCTestCase {
         XCTAssertTrue(svc.messages(in: .direct(ana.num)).isEmpty, "pings are not added to the chat")
         fake.frame(CoreFrames.sendConfirmed(ack: ack))
         XCTAssertEqual(outcome, .reached)
+    }
+
+    func testEveryPacketHeardIsACoveragePointAndARepeaterInRange() throws {
+        let (svc, fake, _) = connected()
+        var heard: [MeshHeard] = []
+        svc.onHeard = { heard.append($0) }
+        // Someone else's channel text, passed on by repeater C7.
+        fake.frame(CoreFrames.rxLog(snr: 7.5, CoreFrames.packet(route: 1, type: 5, path: [[0x3A], [0xC7]], payload: [1, 2, 3])))
+        let first = try XCTUnwrap(heard.first)
+        XCTAssertEqual(first.firmware, .meshcore)
+        XCTAssertEqual(first.snr, 7.5)
+        XCTAssertEqual(first.hops, 2)
+        let c7 = MeshCoreContact.nodeNum(forHash: Data([0xC7]))
+        XCTAssertEqual(first.node, c7)
+        XCTAssertEqual(svc.autoPingTarget(on: .meshcore), c7, "the repeater just heard is the ping target")
+        // A packet from a known contact's repeater hash is credited to that contact.
+        fake.frame(CoreFrames.rxLog(snr: 2, CoreFrames.packet(route: 1, type: 5, path: [[0xAA]], payload: [1])))
+        let ana = try XCTUnwrap(svc.sortedNodes.first { $0.longName == "Ana" })
+        XCTAssertEqual(heard.last?.node, ana.num)
+        XCTAssertEqual(svc.sortedNodes.first { $0.longName == "Ana" }?.snr, 2)
+        // Unparseable bytes are ignored.
+        fake.frame(Data([0x88, 0, 0, 0x05]))
+        XCTAssertEqual(heard.count, 2)
+    }
+
+    func testRepeaterPingIsATraceAnsweredByTraceData() throws {
+        let (svc, fake, radio) = connected()
+        fake.frame(CoreFrames.rxLog(snr: 5, CoreFrames.packet(route: 1, type: 5, path: [[0xC7]], payload: [1])))
+        let c7 = try XCTUnwrap(svc.autoPingTarget(on: .meshcore))
+        var outcome: MeshPingOutcome?
+        XCTAssertTrue(svc.ping(c7) { outcome = $0 })
+        radio.run()
+        let cmd = try XCTUnwrap(fake.writes.last)
+        XCTAssertEqual(cmd.first, 36)
+        XCTAssertEqual(cmd.last, 0xC7)
+        let tag = UInt32(cmd[1]) | UInt32(cmd[2]) << 8 | UInt32(cmd[3]) << 16 | UInt32(cmd[4]) << 24
+        XCTAssertNil(outcome)
+        fake.frame(CoreFrames.traceData(tag: tag &+ 1, hashes: [0xC7]))
+        XCTAssertNil(outcome, "someone else's trace")
+        fake.frame(CoreFrames.traceData(tag: tag, hashes: [0xC7]))
+        XCTAssertEqual(outcome, .reached)
+    }
+
+    func testRepeaterContactIsPingedByTraceToo() throws {
+        let (svc, fake, radio) = connected()
+        fake.frame(CoreFrames.contact(code: 0x8A, key: CoreFrames.key(0x7D), name: "Hilltop", type: 2))
+        let hill = try XCTUnwrap(svc.sortedNodes.first { $0.longName == "Hilltop" })
+        XCTAssertTrue(svc.ping(hill.num) { _ in })
+        radio.run()
+        XCTAssertEqual(fake.writes.last?.first, 36)
+        XCTAssertEqual(fake.writes.last?.last, 0x7D)
     }
 }

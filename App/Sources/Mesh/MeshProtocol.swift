@@ -28,6 +28,8 @@ enum MeshPort: UInt32, Sendable {
     case position = 3
     case nodeInfo = 4
     case routing = 5
+    /// ADMIN_APP: AdminMessage payloads (settings reads and writes).
+    case admin = 6
 }
 
 /// Routing.Error values we name; anything else is shown by number.
@@ -46,6 +48,8 @@ enum MeshRoutingError: UInt32, Sendable {
     case notAuthorized = 33
     case pkiFailed = 34
     case pkiUnknownPubkey = 35
+    case adminBadSessionKey = 36
+    case adminPublicKeyUnauthorized = 37
     case rateLimitExceeded = 38
 
     static func describe(_ raw: UInt32) -> String {
@@ -64,6 +68,8 @@ enum MeshRoutingError: UInt32, Sendable {
         case .notAuthorized?: return "Not authorized"
         case .pkiFailed?: return "Encryption failed"
         case .pkiUnknownPubkey?: return "Their radio's key is unknown yet"
+        case .adminBadSessionKey?: return "The radio's settings key expired, try again"
+        case .adminPublicKeyUnauthorized?: return "This phone isn't allowed to change that radio"
         case .rateLimitExceeded?: return "Sending too fast, slow down"
         case nil: return "Error \(raw)"
         }
@@ -450,34 +456,93 @@ struct MeshPBDeviceMetadata: Equatable, Sendable {
     }
 }
 
-// MARK: - Config.lora (Config field 6) -> LoRaConfig (modem_preset 2,
-// region 7, hop_limit 8). Region 0 = UNSET, 1 = US (902-928 MHz).
+// MARK: - Config.lora (Config field 6) -> LoRaConfig (use_preset 1,
+// modem_preset 2, bandwidth 3, spread_factor 4, coding_rate 5, region 7,
+// hop_limit 8, tx_enabled 9, tx_power 10 int32, channel_num 11).
+// Region 0 = UNSET (the radio will not transmit), 1 = US (902-928 MHz).
+// Field numbers: config.proto in meshtastic/protobufs (Buf Schema Registry
+// buf.build/meshtastic/protobufs), checked 2026-11-04.
+//
+// The firmware replaces its whole LoRa config with the one in set_config, so
+// a field left out becomes 0/false. Every field read from the radio is kept
+// (`otherFields` holds the ones not modelled here) and written back.
 
 struct MeshPBLoRaConfig: Equatable, Sendable {
+    var usePreset = false
     var modemPreset: UInt32 = 0
+    var bandwidth: UInt32 = 0
+    var spreadFactor: UInt32 = 0
+    var codingRate: UInt32 = 0
     var region: UInt32 = 0
     var hopLimit: UInt32 = 0
+    var txEnabled = false
+    var txPower: Int32 = 0
+    var channelNum: UInt32 = 0
+    /// Fields this app does not model, re-encoded as read (frequency offset,
+    /// override frequency, boosted gain, ignore lists, and so on).
+    var otherFields = Data()
 
-    var regionName: String {
-        switch region {
-        case 0: return "Not set"
-        case 1: return "US 915 MHz"
-        case 2: return "EU 433 MHz"
-        case 3: return "EU 868 MHz"
-        case 6: return "ANZ"
-        default: return "Region \(region)"
-        }
+    init(usePreset: Bool = false, modemPreset: UInt32 = 0, bandwidth: UInt32 = 0, spreadFactor: UInt32 = 0,
+         codingRate: UInt32 = 0, region: UInt32 = 0, hopLimit: UInt32 = 0, txEnabled: Bool = false,
+         txPower: Int32 = 0, channelNum: UInt32 = 0, otherFields: Data = Data()) {
+        self.usePreset = usePreset
+        self.modemPreset = modemPreset
+        self.bandwidth = bandwidth
+        self.spreadFactor = spreadFactor
+        self.codingRate = codingRate
+        self.region = region
+        self.hopLimit = hopLimit
+        self.txEnabled = txEnabled
+        self.txPower = txPower
+        self.channelNum = channelNum
+        self.otherFields = otherFields
+    }
+
+    var regionName: String { MeshtasticRegion.shortName(region) }
+
+    /// The LoRaConfig message body.
+    func encode() -> Data {
+        var w = MeshProtoWriter()
+        w.writeBoolIfTrue(1, usePreset)
+        w.writeUInt32IfNonZero(2, modemPreset)
+        w.writeUInt32IfNonZero(3, bandwidth)
+        w.writeUInt32IfNonZero(4, spreadFactor)
+        w.writeUInt32IfNonZero(5, codingRate)
+        w.writeUInt32IfNonZero(7, region)
+        w.writeUInt32IfNonZero(8, hopLimit)
+        w.writeBoolIfTrue(9, txEnabled)
+        if txPower != 0 { w.writeInt32(10, txPower) }
+        w.writeUInt32IfNonZero(11, channelNum)
+        return w.data + otherFields
     }
 
     /// Encodes as a full `Config` message with only the lora variant set.
     func encodeAsConfig() -> Data {
         var w = MeshProtoWriter()
-        w.writeMessage(6) { l in
-            l.writeUInt32IfNonZero(2, modemPreset)
-            l.writeUInt32IfNonZero(7, region)
-            l.writeUInt32IfNonZero(8, hopLimit)
-        }
+        w.writeBytes(6, encode())
         return w.data
+    }
+
+    static func decode(_ data: Data) throws -> MeshPBLoRaConfig {
+        var l = MeshPBLoRaConfig()
+        var other = MeshProtoWriter()
+        try MeshProtoReader.forEachField(in: data) { s in
+            switch s.number {
+            case 1: l.usePreset = s.bool
+            case 2: l.modemPreset = s.uint32
+            case 3: l.bandwidth = s.uint32
+            case 4: l.spreadFactor = s.uint32
+            case 5: l.codingRate = s.uint32
+            case 7: l.region = s.uint32
+            case 8: l.hopLimit = s.uint32
+            case 9: l.txEnabled = s.bool
+            case 10: l.txPower = s.int32
+            case 11: l.channelNum = s.uint32
+            default: other.writeField(s)
+            }
+        }
+        l.otherFields = other.data
+        return l
     }
 
     /// Decodes a `Config` message; returns nil when it is not the lora variant.
@@ -485,18 +550,83 @@ struct MeshPBLoRaConfig: Equatable, Sendable {
         var result: MeshPBLoRaConfig?
         try MeshProtoReader.forEachField(in: data) { f in
             guard f.number == 6 else { return }
-            var l = MeshPBLoRaConfig()
-            try MeshProtoReader.forEachField(in: f.bytes) { s in
-                switch s.number {
-                case 2: l.modemPreset = s.uint32
-                case 7: l.region = s.uint32
-                case 8: l.hopLimit = s.uint32
-                default: break
-                }
-            }
-            result = l
+            result = try decode(f.bytes)
         }
         return result
+    }
+
+    /// This config with a new region and modem preset (use_preset on), every
+    /// other setting kept as the radio had it.
+    func with(region: UInt32, modemPreset: UInt32) -> MeshPBLoRaConfig {
+        var c = self
+        c.region = region
+        c.modemPreset = modemPreset
+        c.usePreset = true
+        return c
+    }
+}
+
+// MARK: - AdminMessage (portnum ADMIN_APP 6). Fields used: get_config_request 5
+// (ConfigType: LORA_CONFIG = 5), get_config_response 6 (Config),
+// set_config 34 (Config), session_passkey 101 (bytes).
+// Field numbers: admin.proto in meshtastic/protobufs, checked 2026-11-04.
+//
+// Session passkey (firmware 2.5 and later): the radio puts an 8-byte key in
+// every get_*_response; any set_* must carry the same key, which expires
+// after 300 seconds (AdminModule.cpp setPassKey / checkPassKey). Settings
+// sent by the phone over Bluetooth arrive with from = 0, which current
+// firmware does not check, but the key is always sent back anyway.
+
+struct MeshPBAdmin: Equatable, Sendable {
+    enum ConfigType: UInt32, Sendable { case lora = 5 }
+
+    enum Variant: Equatable, Sendable {
+        case getConfigRequest(UInt32)
+        /// nil when the response is for a config other than LoRa.
+        case getConfigResponse(MeshPBLoRaConfig?)
+        case setConfig(MeshPBLoRaConfig)
+        /// Any other admin message.
+        case other(field: Int)
+    }
+
+    var variant: Variant?
+    var sessionPasskey = Data()
+
+    func encode() -> Data {
+        var w = MeshProtoWriter()
+        switch variant {
+        case .getConfigRequest(let type)?: w.writeUInt32(5, type) // a oneof member: written even when 0
+        case .getConfigResponse(let lora)?: w.writeBytes(6, lora?.encodeAsConfig() ?? Data())
+        case .setConfig(let lora)?: w.writeBytes(34, lora.encodeAsConfig())
+        case .other(let field)?: w.writeBytes(field, Data())
+        case nil: break
+        }
+        w.writeBytesIfNotEmpty(101, sessionPasskey)
+        return w.data
+    }
+
+    static func decode(_ data: Data) throws -> MeshPBAdmin {
+        var a = MeshPBAdmin()
+        try MeshProtoReader.forEachField(in: data) { f in
+            switch f.number {
+            case 5: a.variant = .getConfigRequest(f.uint32)
+            case 6: a.variant = .getConfigResponse(try MeshPBLoRaConfig.decode(config: f.bytes))
+            case 34:
+                if let lora = try MeshPBLoRaConfig.decode(config: f.bytes) { a.variant = .setConfig(lora) }
+                else { a.variant = .other(field: 34) }
+            case 101: a.sessionPasskey = f.bytes
+            default: a.variant = .other(field: f.number)
+            }
+        }
+        return a
+    }
+
+    static func getLoRaConfig() -> MeshPBAdmin {
+        MeshPBAdmin(variant: .getConfigRequest(ConfigType.lora.rawValue))
+    }
+
+    static func setLoRaConfig(_ lora: MeshPBLoRaConfig, passkey: Data) -> MeshPBAdmin {
+        MeshPBAdmin(variant: .setConfig(lora), sessionPasskey: passkey)
     }
 }
 

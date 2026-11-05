@@ -32,6 +32,8 @@ object MeshPort {
     const val POSITION: Long = 3
     const val NODE_INFO: Long = 4
     const val ROUTING: Long = 5
+    /** ADMIN_APP: settings reads and writes (portnums.proto). */
+    const val ADMIN: Long = 6
     /** PRIVATE_APP: free for apps; the drive-test ping uses it. */
     const val PRIVATE_APP: Long = 256
 }
@@ -52,6 +54,8 @@ object MeshRoutingError {
     const val NOT_AUTHORIZED: Long = 33
     const val PKI_FAILED: Long = 34
     const val PKI_UNKNOWN_PUBKEY: Long = 35
+    const val ADMIN_BAD_SESSION_KEY: Long = 36
+    const val ADMIN_PUBLIC_KEY_UNAUTHORIZED: Long = 37
     const val RATE_LIMIT_EXCEEDED: Long = 38
 
     fun describe(raw: Long): String = when (raw) {
@@ -69,6 +73,8 @@ object MeshRoutingError {
         NOT_AUTHORIZED -> "Not authorized"
         PKI_FAILED -> "Encryption failed"
         PKI_UNKNOWN_PUBKEY -> "Their radio's key is unknown yet"
+        ADMIN_BAD_SESSION_KEY -> "The radio's settings session expired, try again"
+        ADMIN_PUBLIC_KEY_UNAUTHORIZED -> "This radio does not accept settings from this phone"
         RATE_LIMIT_EXCEEDED -> "Sending too fast, slow down"
         else -> "Error $raw"
     }
@@ -474,10 +480,28 @@ data class MeshPBDeviceMetadata(val firmwareVersion: String = "", val role: Long
     }
 }
 
-// MARK: - Config.lora (Config field 6) -> LoRaConfig (modem_preset 2,
-// region 7, hop_limit 8). Region 0 = UNSET, 1 = US (902-928 MHz).
+// MARK: - Config.lora (Config field 6) -> LoRaConfig. Field numbers from
+// meshtastic/protobufs config.proto: use_preset 1, modem_preset 2,
+// bandwidth 3, spread_factor 4, coding_rate 5, region 7, hop_limit 8,
+// tx_enabled 9, tx_power 10 (int32). Region 0 = UNSET (the radio will not
+// transmit), 1 = US (902-928 MHz). Modem preset 0 = LONG_FAST.
+//
+// set_config replaces the radio's whole LoRaConfig, so every field we do not
+// model is kept byte for byte in `other` and written back unchanged.
 
-data class MeshPBLoRaConfig(val modemPreset: Long = 0, val region: Long = 0, val hopLimit: Long = 0) {
+data class MeshPBLoRaConfig(
+    val modemPreset: Long = 0,
+    val region: Long = 0,
+    val hopLimit: Long = 0,
+    val usePreset: Boolean = false,
+    val bandwidth: Long = 0,
+    val spreadFactor: Long = 0,
+    val codingRate: Long = 0,
+    val txEnabled: Boolean = false,
+    val txPower: Int = 0,
+    /** Encoded fields this app does not model (frequency offset, channel_num, ...). */
+    val other: Bytes = Bytes(ByteArray(0)),
+) {
     val regionName: String
         get() = when (region) {
             0L -> "Not set"
@@ -488,36 +512,118 @@ data class MeshPBLoRaConfig(val modemPreset: Long = 0, val region: Long = 0, val
             else -> "Region $region"
         }
 
+    /** The LoRaConfig message itself. Proto3: zero values are left out. */
+    fun encode(): ByteArray {
+        val l = MeshProtoWriter()
+        l.writeBoolIfTrue(1, usePreset)
+        l.writeUInt32IfNonZero(2, modemPreset)
+        l.writeUInt32IfNonZero(3, bandwidth)
+        l.writeUInt32IfNonZero(4, spreadFactor)
+        l.writeUInt32IfNonZero(5, codingRate)
+        l.writeUInt32IfNonZero(7, region)
+        l.writeUInt32IfNonZero(8, hopLimit)
+        l.writeBoolIfTrue(9, txEnabled)
+        if (txPower != 0) l.writeInt32(10, txPower)
+        return l.data + other.array
+    }
+
     /** Encodes as a full `Config` message with only the lora variant set. */
     fun encodeAsConfig(): ByteArray {
         val w = MeshProtoWriter()
-        w.writeMessage(6) { l ->
-            l.writeUInt32IfNonZero(2, modemPreset)
-            l.writeUInt32IfNonZero(7, region)
-            l.writeUInt32IfNonZero(8, hopLimit)
-        }
+        w.writeBytes(6, encode())
         return w.data
     }
 
     companion object {
+        private val MODELLED = setOf(1, 2, 3, 4, 5, 7, 8, 9, 10)
+
+        fun decode(data: ByteArray): MeshPBLoRaConfig {
+            var l = MeshPBLoRaConfig()
+            val rest = MeshProtoWriter()
+            MeshProtoReader.forEachField(data) { s ->
+                l = when (s.number) {
+                    1 -> l.copy(usePreset = s.bool)
+                    2 -> l.copy(modemPreset = s.uint32)
+                    3 -> l.copy(bandwidth = s.uint32)
+                    4 -> l.copy(spreadFactor = s.uint32)
+                    5 -> l.copy(codingRate = s.uint32)
+                    7 -> l.copy(region = s.uint32)
+                    8 -> l.copy(hopLimit = s.uint32)
+                    9 -> l.copy(txEnabled = s.bool)
+                    10 -> l.copy(txPower = s.int32)
+                    else -> l
+                }
+                if (s.number !in MODELLED) when (s.wireType) {
+                    MeshProtoWireType.VARINT -> rest.writeVarint(s.number, s.scalar)
+                    MeshProtoWireType.FIXED32 -> rest.writeFixed32(s.number, s.uint32)
+                    MeshProtoWireType.FIXED64 -> rest.writeFixed64(s.number, s.scalar)
+                    MeshProtoWireType.LENGTH_DELIMITED -> rest.writeBytes(s.number, s.bytes)
+                    else -> {}
+                }
+            }
+            return l.copy(other = Bytes(rest.data))
+        }
+
         /** Decodes a `Config` message; returns null when it is not the lora variant. */
         fun decodeConfig(data: ByteArray): MeshPBLoRaConfig? {
             var result: MeshPBLoRaConfig? = null
+            MeshProtoReader.forEachField(data) { f -> if (f.number == 6) result = decode(f.bytes) }
+            return result
+        }
+    }
+}
+
+// MARK: - AdminMessage (ADMIN_APP, portnum 6). From meshtastic/protobufs
+// admin.proto: get_config_request 5 (ConfigType; LORA_CONFIG = 5),
+// get_config_response 6 (Config), set_config 34 (Config), session_passkey 101
+// (bytes). The radio puts a fresh 8-byte passkey in every get_*_response
+// (AdminModule::setPassKey) and, since firmware 2.5, wants it echoed in set_*
+// messages; it is valid for 300 s. The firmware (AdminModule.cpp) only checks
+// it for packets that did not come from the phone link itself (from != 0),
+// but echoing it is what the protocol asks for and costs nothing.
+
+object MeshAdminConfigType {
+    const val DEVICE: Long = 0
+    const val LORA: Long = 5
+}
+
+data class MeshPBAdmin(
+    val getConfigRequest: Long? = null,
+    /** get_config_response when it carries the lora variant. */
+    val loraConfigResponse: MeshPBLoRaConfig? = null,
+    /** True for any get_config_response (lora or not). */
+    val isConfigResponse: Boolean = false,
+    val setLoraConfig: MeshPBLoRaConfig? = null,
+    val sessionPasskey: Bytes = Bytes(ByteArray(0)),
+) {
+    fun encode(): ByteArray {
+        val w = MeshProtoWriter()
+        // oneof members: written even when zero.
+        getConfigRequest?.let { w.writeUInt32(5, it) }
+        loraConfigResponse?.let { w.writeBytes(6, it.encodeAsConfig()) }
+        setLoraConfig?.let { w.writeBytes(34, it.encodeAsConfig()) }
+        w.writeBytesIfNotEmpty(101, sessionPasskey.array)
+        return w.data
+    }
+
+    companion object {
+        fun getLoraConfig(): MeshPBAdmin = MeshPBAdmin(getConfigRequest = MeshAdminConfigType.LORA)
+
+        fun setLora(config: MeshPBLoRaConfig, passkey: Bytes): MeshPBAdmin =
+            MeshPBAdmin(setLoraConfig = config, sessionPasskey = passkey)
+
+        fun decode(data: ByteArray): MeshPBAdmin {
+            var a = MeshPBAdmin()
             MeshProtoReader.forEachField(data) { f ->
-                if (f.number == 6) {
-                    var l = MeshPBLoRaConfig()
-                    MeshProtoReader.forEachField(f.bytes) { s ->
-                        l = when (s.number) {
-                            2 -> l.copy(modemPreset = s.uint32)
-                            7 -> l.copy(region = s.uint32)
-                            8 -> l.copy(hopLimit = s.uint32)
-                            else -> l
-                        }
-                    }
-                    result = l
+                a = when (f.number) {
+                    5 -> a.copy(getConfigRequest = f.uint32)
+                    6 -> a.copy(isConfigResponse = true, loraConfigResponse = MeshPBLoRaConfig.decodeConfig(f.bytes))
+                    34 -> a.copy(setLoraConfig = MeshPBLoRaConfig.decodeConfig(f.bytes))
+                    101 -> a.copy(sessionPasskey = Bytes(f.bytes))
+                    else -> a
                 }
             }
-            return result
+            return a
         }
     }
 }

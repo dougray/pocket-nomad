@@ -1,0 +1,1 @@
+New: Radio settings for each radio (frequency, preset, transmit power, "Match radios near you"). Drive mode now maps every MeshCore packet the radio hears, pings the nearest repeater with a trace, and resumes if Android closes the app.

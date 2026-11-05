@@ -90,6 +90,7 @@ import org.nomadpocket.mesh.ui.UnreadBadge
 import org.nomadpocket.mesh.ui.FirmwareBadge
 import org.nomadpocket.mesh.ui.FirmwareColors
 import org.nomadpocket.mesh.ui.MeshRadioCard
+import org.nomadpocket.mesh.ui.RadioSettingsScreen
 import org.nomadpocket.mesh.ui.rememberRadiosInUse
 import org.nomadpocket.mesh.ui.rememberPermissionRequest
 
@@ -99,6 +100,7 @@ internal sealed class MeshRoute {
     object Info : MeshRoute()
     object Devices : MeshRoute()
     object Coverage : MeshRoute()
+    data class RadioSettings(val firmware: Firmware) : MeshRoute()
 }
 
 /** The whole Mesh tab. Calls Mesh.init itself if the app has not yet. */
@@ -121,6 +123,9 @@ fun MeshScreen(modifier: Modifier = Modifier) {
                 MeshChatScreen(route.conversation, Mesh.radios.link(route.firmware))
             }
             MeshRoute.Nodes -> MeshScaffold("Nodes", back, modifier) { MeshNodeListScreen { fw, num -> open(MeshRoute.Chat(MeshConversation.Direct(num), fw)) } }
+            is MeshRoute.RadioSettings -> MeshScaffold("Radio settings", back, modifier) {
+                RadioSettingsScreen(route.firmware, Mesh.radios.link(route.firmware))
+            }
             MeshRoute.Info -> MeshScaffold("What is a mesh radio?", back, modifier) { MeshInfoScreen() }
             MeshRoute.Devices -> MeshScaffold("Radios", back, modifier, actions = {
                 TextButton(onClick = back) { Text("Done", fontWeight = FontWeight.Bold) }
@@ -218,7 +223,7 @@ private fun MeshHome(open: (MeshRoute) -> Unit) {
                 Text("Radios", fontWeight = FontWeight.SemiBold, fontSize = 17.sp, color = MeshColors.secondary)
                 for ((fw, link) in inUse) {
                     MeshRadioCard(fw, link, onDisconnect = { link.disconnect() }, onForget = { link.forgetDevice() },
-                        onReconnect = { link.reconnectLast() })
+                        onReconnect = { link.reconnectLast() }, onSettings = { open(MeshRoute.RadioSettings(fw)) })
                 }
                 if (radios.canAdd) MeshBigButton("Add a radio", { open(MeshRoute.Devices) }, icon = Icons.Filled.Add, filled = false)
             }

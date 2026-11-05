@@ -132,6 +132,12 @@ class MeshStore(val directory: File) {
             r.region?.let { put("region", it) }
             r.regionName?.let { put("regionName", it) }
             r.hopLimit?.let { put("hopLimit", it) }
+            r.meshCoreParams?.let { put("mcFreq", it.frequencyMHz); put("mcBw", it.bandwidthKHz); put("mcSf", it.spreadingFactor); put("mcCr", it.codingRate) }
+            r.txPowerDbm?.let { put("txPower", it) }
+            r.maxTxPowerDbm?.let { put("maxTxPower", it) }
+            r.modemPreset?.let { put("modemPreset", it) }
+            r.usePreset?.let { put("usePreset", it) }
+            r.txEnabled?.let { put("txEnabled", it) }
             put("primaryChannelName", r.primaryChannelName)
             put("channelNames", JSONObject().apply { r.channelNames.forEach { (k, v) -> put(k.toString(), v) } })
         }
@@ -145,6 +151,12 @@ class MeshStore(val directory: File) {
                 region = if (o.has("region")) o.getLong("region") else null,
                 regionName = if (o.has("regionName")) o.getString("regionName") else null,
                 hopLimit = if (o.has("hopLimit")) o.getLong("hopLimit") else null,
+                meshCoreParams = if (o.has("mcFreq")) MeshCoreRadioParams(o.getDouble("mcFreq"), o.getDouble("mcBw"), o.getInt("mcSf"), o.getInt("mcCr")) else null,
+                txPowerDbm = if (o.has("txPower")) o.getInt("txPower") else null,
+                maxTxPowerDbm = if (o.has("maxTxPower")) o.getInt("maxTxPower") else null,
+                modemPreset = if (o.has("modemPreset")) o.getLong("modemPreset") else null,
+                usePreset = if (o.has("usePreset")) o.getBoolean("usePreset") else null,
+                txEnabled = if (o.has("txEnabled")) o.getBoolean("txEnabled") else null,
                 primaryChannelName = o.optString("primaryChannelName"), channelNames = names,
             )
         }

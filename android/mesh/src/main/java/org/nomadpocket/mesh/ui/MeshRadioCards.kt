@@ -34,6 +34,8 @@ import org.nomadpocket.mesh.Firmware
 import org.nomadpocket.mesh.MeshConnectionState
 import org.nomadpocket.mesh.MeshRadios
 import org.nomadpocket.mesh.MeshService
+import org.nomadpocket.mesh.Mesh
+import org.nomadpocket.mesh.NearbyRadioParams
 import org.nomadpocket.mesh.displayName
 
 /** One colour per mesh system, as on the map. */
@@ -68,11 +70,15 @@ fun FirmwareBadge(firmware: Firmware, compact: Boolean = false) {
 
 /** One connected or remembered radio, with its actions. */
 @Composable
-fun MeshRadioCard(firmware: Firmware, link: MeshService, onDisconnect: () -> Unit, onForget: () -> Unit, onReconnect: () -> Unit) {
+fun MeshRadioCard(firmware: Firmware, link: MeshService, onDisconnect: () -> Unit, onForget: () -> Unit, onReconnect: () -> Unit,
+                  onSettings: () -> Unit = {}) {
     val connection by link.connectionFlow.collectAsState()
     val nodes by link.nodesFlow.collectAsState()
     val radio by link.radioFlow.collectAsState()
+    val nearby by Mesh.nearbyMeshCore.collectAsState()
     val name = link.lastDeviceName ?: firmware.displayName
+    val hint = if (firmware == Firmware.MESHCORE) NearbyRadioParams.hint(radio.meshCoreParams, nearby.match) else null
+    val noRegion = firmware == Firmware.MESHTASTIC && radio.region == 0L
     val battery = nodes[radio.myNodeNum]?.batteryLevel?.takeIf { radio.myNodeNum != 0L && it in 1..100 }
     val tint = when (connection) {
         is MeshConnectionState.Connected -> MeshColors.ok
@@ -89,12 +95,16 @@ fun MeshRadioCard(firmware: Firmware, link: MeshService, onDisconnect: () -> Uni
                 battery?.let { Text("$it%", fontSize = 15.sp, color = MeshColors.secondary) }
             }
             Text(radioStateWord(connection), color = tint, fontSize = 15.sp)
+            radio.settingsSummary?.let { Text(it, fontSize = 15.sp, color = MeshColors.secondary) }
+            if (noRegion) Text("No region set: this radio won't transmit. Open Radio settings to pick yours.", fontSize = 15.sp, color = MeshColors.danger)
+            hint?.let { Text(it, fontSize = 15.sp, color = MeshColors.warn) }
             Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (connection == MeshConnectionState.Idle || connection is MeshConnectionState.Failed) {
                     TextButton(onClick = onReconnect) { Text("Reconnect", color = MeshColors.accent) }
                 } else {
                     TextButton(onClick = onDisconnect) { Text("Disconnect", color = MeshColors.danger) }
                 }
+                TextButton(onClick = onSettings) { Text("Radio settings…", color = MeshColors.accent) }
                 TextButton(onClick = onForget) { Text("Forget", color = MeshColors.secondary) }
             }
         }

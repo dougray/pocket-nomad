@@ -129,7 +129,7 @@ private fun CoverageContent() {
             footer = "Keeps recording while the screen is off or you're in another app, and turns itself off after 4 hours. " +
                 "The ping test sends a tiny test message every 300 m (at most every 45 s) and marks the spot green if the radio you chose answered, " +
                 "yellow if another radio only repeated it, or red if nothing heard it. " +
-                (if (meshCore) "MeshCore pings are a short direct message, so pick your own second radio or a friend's. " else "") +
+                (if (meshCore) "On MeshCore the ping is a trace to the repeater heard most recently (or one you pick), which repeaters answer on their own; a person's radio gets a short direct message instead. " else "") +
                 (if (radios.size > 1) "With two radios, each pings on its own network, a few seconds apart, and the map shows which network each result is from. " else "") +
                 "Uses battery and GPS: keep the phone on a charger.") {
             SwitchRow("Drive mode", driveState.active) { on ->
@@ -144,12 +144,12 @@ private fun CoverageContent() {
                     val radio by link.radioFlow.collectAsStateWithLifecycle()
                     val blocked by link.blockedFlow.collectAsStateWithLifecycle()
                     val choices = buildList {
-                        if (fw != Firmware.MESHCORE) add(null to "Any radio that repeats it")
+                        add(null to if (fw == Firmware.MESHCORE) "Nearest repeater" else "Any radio that repeats it")
                         MeshService.sortedNodes(nodes, radio.myNodeNum, blocked).forEach { add(it.num to it.displayName) }
                     }
                     val target = targets[fw]
                     Picker(if (radios.size > 1) "Ping (${fw.displayName})" else "Ping",
-                        choices.firstOrNull { it.first == target }?.second ?: "Choose a radio", choices) { drive.setTarget(fw, it) }
+                        choices.firstOrNull { it.first == target }?.second ?: choices.first().second, choices) { drive.setTarget(fw, it) }
                 }
             }
             SwitchRow("Keep screen on", keepScreenOn) { drive.keepScreenOn = it }

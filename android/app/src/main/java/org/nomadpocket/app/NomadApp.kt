@@ -1,6 +1,7 @@
 package org.nomadpocket.app
 
 import android.app.Application
+import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import org.maplibre.android.MapLibre
 import android.net.Uri
@@ -14,7 +15,9 @@ import org.nomadpocket.app.library.libraryScope
 import org.nomadpocket.library.BookSearch
 import org.nomadpocket.library.BookShelf
 import org.nomadpocket.app.map.KnownRadioStore
+import org.nomadpocket.mesh.Firmware
 import org.nomadpocket.mesh.Mesh
+import org.nomadpocket.mesh.NearbyMeshCore
 
 class NomadApp : Application() {
     override fun onCreate() {
@@ -23,6 +26,7 @@ class NomadApp : Application() {
         MapLibre.getInstance(this)
         Mesh.init(this)
         KnownRadioStore.init(this)
+        connectNearbyRadios()
         // Off the main thread: build the guides' full-text index (once per app version),
         // open the books and finish any downloads that completed while the app was closed.
         libraryScope.launch {
@@ -40,5 +44,26 @@ class NomadApp : Application() {
             }
         }
         AskSources.bookRoute = { bookId, path -> "article/$bookId?path=${Uri.encode(path)}" }
+    }
+
+    /** Radio settings reads the downloaded MeshCore radios' settings, and can start a download. */
+    private fun connectNearbyRadios() {
+        MainScope().launch {
+            KnownRadioStore.state.collect { s ->
+                Mesh.nearbyMeshCore.value = NearbyMeshCore(
+                    downloaded = s.updated != null,
+                    params = s.radios.filter { it.firmware == Firmware.MESHCORE }.map { it.params },
+                )
+            }
+        }
+        Mesh.downloadNearby = {
+            val fix = Mesh.location.currentLocation()
+            if (fix == null) {
+                "No GPS fix yet. Allow location, step outside, and try again, or download from Map › Known radios."
+            } else {
+                KnownRadioStore.download(fix.latitude, fix.longitude, 200, null)
+                KnownRadioStore.state.value.lastError
+            }
+        }
     }
 }

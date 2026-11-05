@@ -34,6 +34,27 @@ final class CoverageTests: XCTestCase {
 
     private let heard = MeshHeard(node: 0xABCD, snr: 6.5, hops: 1, firmware: .meshtastic)
 
+    func testSavedPointsThatCantBeReadYetAreNeverWrittenOver() throws {
+        let first = store()
+        first.recording = true
+        fix = at(39.74, -104.99)
+        first.record(heard)
+        first.saveNow()
+        // iOS relaunched the app before the phone was unlocked: the saved file can't be read.
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: file.path)
+        let relaunched = store()
+        XCTAssertTrue(relaunched.samples.isEmpty)
+        clock += 60
+        fix = at(39.75, -104.98)
+        relaunched.record(MeshHeard(node: 0x1234, snr: 2, hops: 0, firmware: .meshcore))
+        relaunched.saveNow()
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        XCTAssertEqual(store().samples.count, 1, "nothing was written while the old file was unreadable")
+        relaunched.saveNow()
+        XCTAssertEqual(relaunched.samples.map(\.node), [0xABCD, 0x1234], "old and new points merged in order")
+        XCTAssertEqual(store().samples.count, 2)
+    }
+
     func testNothingIsRecordedUntilTurnedOn() {
         let s = store()
         XCTAssertFalse(s.recording, "off by default")

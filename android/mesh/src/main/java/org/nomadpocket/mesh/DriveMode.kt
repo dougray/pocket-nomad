@@ -61,6 +61,8 @@ class DriveMode(
     private val now: () -> Long = System::currentTimeMillis,
     /** Starts (true) or stops (false) the foreground service and background GPS. */
     private val onActiveChanged: (Boolean) -> Unit = {},
+    /** The drive diary (DriveLog.note in the app). */
+    private val log: (String) -> Unit = {},
 ) {
     /** One radio only (tests, and the single-radio behaviour). */
     constructor(
@@ -101,7 +103,7 @@ class DriveMode(
     })
     private val _keepScreenOn = MutableStateFlow(prefs.getBoolean(Keys.SCREEN, true))
     val pingingFlow: StateFlow<Boolean> = _pinging.asStateFlow()
-    /** Radio to ping on each network; null means "any radio that repeats it" (Meshtastic only). */
+    /** Radio to ping on each network; null means "any radio that repeats it" on Meshtastic and "the repeater heard most recently" on MeshCore. */
     val targetsFlow: StateFlow<Map<Firmware, Long?>> = _targets.asStateFlow()
     val keepScreenOnFlow: StateFlow<Boolean> = _keepScreenOn.asStateFlow()
 
@@ -129,18 +131,52 @@ class DriveMode(
     private val lastPing = mutableMapOf<Firmware, Pair<Long, Fix>>()
     private var lastAnyPingMillis: Long? = null
     private var coverageWasOn = false
+    /** For the drive log: what was last written about each radio, and when the last heartbeat went in. */
+    private val loggedConnection = mutableMapOf<Firmware, String>()
+    private val loggedNotes = mutableMapOf<Firmware, String?>()
+    private var lastHeartbeatMillis: Long? = null
+    private var samplesAtHeartbeat = 0
 
     private object Keys {
         const val PINGING = "drive.pinging"
         const val SCREEN = "drive.keepScreenOn"
+        /** Set while a drive runs, so a drive survives Android closing the app. */
+        const val ACTIVE_SINCE = "drive.activeSince"
+        const val COVERAGE_WAS_ON = "drive.coverageWasOn"
     }
 
     fun start() {
         if (state.active) return
-        _state.value = DriveState(active = true, startedAtMillis = now())
+        coverageWasOn = coverage.recording
+        begin(now())
+        log("drive mode on")
+    }
+
+    /** Picks a drive back up after Android closed the app mid-drive. Call once at launch. */
+    fun resumeIfNeeded() {
+        if (state.active || !prefs.contains(Keys.ACTIVE_SINCE)) return
+        val since = prefs.getLong(Keys.ACTIVE_SINCE, 0)
+        if (now() - since >= MAX_DURATION_MILLIS) {
+            prefs.remove(Keys.ACTIVE_SINCE)
+            if (!prefs.getBoolean(Keys.COVERAGE_WAS_ON, false)) coverage.recording = false
+            log("drive mode off: it ran past 4 hours while the app was closed")
+            return
+        }
+        coverageWasOn = prefs.getBoolean(Keys.COVERAGE_WAS_ON, false)
+        log("drive mode resumed after Android closed the app")
+        begin(since)
+    }
+
+    private fun begin(since: Long) {
+        _state.value = DriveState(active = true, startedAtMillis = since)
+        prefs.putLong(Keys.ACTIVE_SINCE, since)
+        prefs.putBoolean(Keys.COVERAGE_WAS_ON, coverageWasOn)
         lastPing.clear()
         lastAnyPingMillis = null
-        coverageWasOn = coverage.recording
+        loggedConnection.clear()
+        loggedNotes.clear()
+        lastHeartbeatMillis = null
+        samplesAtHeartbeat = coverage.samples.size
         coverage.recording = true
         onActiveChanged(true)
         loop = scope.launch {
@@ -151,8 +187,10 @@ class DriveMode(
         }
     }
 
-    fun stop() {
+    fun stop(reason: String = "turned off") {
         if (!state.active) return
+        log("drive mode off: $reason · ${state.sent} pings, ${state.reached} reached, ${state.relayed} relayed, ${state.unanswered} unanswered")
+        prefs.remove(Keys.ACTIVE_SINCE)
         _state.value = state.copy(active = false, pingNote = null, waiting = false,
             radios = state.radios.mapValues { it.value.copy(waiting = false, note = null) })
         loop?.cancel()
@@ -164,8 +202,9 @@ class DriveMode(
     /** One step of the loop; public so tests can drive it. */
     fun tick() {
         val startedAt = state.startedAtMillis
-        if (startedAt != null && now() - startedAt > MAX_DURATION_MILLIS) { stop(); return }
+        if (startedAt != null && now() - startedAt > MAX_DURATION_MILLIS) { stop("4 hours are up"); return }
         val radios = radios()
+        logState(radios)
         if (!pinging) {
             radios.forEach { (fw, _) -> radioNote(fw, null) }
             notes(radios); return
@@ -173,11 +212,11 @@ class DriveMode(
         if (radios.isEmpty()) { note("Waiting for the radio"); return }
         val fix = coverage.freshFix()
         for ((fw, mesh) in radios) {
-            val target = target(fw)
+            val target = target(fw) ?: mesh.autoPingTarget()
             val why = when {
                 mesh.connection !is MeshConnectionState.Connected -> "Waiting for the radio"
-                fw == Firmware.MESHCORE && target == null -> "MeshCore pings need a radio to ping"
-                target != null && mesh.nodes[target] == null -> "The radio to ping isn't known on this mesh"
+                fw == Firmware.MESHCORE && target == null -> "Waiting to hear a repeater"
+                target != null && mesh.nodes[target] == null && mesh.neighbors[target] == null -> "The radio to ping isn't known on this mesh"
                 fix == null -> "Waiting for GPS"
                 else -> null
             }
@@ -192,6 +231,7 @@ class DriveMode(
             val firmware = mesh.firmware
             val sentOK = mesh.ping(target) { outcome -> finished(fw, outcome, fix, firmware) }
             if (sentOK) {
+                log("${fw.displayName} ping sent" + (target?.let { " to !%08x".format(it) } ?: ""))
                 updateRadio(fw) { it.copy(waiting = true, sent = it.sent + 1) }
                 lastPing[fw] = now() to fix
                 lastAnyPingMillis = now()
@@ -209,6 +249,28 @@ class DriveMode(
         }
         _state.value = state.copy(lastOutcome = outcome)
         coverage.recordPing(outcome, fix, firmware)
+        log("${fw.displayName} ping: ${outcome.name.lowercase()}")
+    }
+
+    /** Radio links coming and going, and a heartbeat each minute. */
+    private fun logState(radios: List<Pair<Firmware, MeshService>>) {
+        for ((fw, mesh) in radios) {
+            val c = mesh.connection
+            val text = if (c is MeshConnectionState.Connected) "connected" else "not connected (${c::class.simpleName?.lowercase()})"
+            if (loggedConnection[fw] != text) {
+                loggedConnection[fw] = text
+                log("${fw.displayName} radio $text")
+            }
+        }
+        val t = now()
+        val last = lastHeartbeatMillis
+        if (last != null && t - last < 60_000) return
+        lastHeartbeatMillis = t
+        val fix = coverage.freshFix()
+        val gps = if (fix != null) "GPS ±${fix.accuracy.toInt()} m" else "no fresh GPS fix"
+        val points = coverage.samples.size
+        log("still running · $gps · ${points - samplesAtHeartbeat} new coverage points")
+        samplesAtHeartbeat = points
     }
 
     private fun radio(fw: Firmware): RadioDriveState = state.radios[fw] ?: RadioDriveState()
@@ -226,6 +288,10 @@ class DriveMode(
     }
 
     private fun radioNote(fw: Firmware, text: String?) {
+        if (loggedNotes[fw] != text) {
+            loggedNotes[fw] = text
+            if (text != null && state.active) log("${fw.displayName} pings waiting: $text")
+        }
         if (radio(fw).note != text) updateRadio(fw) { it.copy(note = text) }
     }
 
