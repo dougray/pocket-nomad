@@ -1,4 +1,4 @@
-# Shared by :app and :mesh. Add a library here (not in a module's build file) so
+# Shared by :app, :mesh and :library. Add a library here (not in a module's build file) so
 # both modules resolve the same version.
 [versions]
 agp = "9.4.1"
@@ -14,6 +14,14 @@ robolectric = "4.17"
 androidxTestCore = "1.7.0"
 json = "20260814"
 maplibre = "13.7.1"
+sqliteBundled = "2.6.2"
+xz = "1.12"
+zstdJni = "1.5.7-6"
+# Wear OS app (:wear). All Apache 2.0, from Google's Maven; none needs Play Services.
+wearCompose = "1.7.1"
+wearTiles = "1.6.2"
+wearProtolayout = "1.4.2"
+concurrentFutures = "1.3.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -38,6 +46,21 @@ json = { group = "org.json", name = "json", version.ref = "json" }
 # Maps for :app. OpenGL ES build (runs on more phones than the Vulkan default).
 # No Google Play Services: location comes from Android's own LocationManager.
 maplibre-android = { group = "org.maplibre.gl", name = "android-sdk-opengl", version.ref = "maplibre" }
+# :library (offline books). Licences: androidx.sqlite Apache-2.0 (bundles SQLite, public
+# domain, built with FTS5); XZ for Java 0BSD; zstd-jni BSD-2-Clause (zstd itself BSD).
+androidx-sqlite-bundled = { group = "androidx.sqlite", name = "sqlite-bundled", version.ref = "sqliteBundled" }
+androidx-sqlite-bundled-jvm = { group = "androidx.sqlite", name = "sqlite-bundled-jvm", version.ref = "sqliteBundled" }
+xz = { group = "org.tukaani", name = "xz", version.ref = "xz" }
+zstd-jni = { group = "com.github.luben", name = "zstd-jni", version.ref = "zstdJni" }
+# Wear OS app (:wear): Compose for Wear OS, plus the SOS tile (tiles + protolayout;
+# concurrent-futures builds the futures the tile API returns).
+wear-compose-material3 = { group = "androidx.wear.compose", name = "compose-material3", version.ref = "wearCompose" }
+wear-compose-foundation = { group = "androidx.wear.compose", name = "compose-foundation", version.ref = "wearCompose" }
+wear-compose-navigation = { group = "androidx.wear.compose", name = "compose-navigation", version.ref = "wearCompose" }
+wear-tiles = { group = "androidx.wear.tiles", name = "tiles", version.ref = "wearTiles" }
+wear-protolayout = { group = "androidx.wear.protolayout", name = "protolayout", version.ref = "wearProtolayout" }
+androidx-concurrent-futures = { group = "androidx.concurrent", name = "concurrent-futures", version.ref = "concurrentFutures" }
+androidx-compose-material-icons-core = { group = "androidx.compose.material", name = "material-icons-core" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

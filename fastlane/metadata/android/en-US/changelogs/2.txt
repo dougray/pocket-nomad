@@ -1,0 +1,1 @@
+New: Library (download Kiwix books like WikiMed and search them all offline), Ask (a free AI model on your phone answers from your guides and books and cites every source), and a standalone Wear OS app with SOS light, compass, position and first aid.

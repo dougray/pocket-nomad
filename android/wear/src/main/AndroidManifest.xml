@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- A watch app; it runs with no phone (standalone meta-data below). -->
+    <uses-feature android:name="android.hardware.type.watch" />
+
+    <!-- Position on the compass screen, from the watch's own GPS. Only while that screen is open. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- The SOS rhythm on the wrist. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- No INTERNET permission: the watch app never uses the network. -->
+
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <uses-feature android:name="android.hardware.sensor.compass" android:required="false" />
+
+    <!-- Nothing is backed up to the cloud. -->
+    <application
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.PocketNomadWear">
+
+        <meta-data
+            android:name="com.google.android.wearable.standalone"
+            android:value="true" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity="">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- What the SOS tile opens. A separate name, because Android only brings a
+             running app to the front (dropping the "screen" extra) when a launch
+             looks the same as the launcher's; with singleTop the running activity
+             then gets the extra in onNewIntent. -->
+        <activity-alias
+            android:name=".SosShortcut"
+            android:exported="true"
+            android:targetActivity=".MainActivity" />
+
+        <!-- One-tap SOS from the tile carousel. -->
+        <service
+            android:name=".SosTileService"
+            android:exported="true"
+            android:label="@string/sos_tile_label"
+            android:permission="com.google.android.wearable.permission.BIND_TILE_PROVIDER">
+            <intent-filter>
+                <action android:name="androidx.wear.tiles.action.BIND_TILE_PROVIDER" />
+            </intent-filter>
+            <meta-data
+                android:name="androidx.wear.tiles.PREVIEW"
+                android:resource="@drawable/tile_preview" />
+        </service>
+    </application>
+</manifest>

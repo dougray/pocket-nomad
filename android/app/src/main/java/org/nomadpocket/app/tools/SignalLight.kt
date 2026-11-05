@@ -71,6 +71,7 @@ import org.nomadpocket.app.ui.Footnote
 import org.nomadpocket.app.ui.LocalChromeHidden
 import org.nomadpocket.app.ui.SubScreen
 import org.nomadpocket.app.ui.accent
+import org.nomadpocket.core.Morse
 import kotlin.math.PI
 import kotlin.math.sin
 

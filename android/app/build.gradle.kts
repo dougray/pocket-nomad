@@ -1,7 +1,8 @@
 import java.util.Properties
 import javax.inject.Inject
 
-// Pocket Nomad for Android: the phone app. The radio layer and its screens are in :mesh.
+// Pocket Nomad for Android: the phone app. The radio layer and its screens are in :mesh;
+// the offline-book reader and full-text search (no UI) are in :library.
 //
 // Signing: the keystore path and passwords live in the git-ignored
 // private/android-signing/keystore.properties at the repo root, never in this file.
@@ -62,13 +63,15 @@ android {
     compileSdk {
         version = release(37)
     }
+    // The same NDK as :llm, so the packaging step can strip libnomadllm.so (54 MB -> 6 MB).
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         applicationId = "org.nomadpocket.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0-beta"
+        versionCode = 2
+        versionName = "0.2.0-beta"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -138,6 +141,9 @@ androidComponents {
 
 dependencies {
     implementation(project(":mesh"))
+    implementation(project(":library"))
+    implementation(project(":llm"))
+    implementation(project(":core"))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)
@@ -156,5 +162,8 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.kotlinx.coroutines.test)
+    // Desktop builds of the SQLite and zstd that :library bundles, for the guide-index tests.
+    testImplementation(libs.androidx.sqlite.bundled.jvm)
+    testImplementation(libs.zstd.jni)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

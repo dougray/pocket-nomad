@@ -40,6 +40,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +50,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import org.nomadpocket.app.library.LibrarySearch
+import org.nomadpocket.app.library.SearchHit
+import org.nomadpocket.app.library.SearchHitCard
+import org.nomadpocket.app.library.SourceRef
 import org.nomadpocket.app.tools.ToolKind
 import org.nomadpocket.app.ui.Brand
 import org.nomadpocket.app.ui.LocalForceDark
@@ -63,6 +72,7 @@ fun SurviveScreen(
     onCategory: (String) -> Unit,
     onTool: (ToolKind) -> Unit,
     onSettings: () -> Unit,
+    onHit: (SourceRef) -> Unit,
 ) {
     val context = LocalContext.current
     val library = remember { GuideLibrary.get(context) }
@@ -75,7 +85,7 @@ fun SurviveScreen(
             value = query,
             onValueChange = onQuery,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            placeholder = { Text("Search guides") },
+            placeholder = { Text("Search guides and library") },
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
             trailingIcon = {
                 if (query.isNotEmpty()) IconButton(onClick = { onQuery("") }) { Icon(Icons.Filled.Clear, contentDescription = "Clear search") }
@@ -86,13 +96,31 @@ fun SurviveScreen(
         )
         if (query.isNotBlank()) {
             val hits = remember(query) { library.search(query) }
+            // Full text of the guides and every indexed book, below the title and keyword matches.
+            val fullText by produceState<List<SearchHit>?>(null, query) {
+                delay(200)
+                value = withContext(Dispatchers.IO) {
+                    val listed = hits.map { it.file }.toSet()
+                    LibrarySearch.articles(context, query, limit = 25).filterNot { it.ref is SourceRef.Guide && it.ref.file in listed }
+                }
+            }
             LazyColumn(Modifier.fillMaxSize()) {
-                if (hits.isEmpty()) {
+                if (hits.isEmpty() && fullText?.isEmpty() == true) {
                     item { Text("No guides match “$query”.", Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
                 items(hits, key = { it.id }) { g ->
                     GuideRow(g, Modifier.clickable { onGuide(g) })
                     HorizontalDivider()
+                }
+                val more = fullText ?: emptyList()
+                if (more.isNotEmpty()) {
+                    item {
+                        Text("Full text", Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
+                            style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    }
+                }
+                items(more) { hit ->
+                    Box(Modifier.padding(horizontal = 16.dp, vertical = 5.dp)) { SearchHitCard(hit) { onHit(hit.ref) } }
                 }
             }
         } else {

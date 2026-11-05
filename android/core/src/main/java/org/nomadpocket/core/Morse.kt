@@ -1,4 +1,4 @@
-package org.nomadpocket.app.tools
+package org.nomadpocket.core
 
 /** Morse code and its timing. A port of Shared/Morse.swift. */
 object Morse {

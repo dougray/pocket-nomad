@@ -13,6 +13,7 @@ from pathlib import Path
 
 DOCS = Path(__file__).resolve().parent.parent / "docs"
 APK_URL = "https://github.com/dougray/pocket-nomad/releases/latest/download/pocket-nomad.apk"
+WEAR_APK_URL = "https://github.com/dougray/pocket-nomad/releases/latest/download/pocket-nomad-wear.apk"
 RELEASES_URL = "https://github.com/dougray/pocket-nomad/releases"
 
 Y, P, N = "yes", "part", "no"
@@ -32,9 +33,9 @@ FEATURES = [
     ("Coverage scanner", {"ios": (Y, ""), "android": (Y, ""), "pwa": (N, "Browsers pause in the background")}),
     ("Drive mode and ping test", {"ios": (Y, ""), "android": (Y, ""), "pwa": (N, "Needs the screen off and GPS in the background")}),
     ("Known radios from the community maps", {"ios": (Y, ""), "android": (Y, ""), "pwa": (N, "Those sites don't allow browser downloads")}),
-    ("Offline library (WikiMed, field manuals…)", {"ios": (Y, ""), "android": (N, "Planned"), "pwa": (N, "Books are too big for browser storage")}),
-    ("Ask: on-device AI that cites sources", {"ios": (Y, ""), "android": (N, "Planned"), "pwa": (N, "")}),
-    ("Watch app", {"ios": (Y, "Apple Watch: SOS, compass, first aid, quick replies"), "android": (N, "Wear OS planned"), "pwa": (N, "")}),
+    ("Offline library (WikiMed, field manuals…)", {"ios": (Y, ""), "android": (Y, "Text inside PDF-only books isn't searchable yet"), "pwa": (N, "Books are too big for browser storage")}),
+    ("Ask: on-device AI that cites sources", {"ios": (Y, ""), "android": (Y, "Free Qwen3 model you download once"), "pwa": (N, "")}),
+    ("Watch app", {"ios": (Y, "Apple Watch: SOS, compass, first aid, quick replies"), "android": (Y, "Wear OS: SOS, compass, position, first aid; no phone link yet"), "pwa": (N, "")}),
     ("No account, no tracking, free and open source", {"ios": (Y, ""), "android": (Y, ""), "pwa": (Y, "")}),
 ]
 
@@ -160,9 +161,20 @@ ANDROID = page("android", "Pocket Nomad for Android",
         "Allow <b>location</b> for the compass and map, and <b>nearby devices</b> when you pair a radio.",
         "Optional: turn <b>Allow from this source</b> back off for your browser under Settings › Apps › Special app access › Install unknown apps.",
     ])}</div>
-    <p class="note">Updates: download and install the newest APK over the old one; your data stays. When Pocket Nomad reaches Google Play, the Play version will be signed by Google, so you'll uninstall the beta first and install from Play. Export your coverage and note your Medical ID before you switch.</p>
+    <p class="note">Updates: download and install the newest APK over the old one; your data stays. The Google Play version will be signed with the same key as this beta, so when it arrives, Play can update the beta in place and your data stays.</p>
     <p class="note">Found a problem? <a href="https://github.com/dougray/pocket-nomad/issues">Report it on GitHub</a> with your phone model and Android version.</p>""", "beta")
-    + section("Screenshots", "", shots([("android-1-survive.png", "Survive: emergency guides and tools"), ("android-2-guide.png", "A first-aid guide"),
+    + section("Wear OS watch app (beta)", "SOS light, compass and position, and the urgent first-aid steps on a Wear OS 3 or later watch. It works on its own, without the phone.", f"""
+    <p><a class="btn ghost" href="{WEAR_APK_URL}">Download the Wear OS APK</a></p>
+    <p>Watches can't install an APK from a browser, so this takes a computer with <a href="https://developer.android.com/tools/releases/platform-tools">Android's platform tools</a> (free) on the same Wi-Fi as the watch:</p>
+    <div style="margin-top:12px">{steps([
+        "On the watch: Settings › System › About › tap <b>Build number</b> seven times to turn on Developer options.",
+        "Settings › Developer options: turn on <b>ADB debugging</b> and <b>Wireless debugging</b>, then tap <b>Pair new device</b>.",
+        "On the computer: <code>adb pair IP:PORT</code> with the address and code the watch shows.",
+        "Then <code>adb connect IP:PORT</code> with the address on the Wireless debugging screen.",
+        "Then <code>adb install pocket-nomad-wear.apk</code>, and turn Wireless debugging back off.",
+    ])}</div>
+    <p class="note">When the Google Play version is live, the watch app will install from Play on the watch instead.</p>""", "wear")
+    + section("Screenshots", "", shots([("android-1-survive.png", "Survive: emergency guides and tools"), ("android-9-ask.png", "Ask: an answer from the guides, with sources"), ("android-10-library.png", "Library: Get Content from Kiwix"), ("android-2-guide.png", "A first-aid guide"),
         ("android-3-water.png", "Water purifier"), ("android-4-compass.png", "Compass and MGRS position"), ("android-6-map.png", "Map with coverage, pings and mesh radios (demo data)"),
         ("android-7-mesh.png", "Mesh tab"), ("android-8-settings.png", "Settings and privacy")]))
     + section("Google Play", "", """<div class="card"><span class="tag">Google Play</span><h3>Coming soon</h3><p>The Play Store listing is being prepared. This page will link to it when it's live.</p></div>""")
@@ -171,7 +183,9 @@ ANDROID = page("android", "Pocket Nomad for Android",
       <li><b>Map:</b> OpenStreetMap, download the area on screen for offline use, saved places, live mesh radios, known radios from meshmap.net and map.meshcore.io, coverage layer.</li>
       <li><b>Mesh:</b> Meshtastic and MeshCore over Bluetooth, channel chat, direct messages with delivery receipts, SOS, blocking.</li>
       <li><b>Drive mode:</b> keeps mapping coverage with the screen off, with the ping test; shows a notification while it runs and stops itself after 4 hours.</li>
-      <li><b>Coming next:</b> the offline library, Ask (on-device AI) and a Wear OS app.</li>
+      <li><b>Library:</b> download Kiwix books (WikiMed, field medicine manuals, water treatment and more) and search all of them offline, or open a <code>.zim</code> file you already have.</li>
+      <li><b>Ask:</b> plain-language questions answered by a free AI model that runs on the phone, only from your guides and books, with every source cited. Without the model, or on phones short of memory, it shows the best passages.</li>
+      <li><b>Wear OS:</b> a separate watch app with the SOS light, compass and position, and the urgent first-aid steps. It works on its own, without the phone.</li>
     </ul>"""))
 
 PWA = page("pwa", "Pocket Nomad on the web",

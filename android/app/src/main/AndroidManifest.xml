@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Map tiles, offline map areas and known radios: only downloads the user starts or views. -->
+    <!-- Map tiles, offline map areas, known radios, Library books and AI models: only downloads the user starts or views. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Compass position, map, daylight and boil time. Only while the app is open. -->
@@ -30,11 +30,47 @@
             android:name=".MainActivity"
             android:exported="true"
             android:windowSoftInputMode="adjustResize"
+            android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- "Open with Pocket Nomad" for .zim books, .nomadidx search indexes and .gguf AI
+                 models. File managers often call them application/octet-stream; MainActivity
+                 sends GGUF files to AI models and the rest to the Library, and each importer
+                 checks the first bytes and turns away anything else. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/x-zim" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/vnd.sqlite3" />
+                <data android:mimeType="application/x-sqlite3" />
+            </intent-filter>
+            <!-- Share to Pocket Nomad. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/x-zim" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/vnd.sqlite3" />
+                <data android:mimeType="application/x-sqlite3" />
+            </intent-filter>
         </activity>
+
+        <!-- Finishes book downloads (renames the .part file) when DownloadManager reports
+             one done. Exported because the system's download service sends it; it only
+             acts on downloads this app started, checked against DownloadManager. -->
+        <receiver
+            android:name=".library.DownloadReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

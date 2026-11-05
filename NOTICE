@@ -14,6 +14,7 @@ please give it a different name and icon. The reserved files are:
 - App/Assets.xcassets/Logo.imageset/
 - tools/pubmed-icon.png
 - docs/appstore/ (store screenshots and banners, which show the logo)
+- fastlane/metadata/android/en-US/images/ (Play icon, feature graphic, screenshots)
 
 Bundled third-party material:
 - Map data © OpenStreetMap contributors, available under the Open Database

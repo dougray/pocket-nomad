@@ -110,6 +110,9 @@ final class ToolMathTests: XCTestCase {
         XCTAssertEqual(picked.map(\.title), ["A", "A", "C"])
         // One oversized passage still gets through when nothing else fits.
         XCTAssertEqual(AskEngine.pick([hit("Z", 9000, 1)], budget: 1000).count, 1)
+        // Passages far weaker than the best stay out of the prompt.
+        let weak = [hit("Severe Bleeding", 500, 1.3), hit("Severe Bleeding", 500, 1.2), hit("Nosebleeds", 500, 0.5), hit("Survival Priorities", 500, 0.43)]
+        XCTAssertEqual(AskEngine.pick(weak, budget: 7000).map(\.title), ["Severe Bleeding", "Severe Bleeding"])
     }
 
     func testKitchenMeasure() {

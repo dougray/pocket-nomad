@@ -54,7 +54,7 @@ import kotlinx.coroutines.launch
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
 import org.nomadpocket.app.location.rememberLocation
-import org.nomadpocket.app.tools.CoordinateFormat
+import org.nomadpocket.core.CoordinateFormat
 import org.nomadpocket.app.ui.Brand
 import org.nomadpocket.app.ui.Footnote
 import org.nomadpocket.app.ui.LabeledRow

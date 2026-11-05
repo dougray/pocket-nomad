@@ -1,0 +1,34 @@
+Pocket Nomad is a survival kit that works with no signal. Everything is on your phone before you need it: no account, no internet, no tracking.
+
+SURVIVE
+• 69 step-by-step guides for emergencies: CPR, choking, severe bleeding, burns, stroke, heart attack, allergic reactions, hypothermia, heat stroke and more, written as short numbered steps
+• Tools: compass with your position (decimal, DMS and MGRS), SOS signal light, Morse code, water purifier calculator, medical ID, checklists and daylight times
+
+ASK
+• Ask a question in plain words. A free, open AI model that runs entirely on your phone answers from your offline guides and books and shows the source of every step
+• Download the model once; after that it works in airplane mode
+
+LIBRARY
+• Download whole reference books for offline reading and search: WikiMed, NHS medicines A to Z, field medical manuals, water treatment, knots and post-disaster resources
+
+MAP
+• Street maps that keep working offline: save the area you need before you go
+• Save pins for water, shelter and rally points
+
+MESH
+• Text people nearby with no cell network through a Meshtastic or MeshCore LoRa radio (sold separately) paired over Bluetooth
+• Send an SOS with your coordinates, see nearby radios on the map
+• Optional coverage scanner shows where your mesh reaches, using your phone's GPS. Off by default; nothing is shared unless you export it, and private zones are always removed first
+• Drive mode keeps mapping with the phone in a car mount, and its ping test marks where your messages actually get through
+• Download the known Meshtastic and MeshCore radios near you from the community maps, and see repeaters on your map
+
+WEAR OS
+• SOS light, compass and position, and the urgent first-aid steps on your watch, even with your phone left behind
+
+PRIVATE BY DESIGN
+No accounts, no analytics, no ads, no Google Play Services and no servers. Your data stays on your phone. The app only goes online when you ask it to download a book, a map area or an AI model.
+
+FREE AND OPEN SOURCE
+Apache 2.0. The full source is at github.com/dougray/pocket-nomad.
+
+Pocket Nomad is not a medical device and doesn't replace professional care or first-aid training. In an emergency, call your local emergency number first if you can.

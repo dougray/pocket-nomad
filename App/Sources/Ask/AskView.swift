@@ -97,12 +97,21 @@ final class AskEngine {
         exchanges = []
     }
 
-    /// Takes the best passages that fit, at most two from the same article.
+    /// Passages scoring under this share of the best hit stay out of the prompt. A small
+    /// model blends whatever it is given: asked how to stop severe bleeding with "Survival
+    /// Priorities" (a third of the top score) among the sources, Qwen3 1.7B turned its STOP
+    /// acronym into "1. Stop – do not touch the wound". Same rule as the Android app.
+    nonisolated static let minRelativeScore = 0.5
+
+    /// Takes the best passages that fit, at most two from the same article, and none far
+    /// weaker than the best (`minRelativeScore`). `hits` are best first.
     nonisolated static func pick(_ hits: [SearchHit], budget: Int) -> [SearchHit] {
         var out: [SearchHit] = []
         var used = 0
         var perTitle: [String: Int] = [:]
+        let floor = (hits.first?.score ?? 0) * minRelativeScore
         for hit in hits {
+            if hit.score < floor { break }
             let cost = hit.body.count + hit.title.count + 20
             guard used + cost <= budget || out.isEmpty, perTitle[hit.title, default: 0] < 2 else { continue }
             out.append(hit)

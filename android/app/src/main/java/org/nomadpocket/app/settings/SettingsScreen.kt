@@ -92,6 +92,12 @@ fun SettingsScreen(
             License("MapLibre Native", "BSD 2-Clause License. © MapLibre contributors.")
             License("AndroidX, Jetpack Compose and Kotlin", "Apache License 2.0.")
             License("OkHttp and Timber (used by MapLibre)", "Apache License 2.0.")
+            License("SQLite (bundled by AndroidX SQLite, for book search)", "Public domain.")
+            License("XZ for Java", "BSD Zero Clause License (0BSD). © The XZ for Java authors.")
+            License("zstd-jni and Zstandard", "BSD 2-Clause License (zstd-jni) and BSD License (Zstandard). © Luben Karavelov; © Meta Platforms, Inc.")
+            License("Kiwix books", "Each book keeps its own licence, shown in the Kiwix catalogue and usually on the book's main page.")
+            License("llama.cpp and ggml (Ask)", "MIT License. © 2023-2026 The ggml authors.")
+            License("Qwen3 models (downloaded in Ask)", "Apache License 2.0. © Alibaba Cloud, Qwen team. Not part of the app.")
         }
     }
 }

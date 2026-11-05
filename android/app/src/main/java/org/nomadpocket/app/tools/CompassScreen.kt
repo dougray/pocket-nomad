@@ -52,6 +52,7 @@ import org.nomadpocket.app.ui.Footnote
 import org.nomadpocket.app.ui.KeyValue
 import org.nomadpocket.app.ui.accent
 import org.nomadpocket.app.ui.cardColor
+import org.nomadpocket.core.CoordinateFormat
 import java.util.Locale
 import kotlin.math.abs
 

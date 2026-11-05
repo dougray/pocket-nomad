@@ -1,0 +1,1 @@
+First release: 69 offline emergency guides, tools (compass, SOS light, Morse, water purifier, medical ID, checklists, daylight), offline maps with pins, and Meshtastic and MeshCore mesh texting with SOS, coverage scanner, drive mode and known radios.

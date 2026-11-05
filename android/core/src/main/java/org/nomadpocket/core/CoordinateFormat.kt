@@ -1,4 +1,4 @@
-package org.nomadpocket.app.tools
+package org.nomadpocket.core
 
 import java.util.Locale
 import kotlin.math.abs

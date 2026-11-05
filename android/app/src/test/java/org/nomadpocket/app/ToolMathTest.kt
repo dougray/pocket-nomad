@@ -5,9 +5,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.nomadpocket.app.tools.CoordinateFormat
-import org.nomadpocket.app.tools.Morse
 import org.nomadpocket.app.tools.ToolKind
+import org.nomadpocket.core.CoordinateFormat
+import org.nomadpocket.core.Morse
 
 /** Ports of the coordinate, Morse and tool tests in AppTests/ToolMathTests.swift. */
 class ToolMathTest {
