@@ -15,13 +15,15 @@ DOCS = Path(__file__).resolve().parent.parent / "docs"
 APK_URL = "https://github.com/dougray/pocket-nomad/releases/latest/download/pocket-nomad.apk"
 WEAR_APK_URL = "https://github.com/dougray/pocket-nomad/releases/latest/download/pocket-nomad-wear.apk"
 RELEASES_URL = "https://github.com/dougray/pocket-nomad/releases"
+TESTFLIGHT_URL = "https://testflight.apple.com/join/YS1wHEHv"   # the official iPhone and iPad beta
+TESTFLIGHT_APP_URL = "https://apps.apple.com/app/testflight/id899247664"
 
 Y, P, N = "yes", "part", "no"
 PLATFORMS = [("ios", "iPhone & iPad"), ("android", "Android"), ("pwa", "Web app")]
 
 # (feature, {platform: (status, note)})
 FEATURES = [
-    ("Availability", {"ios": (P, "App Store: coming soon"), "android": (P, "Beta APK now, Google Play soon"), "pwa": (Y, "Now, at pocketnomad.us/app")}),
+    ("Availability", {"ios": (P, "Beta on TestFlight now, App Store soon"), "android": (P, "Beta APK now, Google Play soon"), "pwa": (Y, "Now, at pocketnomad.us/app")}),
     ("69 survival guides, search, 8 checklists", {"ios": (Y, ""), "android": (Y, ""), "pwa": (Y, "")}),
     ("Works with no signal", {"ios": (Y, ""), "android": (Y, ""), "pwa": (Y, "After it's installed and opened once")}),
     ("Compass with decimal, DMS and MGRS position", {"ios": (Y, ""), "android": (Y, ""), "pwa": (P, "Heading where the browser allows it")}),
@@ -127,15 +129,22 @@ def steps(items):
 
 IOS = page("ios", "Pocket Nomad for iPhone, iPad and Apple Watch",
     "The full Pocket Nomad: guides, tools, offline maps and books, an on-device AI that cites its sources, mesh radio texting, coverage mapping and drive mode, plus an Apple Watch app.",
-    section("Get it", "Free, with no in-app purchases. Requires iOS 17 or later.", f"""
-    <div class="grid two">
-      <div class="card"><span class="tag">App Store</span><h3>Coming soon</h3><p>Pocket Nomad is being prepared for the App Store. This page will link to it as soon as it's live. Until then you can use the <a href="../pwa/">web app</a> on your iPhone today.</p></div>
+    section("Get it: the official beta", "Free, with no in-app purchases. Requires iOS 17 or later. The iPhone and iPad app is in its official beta through TestFlight, Apple's free app for testing apps before they reach the App Store.", f"""
+    <p><a class="btn primary" href="{TESTFLIGHT_URL}">Join the beta on TestFlight</a></p>
+    <div style="margin-top:22px">{steps([
+        f'Install <a href="{TESTFLIGHT_APP_URL}">TestFlight</a> from the App Store.',
+        f'On the same iPhone or iPad, tap <a href="{TESTFLIGHT_URL}">Join the beta on TestFlight</a>.',
+        "Tap <b>Accept</b>, then <b>Install</b>. Pocket Nomad appears on your home screen, and TestFlight keeps it up to date.",
+        "Found a problem? Take a screenshot; TestFlight offers to send it as beta feedback.",
+    ])}</div>
+    <div class="grid two" style="margin-top:18px">
+      <div class="card"><span class="tag">App Store</span><h3>Next</h3><p>The App Store release follows the beta. This page will link to it as soon as it's live.</p></div>
       <div class="card"><span class="tag">Apple Watch</span><h3>Installs with the iPhone app</h3><p>Open the Watch app on your iPhone, find Pocket Nomad under Available Apps, and tap Install.</p></div>
     </div>""", "get")
     + section("Screenshots", "", shots([("iphone-1-survive.png", "Survive tab"), ("iphone-2-guide.png", "Severe bleeding guide"), ("iphone-3-ask.png", "Ask with sources"),
         ("iphone-4-library.png", "Offline library"), ("iphone-5-map.png", "Offline map"), ("iphone-6-water.png", "Water purifier"), ("iphone-7-mesh.png", "Two radios connected at once"), ("iphone-8-coverage.png", "Coverage from both networks (demo data)"), ("watch-2-sos.png", "Apple Watch SOS")]))
     + section("Set it up before you need it", "Everything below needs a connection once; after that it all works with no signal.", steps([
-        "<b>Install</b> Pocket Nomad from the App Store and open it once.",
+        "<b>Install</b> Pocket Nomad from TestFlight (above) and open it once.",
         "<b>Medical ID:</b> Survive › Medical ID. Add allergies, medicines and who to call.",
         "<b>Maps:</b> Library › Get Content › Maps. Download your city, region or state.",
         "<b>Books:</b> Library › Get Content. Start with WikiMed and the field medicine manuals.",
@@ -197,13 +206,11 @@ PWA = page("pwa", "Pocket Nomad on the web",
     "Install Pocket Nomad from your browser in a few seconds, on any phone or computer. The guides, checklists, tools and map work with no signal once it's installed.",
     section("Open it", "", """<p><a class="btn primary" href="../app/">Open the web app</a></p>
     <p class="note">Open it once while you have signal so it can save itself for offline use. Then install it with the steps below so it opens like an app.</p>""", "open")
-    + section("Install on iPhone or iPad", "Safari only; other iPhone browsers can't install web apps the same way.", steps([
-        "Open <b>pocketnomad.us/app</b> in <b>Safari</b>.",
-        "Tap the <b>Share</b> button (the square with an arrow pointing up). On iPhone it's at the bottom; on iPad, at the top.",
-        "Scroll down and tap <b>Add to Home Screen</b>.",
-        "Leave the name as Pocket Nomad and tap <b>Add</b>.",
-        "Open <b>Pocket Nomad</b> from your home screen once while you have signal. It's ready to use offline.",
-    ]) + '<p class="note" style="margin-top:6px">On iPhone and iPad, browsers can\'t use Bluetooth, so mesh radio texting needs the <a href="../ios/">iPhone app</a>.</p>', "iphone")
+    + section("On iPhone or iPad", "Get the full app instead: it's in its official beta through TestFlight, with the offline library, on-device AI and mesh radio texting that a browser can't do on iPhone.", f'<p><a class="btn primary" href="{TESTFLIGHT_URL}">Join the beta on TestFlight</a></p>' + steps([
+        f'Install <a href="{TESTFLIGHT_APP_URL}">TestFlight</a> from the App Store.',
+        f'On the same iPhone or iPad, tap <a href="{TESTFLIGHT_URL}">Join the beta on TestFlight</a>.',
+        "Tap <b>Accept</b>, then <b>Install</b>.",
+    ]) + '<p class="note" style="margin-top:6px">More about the iPhone app on the <a href="../ios/">iPhone page</a>.</p>', "iphone")
     + section("Install on Android", "Chrome, Edge or Samsung Internet.", steps([
         "Open <b>pocketnomad.us/app</b> in <b>Chrome</b>.",
         "Tap <b>Install</b> when Chrome offers it, or tap the <b>⋮</b> menu › <b>Add to home screen</b> › <b>Install</b>.",
