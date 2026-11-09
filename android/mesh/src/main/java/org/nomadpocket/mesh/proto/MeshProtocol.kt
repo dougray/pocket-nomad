@@ -23,6 +23,8 @@ object MeshConstants {
      */
     const val MAX_TEXT_BYTES = 200
     const val DEFAULT_HOP_LIMIT: Long = 3
+    /** Config.DeviceConfig.Role values that rebroadcast for others: ROUTER, ROUTER_CLIENT, REPEATER, ROUTER_LATE. */
+    val ROUTER_ROLES: Set<Long> = setOf(2L, 3L, 4L, 11L)
 }
 
 /** PortNum values (Data.portnum). */

@@ -95,6 +95,11 @@ class CoverageStore(
     private val now: () -> Long = System::currentTimeMillis,
     /** Called with true when GPS is needed (recording on) and false when not. */
     private val useLocation: (Boolean) -> Unit = {},
+    /**
+     * True for the user's own radios, on either network (MeshRadios.isOwnRadio in
+     * the app). Hearing your own radio says nothing about coverage, so it is never recorded.
+     */
+    private val isOwnRadio: (node: Long, firmware: Firmware) -> Boolean = { _, _ -> false },
 ) {
     private val pingsFile = File(file.parentFile, file.nameWithoutExtension + ".pings.json")
 
@@ -178,7 +183,7 @@ class CoverageStore(
      * on Meshtastic and MeshCore is two nodes.
      */
     fun record(heard: MeshHeard) {
-        if (!recording || optedOut(heard.node)) return
+        if (!recording || optedOut(heard.node) || isOwnRadio(heard.node, heard.firmware)) return
         val fix = freshFix() ?: return
         val t = now()
         val last = samples.lastOrNull { it.node == heard.node && it.firmware == heard.firmware }
@@ -203,6 +208,46 @@ class CoverageStore(
     }
 
     fun optedOut(node: Long): Boolean = OptOut.optsOut(nodeName(node))
+
+    /** Left off the map and out of shared files: opted-out radios and the user's own. */
+    fun hidden(record: CoverageRecord): Boolean = optedOut(record.node) || isOwnRadio(record.node, record.firmware)
+
+    /** Nothing recorded and no private zones yet (a fresh install): offer a restore. */
+    val isEmpty: Boolean get() = samples.isEmpty() && pings.isEmpty() && zones.isEmpty()
+
+    /** Changes whenever samples, pings or zones do, so a backup can tell something is new. */
+    val fingerprint: String get() = CoverageBackup.fingerprint(samples, pings, zones)
+
+    /** The coverage switches, for a backup. */
+    val settings: CoverageBackup.Settings get() = CoverageBackup.Settings(recording, sharing, retentionDays)
+
+    /**
+     * Adds a backup's recordings, pings and zones to what's here, skipping ones
+     * already present; never removes anything. Keeps data long enough that the
+     * restored records aren't pruned. The recording and sharing switches are
+     * left as they are: recording needs location permission on this phone, and
+     * sharing is the user's call each time.
+     */
+    fun restore(backup: CoverageBackup.Contents): CoverageBackup.MergeResult {
+        val s = CoverageBackup.mergeSamples(samples, backup.samples)
+        val p = CoverageBackup.mergePings(pings, backup.pings)
+        val z = CoverageBackup.mergeZones(zones, backup.zones)
+        val result = CoverageBackup.MergeResult(s.size - samples.size, p.size - pings.size, z.size - zones.size)
+        val oldest = listOfNotNull(s.firstOrNull()?.dateMillis, p.firstOrNull()?.dateMillis).minOrNull()
+        val keep = CoverageBackup.retentionCovering(retentionDays, backup.settings.retentionDays, oldest, now())
+        if (keep != retentionDays) {
+            _retention.value = keep
+            prefs.putInt(Keys.RETENTION, keep)
+        }
+        _samples.value = s
+        _pings.value = p
+        if (z.size != zones.size) {
+            _zones.value = z
+            saveZones()
+        }
+        saveNow()
+        return result
+    }
 
     fun deleteAll() {
         _samples.value = emptyList()
@@ -232,7 +277,7 @@ class CoverageStore(
 
     /** The same for one network only (the map's Meshtastic / MeshCore filter); null means both. */
     fun sharedCells(firmware: Firmware?): List<CoverageShare.Cell> = CoverageShare.cells(
-        samples.filter { !optedOut(it.node) && (firmware == null || it.firmware == firmware) },
+        samples.filter { !hidden(it) && (firmware == null || it.firmware == firmware) },
         pings.filter { firmware == null || it.firmware == firmware }, zones)
 
     /** Writes the privacy-filtered GeoJSON into `directory` for the share sheet. */
@@ -421,6 +466,55 @@ object CoverageShare {
                     PingOutcome.NONE -> c.copy(pingsNone = c.pingsNone + 1)
                 }
             }
+        }
+        return bins.values.sortedWith(compareBy({ it.q }, { it.r }))
+    }
+
+    /**
+     * One hexagon of this phone's own coverage map. The map draws these, never
+     * the individual recordings or pings: a dot for every ping is a trail of
+     * the trip, and the map is about the mesh, not where the phone went.
+     */
+    data class MapCell(
+        val q: Int,
+        val r: Int,
+        /** Recordings (nodes heard) in the cell. */
+        val heard: Int,
+        val bestSNR: Float?,
+        /** Networks heard or pinged here. */
+        val firmwares: Set<Firmware>,
+        /** The best drive-test answer each network got here: reached beats relayed beats none. */
+        val bestPing: Map<Firmware, PingOutcome>,
+        val pings: Int,
+    ) {
+        val center: Pair<Double, Double> get() = center(q, r)
+        val corners: List<Pair<Double, Double>> get() = corners(q, r)
+
+        /** The best answer among the networks shown (null = both), or null when none pinged here. */
+        fun bestPing(network: Firmware?): PingOutcome? =
+            bestPing.filterKeys { network == null || it == network }.values.minByOrNull { it.ordinal }
+    }
+
+    /**
+     * Bins the phone's own recordings and pings into the same hexagons as
+     * sharing, for the private map. No private-zone blanking (it never leaves
+     * the phone), but no single position survives either.
+     */
+    fun mapCells(data: CoverageData, firmware: Firmware? = null): List<MapCell> {
+        val bins = mutableMapOf<Pair<Int, Int>, MapCell>()
+        fun add(lat: Double, lon: Double, fw: Firmware, update: (MapCell) -> MapCell) {
+            if (firmware != null && fw != firmware) return
+            val key = hex(lat, lon)
+            val cell = bins[key] ?: MapCell(key.first, key.second, 0, null, emptySet(), emptyMap(), 0)
+            bins[key] = update(cell).let { it.copy(firmwares = it.firmwares + fw) }
+        }
+        for (s in data.samples) add(s.latitude, s.longitude, s.firmware) { c ->
+            c.copy(heard = c.heard + 1, bestSNR = s.snr?.let { maxOf(c.bestSNR ?: Float.NEGATIVE_INFINITY, it) } ?: c.bestSNR)
+        }
+        for (p in data.pings) add(p.latitude, p.longitude, p.firmware) { c ->
+            val was = c.bestPing[p.firmware]
+            val best = if (was == null || p.outcome.ordinal < was.ordinal) p.outcome else was
+            c.copy(pings = c.pings + 1, bestPing = c.bestPing + (p.firmware to best))
         }
         return bins.values.sortedWith(compareBy({ it.q }, { it.r }))
     }

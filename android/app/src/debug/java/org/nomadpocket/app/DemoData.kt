@@ -75,7 +75,7 @@ object DemoData {
             Triple("Cherry Creek", 39.7170 to -104.9530, Firmware.MESHTASTIC),
         )
         nodes.value = demo.mapIndexed { i, (name, pos, fw) ->
-            MapNode(0xA000L + i, name, fw, pos.first, pos.second, now - i * 420_000L)
+            MapNode(0xA000L + i, name, fw, pos.first, pos.second, now - i * 420_000L, isRepeater = name.endsWith("Repeater"))
         }
     }
 

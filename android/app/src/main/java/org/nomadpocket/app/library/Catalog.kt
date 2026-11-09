@@ -37,7 +37,6 @@ object KiwixCatalog {
         Pick("medlineplus.gov_en_all", null, "MedlinePlus: plain-language health encyclopedia from the U.S. National Library of Medicine"),
         Pick("wikipedia_en_medicine", "maxi", "WikiMed with pictures"),
         Pick("ifixit_en_all", null, "iFixit repair guides"),
-        Pick("lrnselfreliance_en_all", null, "Learning Self-Reliance videos and articles"),
         Pick("wikipedia_en_100", null, "Wikipedia's top 100 articles (good for testing)"),
         Pick("wikipedia_en_all", "mini", "All of Wikipedia, intros only"),
         Pick("wikipedia_en_all", "nopic", "All of Wikipedia, no pictures"),

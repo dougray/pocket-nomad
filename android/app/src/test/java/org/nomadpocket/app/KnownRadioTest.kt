@@ -10,6 +10,7 @@ import org.nomadpocket.mesh.Firmware
 import org.nomadpocket.mesh.MeshCoreRadioParams
 import org.nomadpocket.mesh.NearbyRadioParams
 import org.nomadpocket.mesh.OptOut
+import org.nomadpocket.mesh.OwnRadios
 import java.time.Instant
 
 /**
@@ -116,5 +117,19 @@ class KnownRadioTest {
         // Saved and read back for offline use.
         val saved = KnownRadioParser.fromJson(KnownRadioParser.toJson(Instant.ofEpochSecond(1_790_000_000), null, radios.values.toList()))
         assertEquals(radios.values.map { it.params }, saved.radios.map { it.params })
+    }
+
+    @Test fun ownRadiosAreLeftOffTheMap() {
+        val radios = listOf(
+            KnownRadio("t1002094074", Firmware.MESHTASTIC, "My Router (test)", KnownRadio.Role.REPEATER, 39.74, -104.99),
+            KnownRadio("t55", Firmware.MESHTASTIC, "Someone", KnownRadio.Role.CLIENT, 39.75, -104.98),
+            KnownRadio("c112233445566aabb", Firmware.MESHCORE, "My Companion (test)", KnownRadio.Role.CLIENT, 39.73, -104.97),
+            KnownRadio("c1122000000000000", Firmware.MESHCORE, "Same first byte", KnownRadio.Role.REPEATER, 39.72, -104.96),
+        )
+        assertEquals(radios, KnownRadioParser.withoutOwn(radios, OwnRadios()))
+        val own = OwnRadios(nodeNums = setOf(1002094074L, 0x4433_2211L), meshCoreKeyPrefixes = setOf("112233445566"))
+        assertEquals(listOf("t55", "c1122000000000000"), KnownRadioParser.withoutOwn(radios, own).map { it.id })
+        // A MeshCore number never hides a Meshtastic radio with a different id, and vice versa.
+        assertEquals(4, KnownRadioParser.withoutOwn(radios, OwnRadios(nodeNums = setOf(0x4433_2211L))).size)
     }
 }

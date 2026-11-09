@@ -62,11 +62,39 @@ enum MeshConnectionState: Equatable, Sendable {
     case connected(name: String)
     /// Lost the link; iOS keeps a pending connection open and will reconnect.
     case reconnecting(name: String)
+    /// A remembered radio that hasn't come back for a while (left at home, out of
+    /// range). iOS still holds the pending connection, so it reconnects by itself
+    /// when the radio is back; until then it counts as absent, not as a link to wait for.
+    case notNearby(name: String)
+    /// The user said this radio isn't with them today: no reconnecting until they
+    /// tap Connect or the app next launches. It still reconnects at launch.
+    case notWithMeToday(name: String)
     case failed(String)
 
     var isConnected: Bool {
         if case .connected = self { return true }
         return false
+    }
+
+    /// Waiting for a pending Bluetooth connection to complete.
+    var isWaiting: Bool {
+        switch self {
+        case .connecting, .reconnecting: return true
+        default: return false
+        }
+    }
+
+    var isNotWithMeToday: Bool {
+        if case .notWithMeToday = self { return true }
+        return false
+    }
+
+    /// Remembered but not here: not nearby, or not with me today.
+    var isAway: Bool {
+        switch self {
+        case .notNearby, .notWithMeToday: return true
+        default: return false
+        }
     }
 
     var isLinkUp: Bool {
@@ -136,6 +164,8 @@ struct MeshNode: Codable, Identifiable, Equatable, Sendable {
     var meshCoreType: MeshCoreContactType?
     /// Which network this node was heard on. Filled in by MeshService.
     var network: MeshFirmware?
+    /// Meshtastic: the device role from its user info (0 client, 2 router, 4 repeater...).
+    var role: UInt32?
 
     var id: UInt32 { num }
 
@@ -154,6 +184,14 @@ struct MeshNode: Codable, Identifiable, Equatable, Sendable {
     }
 
     var hasPosition: Bool { latitude != nil && longitude != nil }
+
+    /// Infrastructure rather than a person's radio: a MeshCore repeater or room
+    /// server, or a Meshtastic router or repeater.
+    var isRepeater: Bool {
+        if let t = meshCoreType { return t == .repeater || t == .room }
+        guard let role else { return false }
+        return [2, 3, 4, 11].contains(role) // ROUTER, ROUTER_CLIENT, REPEATER, ROUTER_LATE
+    }
 
     /// The network, guessing from MeshCore-only fields for nodes saved before it was stored.
     var firmware: MeshFirmware { network ?? (meshCoreType != nil || publicKeyPrefix != nil ? .meshcore : .meshtastic) }

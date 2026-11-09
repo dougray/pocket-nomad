@@ -60,6 +60,7 @@ class MeshService(
 
     private val _availability = MutableStateFlow(MeshBluetoothAvailability.UNKNOWN)
     private val _connection = MutableStateFlow<MeshConnectionState>(MeshConnectionState.Idle)
+    private val _display = MutableStateFlow<MeshConnectionState>(MeshConnectionState.Idle)
     private val _discovered = MutableStateFlow<List<MeshDiscoveredDevice>>(emptyList())
     private val _nodes = MutableStateFlow<Map<Long, MeshNode>>(emptyMap())
     private val _messages = MutableStateFlow<List<MeshMessage>>(emptyList())
@@ -73,7 +74,14 @@ class MeshService(
     private val _apply = MutableStateFlow<RadioApplyState>(RadioApplyState.Idle)
 
     val availabilityFlow: StateFlow<MeshBluetoothAvailability> = _availability.asStateFlow()
+    /** The link as it is right now; drive mode and sending go by this. */
     val connectionFlow: StateFlow<MeshConnectionState> = _connection.asStateFlow()
+    /**
+     * The link as the user sees it: a drop that recovers within FLICKER_MILLIS
+     * (walking to the edge of Bluetooth range) still reads Connected, so cards,
+     * notes and the drive log don't flicker every few seconds.
+     */
+    val displayConnectionFlow: StateFlow<MeshConnectionState> = _display.asStateFlow()
     val discoveredFlow: StateFlow<List<MeshDiscoveredDevice>> = _discovered.asStateFlow()
     val nodesFlow: StateFlow<Map<Long, MeshNode>> = _nodes.asStateFlow()
     val messagesFlow: StateFlow<List<MeshMessage>> = _messages.asStateFlow()
@@ -93,6 +101,15 @@ class MeshService(
 
     val availability get() = _availability.value
     val connection get() = _connection.value
+    val displayConnection get() = _display.value
+    /** Drops that came back within FLICKER_MILLIS, since launch (drive mode's heartbeat counts them). */
+    var briefDrops = 0
+        private set
+    /** Why the link last went down, in plain words, for the drive log. */
+    var lastDropReason: String? = null
+        private set
+    /** "Not with me today": no reconnecting this app session. Cleared by Connect or the next launch. */
+    val notWithMe: Boolean get() = _connection.value is MeshConnectionState.NotWithMe
     val discovered get() = _discovered.value
     val nodes get() = _nodes.value
     val messages get() = _messages.value
@@ -127,6 +144,11 @@ class MeshService(
     private var currentDeviceName = ""
     private var saveJob: Job? = null
     private var handshakeTimeout: Job? = null
+    /** When the remembered radio was last lost (or first looked for); null while linked or idle. */
+    private var unseenSince: Long? = null
+    /** When the current drop started, while the displayed state still says Connected. */
+    private var dropSince: Long? = null
+    private var notWithMeToday = false
 
     // MeshCore: one command in flight at a time, each waiting for its reply.
     private class CoreCommand(
@@ -172,7 +194,7 @@ class MeshService(
         transport.start()
         val id = lastDeviceID
         if (autoReconnect && id != null) {
-            _connection.value = MeshConnectionState.Reconnecting(lastDeviceName ?: "radio")
+            setConnection(MeshConnectionState.Reconnecting(lastDeviceName ?: "radio"))
             transport.connect(id)
         }
     }
@@ -181,14 +203,14 @@ class MeshService(
         start()
         _discovered.value = emptyList()
         _isScanning.value = true
-        if (connection is MeshConnectionState.Idle) _connection.value = MeshConnectionState.Scanning
+        if (connection is MeshConnectionState.Idle) setConnection(MeshConnectionState.Scanning)
         transport.startScan()
     }
 
     fun stopScan() {
         _isScanning.value = false
         transport.stopScan()
-        if (connection is MeshConnectionState.Scanning) _connection.value = MeshConnectionState.Idle
+        if (connection is MeshConnectionState.Scanning) setConnection(MeshConnectionState.Idle)
     }
 
     fun connect(device: MeshDiscoveredDevice) = connect(device.id, device.name)
@@ -204,10 +226,86 @@ class MeshService(
     fun disconnect() {
         autoReconnect = false
         prefs.putBoolean(Keys.AUTO_RECONNECT, false)
+        notWithMeToday = false
+        val wasConnected = connection !is MeshConnectionState.Idle && connection !is MeshConnectionState.Scanning
         handshakeTimeout?.cancel()
         coreReset()
+        transport.setLowPower(false)
         transport.disconnect()
-        _connection.value = MeshConnectionState.Idle
+        if (wasConnected) lastDropReason = "user disconnect"
+        setConnection(MeshConnectionState.Idle)
+    }
+
+    /**
+     * "Not with me today": stops reconnecting to the remembered radio for this
+     * app session only. Auto-reconnect stays on, so the next launch (or Connect)
+     * looks for it again.
+     */
+    fun notWithMeToday() {
+        if (lastDeviceID == null) return
+        notWithMeToday = true
+        lastDropReason = "not with me today"
+        handshakeTimeout?.cancel()
+        coreReset()
+        transport.setLowPower(false)
+        transport.disconnect()
+        setConnection(MeshConnectionState.NotWithMe(lastDeviceName ?: "radio"))
+    }
+
+    /**
+     * Re-checks the timers: a drop older than FLICKER_MILLIS is shown, and a
+     * remembered radio unseen for NOT_NEARBY_MILLIS becomes Not nearby. Runs by
+     * itself; public so tests can drive it with their own clock.
+     */
+    fun checkLink() {
+        updateDisplay()
+        val since = unseenSince ?: return
+        val c = connection
+        if ((c is MeshConnectionState.Reconnecting || c is MeshConnectionState.Connecting) &&
+            autoReconnect && lastDeviceID != null && now() - since >= NOT_NEARBY_MILLIS) {
+            // Keep a cheap background attempt going so it comes back on its own.
+            transport.setLowPower(true)
+            setConnection(MeshConnectionState.NotNearby(lastDeviceName ?: currentDeviceName.ifEmpty { "radio" }))
+        }
+    }
+
+    private fun setConnection(new: MeshConnectionState) {
+        val old = _connection.value
+        _connection.value = new
+        when (new) {
+            is MeshConnectionState.Reconnecting, is MeshConnectionState.Connecting -> if (unseenSince == null) {
+                unseenSince = now()
+                later(NOT_NEARBY_MILLIS)
+            }
+            is MeshConnectionState.NotNearby -> {}
+            else -> unseenSince = null
+        }
+        if (old is MeshConnectionState.NotNearby && new !is MeshConnectionState.NotNearby) transport.setLowPower(false)
+        updateDisplay()
+    }
+
+    /** Debounces the displayed state: drops shorter than FLICKER_MILLIS keep showing Connected. */
+    private fun updateDisplay() {
+        val raw = connection
+        if (raw is MeshConnectionState.Connected) {
+            if (dropSince != null) { briefDrops += 1; dropSince = null }
+            _display.value = raw
+            return
+        }
+        val trying = raw is MeshConnectionState.Reconnecting || raw is MeshConnectionState.Connecting || raw is MeshConnectionState.Syncing
+        if (_display.value is MeshConnectionState.Connected && trying) {
+            val since = dropSince ?: now().also { dropSince = it; later(FLICKER_MILLIS) }
+            if (now() - since < FLICKER_MILLIS) return
+        }
+        dropSince = null
+        _display.value = raw
+    }
+
+    private fun later(millis: Long) {
+        scope.launch {
+            delay(millis)
+            checkLink()
+        }
     }
 
     /** Forgets the remembered radio entirely. */
@@ -422,16 +520,21 @@ class MeshService(
      */
     private fun coreHeardPacket(log: MeshCoreRxLog) {
         val packet = log.packet ?: return
+        // A repeater is recorded by its hash (as a stand-in number), never guessed
+        // to be the first contact whose key starts with it: many radios across the
+        // mesh share a hash. HeardResolver picks the one in range of where the
+        // phone was, when the map is drawn.
         val node = when (val from = packet.heardFrom) {
             is MeshCoreRawPacket.HeardFrom.Repeater -> {
                 val num = MeshCoreContact.nodeNumForHash(from.hash.array)
                 _neighbors.value = neighbors + (num to Neighbor(from.hash, now(), log.snr))
-                nodes.values.firstOrNull { it.publicKeyPrefix?.startsWith(from.hash) == true }?.num ?: num
+                num
             }
-            is MeshCoreRawPacket.HeardFrom.Node -> MeshCoreContact.nodeNum(from.publicKey.array)
+            is MeshCoreRawPacket.HeardFrom.Node -> MeshCoreContact.nodeNum(from.publicKey.array).also { num ->
+                nodes[num]?.let { putNode(it.copy(lastHeardMillis = now(), snr = log.snr)) }
+            }
             null -> 0L
         }
-        if (node != 0L) nodes[node]?.let { putNode(it.copy(lastHeardMillis = now(), snr = log.snr)) }
         onHeard?.invoke(MeshHeard(node, log.snr, packet.path.size.toLong(), Firmware.MESHCORE))
     }
 
@@ -488,7 +591,10 @@ class MeshService(
                 _availability.value = event.availability
                 if (event.availability != MeshBluetoothAvailability.POWERED_ON) {
                     isReading = false
-                    if (connection.isLinkUp) _connection.value = MeshConnectionState.Reconnecting(currentDeviceName)
+                    if (connection.isLinkUp) {
+                        lastDropReason = "Bluetooth turned off"
+                        setConnection(MeshConnectionState.Reconnecting(currentDeviceName))
+                    }
                 }
             }
 
@@ -502,7 +608,8 @@ class MeshService(
 
             is MeshTransportEvent.Connecting -> {
                 currentDeviceName = event.name
-                _connection.value = MeshConnectionState.Connecting(event.name)
+                // A background attempt while away doesn't bring the radio back; Ready does.
+                if (!connection.isAway) setConnection(MeshConnectionState.Connecting(event.name))
             }
 
             is MeshTransportEvent.Ready -> {
@@ -521,12 +628,18 @@ class MeshService(
                 isReading = false
                 handshakeTimeout?.cancel()
                 coreReset()
+                if (notWithMeToday) {
+                    setConnection(MeshConnectionState.NotWithMe(lastDeviceName ?: currentDeviceName))
+                    return
+                }
+                if (connection.isLinkUp) lastDropReason = event.reason ?: "the link closed"
+                if (connection is MeshConnectionState.NotNearby && event.willReconnect) return
                 if (_apply.value is RadioApplyState.Working && firmware == Firmware.MESHCORE) {
                     failApply("The radio disconnected before it answered. Check its settings after it reconnects.")
                 }
                 if (_apply.value == RadioApplyState.Restarting && !event.willReconnect && autoReconnect) {
                     // The radio restarts for its new settings: come back to it.
-                    _connection.value = MeshConnectionState.Reconnecting(currentDeviceName)
+                    setConnection(MeshConnectionState.Reconnecting(currentDeviceName))
                     scope.launch {
                         delay(RESTART_RECONNECT_DELAY)
                         if (connection is MeshConnectionState.Reconnecting) lastDeviceID?.let { transport.connect(it) }
@@ -534,17 +647,23 @@ class MeshService(
                     return
                 }
                 if (event.willReconnect) {
-                    _connection.value = MeshConnectionState.Reconnecting(currentDeviceName)
+                    setConnection(MeshConnectionState.Reconnecting(currentDeviceName))
                 } else {
-                    _connection.value = MeshConnectionState.Idle
+                    setConnection(MeshConnectionState.Idle)
                     event.reason?.let { notice = it }
                 }
             }
 
             is MeshTransportEvent.ConnectFailed -> {
-                notice = event.reason
-                _connection.value = if (autoReconnect) MeshConnectionState.Reconnecting(currentDeviceName)
-                else MeshConnectionState.Failed(event.reason)
+                if (notWithMeToday) return
+                // Away, or already waiting for a remembered radio: one "Waiting" on the card is
+                // enough, so repeated failures don't pile up notices.
+                if (connection.isAway) return
+                val quiet = autoReconnect && connection is MeshConnectionState.Reconnecting
+                if (!quiet) notice = event.reason
+                if (connection.isLinkUp) lastDropReason = event.reason
+                setConnection(if (autoReconnect) MeshConnectionState.Reconnecting(currentDeviceName)
+                    else MeshConnectionState.Failed(event.reason))
             }
 
             is MeshTransportEvent.FromRadio -> {
@@ -586,11 +705,12 @@ class MeshService(
 
     private fun connect(id: String, name: String) {
         start()
+        notWithMeToday = false
         autoReconnect = true
         prefs.putBoolean(Keys.AUTO_RECONNECT, true)
         rememberDevice(id, name)
         currentDeviceName = name
-        _connection.value = MeshConnectionState.Connecting(name)
+        setConnection(MeshConnectionState.Connecting(name))
         transport.connect(id)
     }
 
@@ -603,7 +723,7 @@ class MeshService(
     private fun beginHandshake() {
         handshakeDone = false
         handshakeAttempts += 1
-        _connection.value = MeshConnectionState.Syncing(currentDeviceName)
+        setConnection(MeshConnectionState.Syncing(currentDeviceName))
         configID = newPacketID()
         transport.write(MeshPBToRadio.WantConfigID(configID).encode())
         startReading()
@@ -618,7 +738,7 @@ class MeshService(
             } else {
                 // Messages may still flow; let the user try.
                 handshakeDone = true
-                _connection.value = MeshConnectionState.Connected(currentDeviceName)
+                setConnection(MeshConnectionState.Connected(currentDeviceName))
                 notice = "The radio did not finish sending its settings. Messages may still work."
             }
         }
@@ -656,7 +776,7 @@ class MeshService(
                 handshakeDone = true
                 handshakeAttempts = 0
                 handshakeTimeout?.cancel()
-                _connection.value = MeshConnectionState.Connected(currentDeviceName)
+                setConnection(MeshConnectionState.Connected(currentDeviceName))
                 if (meshtasticConfirm()) {
                     // Radio settings just changed: the result is shown there.
                 } else if (radio.region == 0L) {
@@ -705,6 +825,7 @@ class MeshService(
         shortName = u.shortName.ifEmpty { n.shortName },
         hwModel = if (u.hwModel != 0L) u.hwModel else n.hwModel,
         hasPublicKey = n.hasPublicKey || u.publicKey.isNotEmpty(),
+        role = u.role,
     )
 
     private fun apply(p: MeshPBPosition, n: MeshNode): MeshNode =
@@ -799,7 +920,7 @@ class MeshService(
         coreReset()
         handshakeDone = false
         handshakeAttempts += 1
-        _connection.value = MeshConnectionState.Syncing(currentDeviceName)
+        setConnection(MeshConnectionState.Syncing(currentDeviceName))
 
         coreEnqueue(MeshCoreCommand.appStart("Pocket Nomad"), setOf(5))
         coreEnqueue(MeshCoreCommand.deviceQuery(), setOf(13)) { frame ->
@@ -817,7 +938,7 @@ class MeshService(
             handshakeDone = true
             handshakeAttempts = 0
             handshakeTimeout?.cancel()
-            _connection.value = MeshConnectionState.Connected(currentDeviceName)
+            setConnection(MeshConnectionState.Connected(currentDeviceName))
             coreSyncMessages()
             scheduleSave()
         }
@@ -828,7 +949,7 @@ class MeshService(
             delay(45_000)
             if (handshakeDone || attempt != handshakeAttempts) return@launch
             handshakeDone = true
-            _connection.value = MeshConnectionState.Connected(currentDeviceName)
+            setConnection(MeshConnectionState.Connected(currentDeviceName))
             notice = "The radio did not finish sending its contacts. Messages may still work."
         }
     }
@@ -887,14 +1008,16 @@ class MeshService(
                 putNode(n)
             }
             is MeshCoreFrame.Contact -> coreUpsert(frame.contact)
+            // An advert may have come from far away through many repeaters, so it is
+            // a coverage point only; the raw packet log names who was in range.
             is MeshCoreFrame.NewAdvert -> {
                 coreUpsert(frame.contact)
-                onHeard?.invoke(MeshHeard(frame.contact.nodeNum, null, frame.contact.pathLength?.toLong(), Firmware.MESHCORE))
+                onHeard?.invoke(MeshHeard(0, null, null, Firmware.MESHCORE))
             }
             is MeshCoreFrame.Advert -> {
                 val num = MeshCoreContact.nodeNum(frame.publicKey.array)
                 nodes[num]?.let { putNode(it.copy(lastHeardMillis = now())) }
-                onHeard?.invoke(MeshHeard(num, null, null, Firmware.MESHCORE))
+                onHeard?.invoke(MeshHeard(0, null, null, Firmware.MESHCORE))
             }
             is MeshCoreFrame.ChannelInfo -> {
                 val ch = frame.info
@@ -973,7 +1096,8 @@ class MeshService(
         if (from != 0L) nodes[from]?.let { n -> putNode(n.copy(lastHeardMillis = t, snr = snr ?: n.snr)) }
         // Messages queued on the radio while the phone was away are old; skip those.
         if (timestamp == 0L || abs(t / 1000.0 - timestamp) < 120) {
-            onHeard?.invoke(MeshHeard(from, snr, hops, Firmware.MESHCORE))
+            // Only a zero-hop message was heard from its sender; otherwise it is a coverage point.
+            onHeard?.invoke(MeshHeard(if (hops == 0L) from else 0, snr, hops, Firmware.MESHCORE))
         }
         trimHistory()
         scheduleSave()
@@ -1227,7 +1351,7 @@ class MeshService(
             MeshMessage(packetID = i + 1L, from = from.num, to = MeshConstants.BROADCAST_NUM, channel = 0, text = text,
                 dateMillis = t - (chat.size - i) * 300_000L, isOutgoing = false, delivery = MeshDeliveryState.Received)
         }
-        _connection.value = MeshConnectionState.Connected(name)
+        setConnection(MeshConnectionState.Connected(name))
     }
 
     /** Screenshots and demos: made-up nodes at made-up places (open ocean). */
@@ -1282,6 +1406,10 @@ class MeshService(
         const val NO_RESTART_RECHECK = 20_000L
         const val RESTART_GIVE_UP = 70_000L
         const val RESTART_RECONNECT_DELAY = 4_000L
+        /** A remembered radio unseen this long is Not nearby (left at home, or in the car while you're in a store). */
+        const val NOT_NEARBY_MILLIS = 2 * 60_000L
+        /** Drops that recover within this long don't change what the user sees, notes or the drive log. */
+        const val FLICKER_MILLIS = 20_000L
 
         fun conversation(m: MeshMessage, myNum: Long): MeshConversation {
             if (m.to == MeshConstants.BROADCAST_NUM) return MeshConversation.Channel(m.channel)

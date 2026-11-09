@@ -10,6 +10,8 @@ struct NomadPocketApp: App {
         MeshService.shared.onHeard = { CoverageStore.shared.record($0) }
         MeshService.shared.start()
         CoverageStore.shared.start()
+        DriveMode.shared.onStop = { CoverageBackupService.shared.driveStopped() }
+        CoverageBackupService.shared.start()
         DriveMode.shared.resumeIfNeeded()
         WatchBridge.shared.start()
         #if DEBUG
@@ -19,8 +21,8 @@ struct NomadPocketApp: App {
             MeshService.shared.loadDemoRadios()
         }
         if let launch = LaunchScreen.parts(), launch.0 == "map", launch.1 == "known" {
-            // Real download from the community maps, kept around downtown Austin.
-            Task { await KnownRadioStore.shared.download(around: .init(latitude: 30.2672, longitude: -97.7431), radiusKm: 100, areaName: nil) }
+            // Real download from the community maps, kept around downtown Denver.
+            Task { await KnownRadioStore.shared.download(around: .init(latitude: 39.7392, longitude: -104.9903), radiusKm: 100, areaName: nil) }
         } else if let launch = LaunchScreen.parts(), launch.0 == "map", !launch.1.isEmpty {
             MeshService.shared.loadDemoNodes()
             MeshService.shared.loadDemoRadios()
@@ -69,7 +71,7 @@ enum AppTab: Hashable { case survive, ask, library, map, mesh }
 /// packs, book, tool:<compass|sos|morse|water|medicalID|checklists|sun>, guide:<file>,
 /// category:<id>, query:<text> (Survive search), ask:<question>, coverage (scanner
 /// settings), mesh:demo (demo nodes and two connected demo radios), map:demo / map:shared (demo nodes and
-/// coverage around Denver) and map:known (downloads known radios around Austin).
+/// coverage around Denver) and map:known (downloads known radios around Denver).
 enum LaunchScreen {
     static let value: String? = {
         #if DEBUG

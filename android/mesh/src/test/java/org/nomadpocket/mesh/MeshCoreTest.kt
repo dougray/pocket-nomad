@@ -233,11 +233,12 @@ class MeshCoreServiceTest {
         val c7 = MeshCoreContact.nodeNumForHash(byteArrayOf(0xC7.toByte()))
         assertEquals(MeshHeard(c7, 7.5f, 2, Firmware.MESHCORE), heard.single())
         assertEquals("the repeater just heard is the ping target", c7, svc.autoPingTarget())
-        // A packet from a known contact's repeater hash is credited to that contact.
+        // A hash that starts a known contact's key is still recorded by its hash: many radios
+        // share a hash, so HeardResolver picks one by distance when the map is drawn.
         fake.emit(MeshTransportEvent.Frame(CoreFrames.rxLog(2f, CoreFrames.packet(1, 5, listOf(listOf(0xAA)), listOf(1)))))
         val ana = svc.sortedNodes.first { it.longName == "Ana" }
-        assertEquals(ana.num, heard.last().node)
-        assertEquals(2f, svc.nodes[ana.num]?.snr)
+        assertEquals(MeshCoreContact.nodeNumForHash(byteArrayOf(0xAA.toByte())), heard.last().node)
+        assertTrue(ana.num != heard.last().node)
         fake.emit(MeshTransportEvent.Frame(bytes(0x88, 0, 0, 0x05)))
         assertEquals(2, heard.size)
     }

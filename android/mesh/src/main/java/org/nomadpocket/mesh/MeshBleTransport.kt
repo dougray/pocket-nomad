@@ -103,6 +103,18 @@ class MeshBleTransport(context: Context) : MeshTransport {
     private var scanning = false
     private var readyAnnounced = false
     private var servicesRequested = false
+    /** The radio is probably not nearby: retry failed background connects slowly (MeshService's Not nearby). */
+    private var lowPower = false
+    /** A slow retry waiting to reopen the background connect. */
+    private var retryPending = false
+    private val slowRetry = Runnable {
+        retryPending = false
+        val id = wantedID
+        val d = device
+        if (id != null && d != null && d.address == id && gatt == null && availability == MeshBluetoothAvailability.POWERED_ON) {
+            openGatt(d, autoConnect = true)
+        }
+    }
 
     // MARK: GATT operation queue
 
@@ -115,6 +127,18 @@ class MeshBleTransport(context: Context) : MeshTransport {
 
     private companion object {
         val seenDevices = mutableMapOf<String, BluetoothDevice>()
+        const val LOW_POWER_RETRY_MILLIS = 60_000L
+
+        /** A disconnect status in plain words, for notices and the drive log. */
+        fun linkReason(status: Int): String = when (status) {
+            BluetoothGatt.GATT_SUCCESS -> "the link closed"
+            8 -> "out of range (Bluetooth status 8, link timed out)"
+            19 -> "the radio ended the link (Bluetooth status 19)"
+            22 -> "the phone ended the link (Bluetooth status 22)"
+            62 -> "the link never came up (Bluetooth status 62)"
+            133 -> "Bluetooth error (status 133)"
+            else -> "Bluetooth status $status"
+        }
     }
     private var current: Op? = null
     // A stuck operation must not block the link; a lost FromRadio read ends that read loop.
@@ -230,6 +254,8 @@ class MeshBleTransport(context: Context) : MeshTransport {
     override fun connect(id: String) {
         start()
         wantedID = id
+        retryPending = false
+        main.removeCallbacks(slowRetry)
         if (availability != MeshBluetoothAvailability.POWERED_ON || !hasConnect()) return // retried when Bluetooth comes on
         val current = device
         if (current != null && current.address != id) {
@@ -253,6 +279,8 @@ class MeshBleTransport(context: Context) : MeshTransport {
 
     override fun disconnect() {
         wantedID = null
+        retryPending = false
+        main.removeCallbacks(slowRetry)
         val id = device?.address
         closeGatt()
         if (id != null) emit(MeshTransportEvent.Disconnected(id, null, false))
@@ -272,6 +300,21 @@ class MeshBleTransport(context: Context) : MeshTransport {
         val c = fromRadio ?: return
         if (gatt == null) return
         enqueue(Op.Read(c))
+    }
+
+    /**
+     * Not nearby: the pending background connect (connectGatt with autoConnect,
+     * which the Bluetooth controller handles with a low-duty scan) stays open,
+     * and if Android gives up on it, it is reopened only every LOW_POWER_RETRY_MILLIS
+     * instead of at once. Turning it off retries straight away.
+     */
+    override fun setLowPower(on: Boolean) {
+        if (lowPower == on) return
+        lowPower = on
+        if (!on && retryPending) {
+            main.removeCallbacks(slowRetry)
+            slowRetry.run()
+        }
     }
 
     // MARK: Helpers
@@ -493,14 +536,20 @@ class MeshBleTransport(context: Context) : MeshTransport {
         val wasLinked = linkUp
         closeGatt()
         val reconnect = d.address == wantedID
-        pairingMessage(status)?.let { emit(MeshTransportEvent.PairingProblem(it)) }
+        // Status 8 here is a link timeout (out of range), not the read/write "insufficient authorization".
+        if (status != 8) pairingMessage(status)?.let { emit(MeshTransportEvent.PairingProblem(it)) }
+        val reason = linkReason(status)
         if (wasLinked) {
-            emit(MeshTransportEvent.Disconnected(d.address, if (status == BluetoothGatt.GATT_SUCCESS) null else "Link lost (Bluetooth status $status).", reconnect))
+            emit(MeshTransportEvent.Disconnected(d.address, "Link lost: $reason.", reconnect))
         } else {
-            emit(MeshTransportEvent.ConnectFailed(d.address, "Could not connect (Bluetooth status $status)."))
+            emit(MeshTransportEvent.ConnectFailed(d.address, "Could not connect: $reason."))
         }
         // Keep trying in the background: Android finishes it when the radio is back in range.
-        if (reconnect && availability == MeshBluetoothAvailability.POWERED_ON) openGatt(d, autoConnect = true)
+        // While the radio is not nearby, a failed attempt waits a minute before the next one.
+        if (reconnect && availability == MeshBluetoothAvailability.POWERED_ON) {
+            if (lowPower && !wasLinked) { retryPending = true; main.postDelayed(slowRetry, LOW_POWER_RETRY_MILLIS) }
+            else openGatt(d, autoConnect = true)
+        }
     }
 
     private fun onServices(g: BluetoothGatt, status: Int) {

@@ -17,7 +17,7 @@ LOCATION AND BLUETOOTH
 Location is used on the device only: the map, the compass, the user's choice to add coordinates to an SOS message, and the optional coverage scanner (off by default). Bluetooth connects to the user's own radio.
 
 BACKGROUND LOCATION (UIBackgroundModes: location)
-Used only by "Drive mode" (Mesh › Coverage map › Drive mode), which the user turns on. It keeps the coverage scanner recording, from the phone's GPS, while the phone is locked in a car mount, using "While Using" permission with CLBackgroundActivitySession (iOS shows the location indicator). It stops when the user turns it off and automatically after 4 hours. Nothing is uploaded.
+Used only by "Drive mode" (Mesh › Coverage map › Drive mode), which the user turns on. It keeps the coverage scanner recording, from the phone's GPS, while the phone is locked in a car mount, using "While Using" permission with CLBackgroundActivitySession (iOS shows the location indicator). It runs until the user turns it off. Nothing is uploaded.
 
 KNOWN RADIOS
 Map › Layers › Download known radios downloads the public radio lists from meshmap.net and map.meshcore.io once, keeps the radios near the user on the device, and shows them offline. The user's location is not sent.

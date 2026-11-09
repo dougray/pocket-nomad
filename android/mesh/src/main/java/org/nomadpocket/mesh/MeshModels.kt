@@ -60,10 +60,20 @@ sealed class MeshConnectionState {
     data class Connected(val name: String) : MeshConnectionState()
     /** Lost the link; the transport keeps trying and will reconnect. */
     data class Reconnecting(val name: String) : MeshConnectionState()
+    /**
+     * A remembered radio that has been out of reach for a while (MeshService.NOT_NEARBY_MILLIS):
+     * probably left at home or in the car. A slow background attempt keeps going,
+     * so it reconnects by itself when it's back; drive mode treats it as absent.
+     */
+    data class NotNearby(val name: String) : MeshConnectionState()
+    /** The user said the radio isn't with them: no reconnecting until Connect or the next launch. */
+    data class NotWithMe(val name: String) : MeshConnectionState()
     data class Failed(val reason: String) : MeshConnectionState()
 
     val isConnected: Boolean get() = this is Connected
     val isLinkUp: Boolean get() = this is Syncing || this is Connected
+    /** The radio is away (not nearby, or not with the user today): drive mode and the UI treat it as absent. */
+    val isAway: Boolean get() = this is NotNearby || this is NotWithMe
 }
 
 /** Delivery state of an outgoing text. */
@@ -127,6 +137,8 @@ data class MeshNode(
     val publicKeyPrefix: Bytes? = null,
     /** MeshCore: what kind of node advertised (person, repeater, room server, sensor). */
     val meshCoreType: MeshCoreContactType? = null,
+    /** Meshtastic: the device role it advertises (User.role), when known. */
+    val role: Long? = null,
 ) {
     /** "!a1b2c3d4", the Meshtastic way of writing a node number. */
     val hexID: String get() = hexID(num)
@@ -141,6 +153,10 @@ data class MeshNode(
     val badge: String get() = shortName.ifEmpty { String.format(Locale.ROOT, "%04x", num and 0xFFFF) }
 
     val hasPosition: Boolean get() = latitude != null && longitude != null
+
+    /** A MeshCore repeater, or a Meshtastic router or repeater (by its advertised role). */
+    val isRepeater: Boolean
+        get() = meshCoreType == MeshCoreContactType.REPEATER || role in MeshConstants.ROUTER_ROLES
 
     companion object {
         fun hexID(num: Long): String = String.format(Locale.ROOT, "!%08x", num and 0xFFFFFFFFL)

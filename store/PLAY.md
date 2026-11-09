@@ -106,7 +106,7 @@ end of the description and in every guide.
 
 | Permission | Declaration needed | What to enter |
 |---|---|---|
-| `FOREGROUND_SERVICE_LOCATION` | **Yes** (foreground service types form) | Drive mode: "Keeps recording mesh radio coverage with the phone's GPS while the screen is off, during a drive the user starts. A notification shows the whole time; it stops when the user taps Stop or after 4 hours." Google asks for a short video of the feature: record drive mode starting from the Mesh tab, the notification, and Stop. |
+| `FOREGROUND_SERVICE_LOCATION` | **Yes** (foreground service types form) | Drive mode: "Keeps recording mesh radio coverage with the phone's GPS while the screen is off, during a drive the user starts. A notification shows the whole time; it stops when the user taps Stop." Google asks for a short video of the feature: record drive mode starting from the Mesh tab, the notification, and Stop. |
 | `FOREGROUND_SERVICE_CONNECTED_DEVICE` | **Yes** (same form) | "Keeps the Bluetooth link to the user's LoRa radio open during drive mode, so pings and received messages are recorded." Same video. |
 | `ACCESS_FINE_LOCATION` | No | Foreground only; there is no `ACCESS_BACKGROUND_LOCATION`, so no location declaration form. |
 | `BLUETOOTH_SCAN` | No | Marked `neverForLocation`. |

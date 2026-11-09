@@ -20,6 +20,7 @@ import org.json.JSONObject
 import org.nomadpocket.mesh.Firmware
 import org.nomadpocket.mesh.MeshCoreRadioParams
 import org.nomadpocket.mesh.OptOut
+import org.nomadpocket.mesh.OwnRadios
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -146,6 +147,22 @@ object KnownRadioParser {
     /** Radios within the radius, minus any whose owner opted out of mapping. */
     fun nearby(radios: List<KnownRadio>, lat: Double, lon: Double, radiusKm: Double, optsOut: (String) -> Boolean = OptOut::optsOut): List<KnownRadio> =
         radios.filter { !optsOut(it.name) && distance(lat, lon, it.latitude, it.longitude) <= radiusKm * 1000 }
+
+    /**
+     * Leaves out the user's own radios: on Meshtastic by node number, on
+     * MeshCore by the start of the public key (the radio's id here is "c" + key hex).
+     */
+    fun withoutOwn(radios: List<KnownRadio>, own: OwnRadios): List<KnownRadio> {
+        if (own.nodeNums.isEmpty() && own.meshCoreKeyPrefixes.isEmpty()) return radios
+        val tastic = own.nodeNums.map { "t$it" }.toSet()
+        val core = own.meshCoreKeyPrefixes.map { "c" + it.lowercase().take(16) }
+        return radios.filterNot { r ->
+            when (r.firmware) {
+                Firmware.MESHTASTIC -> r.id in tastic
+                Firmware.MESHCORE -> core.any { r.id.lowercase().startsWith(it) }
+            }
+        }
+    }
 
     fun toJson(updated: Instant, areaName: String?, radios: List<KnownRadio>): String = JSONObject().apply {
         put("updated", updated.toEpochMilli())

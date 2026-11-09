@@ -214,7 +214,8 @@ final class MeshServiceTests: XCTestCase {
         fake.enqueue(.rebooted)
         fake.fromNumChanged()
         fake.pump()
-        XCTAssertEqual(svc.connection, .syncing(name: "Test Radio"))
+        XCTAssertEqual(svc.link(.meshtastic).connection, .syncing(name: "Test Radio"))
+        XCTAssertEqual(svc.connection, .connected(name: "Test Radio"), "a quick reboot isn't shown as a drop")
         XCTAssertNotEqual(try fake.lastWantConfigID(), first)
     }
 
@@ -417,13 +418,14 @@ final class MeshServiceTests: XCTestCase {
     func testTransportReconnectingState() throws {
         let (svc, fake) = try connected()
         fake.onEvent?(.disconnected(id: fake.connectedID!, reason: "Link lost", willReconnect: true))
-        XCTAssertEqual(svc.connection, .reconnecting(name: "Test Radio"))
+        XCTAssertEqual(svc.link(.meshtastic).connection, .reconnecting(name: "Test Radio"))
+        XCTAssertEqual(svc.connection, .connected(name: "Test Radio"), "shown as connected for the first 20 s")
         XCTAssertFalse(svc.canSend)
         fake.onEvent?(.pairingProblem(id: fake.connectedID!, "PIN"))
         XCTAssertEqual(svc.pairingHint, "PIN")
         fake.becomeReady()
         XCTAssertNil(svc.pairingHint)
-        XCTAssertEqual(svc.connection, .syncing(name: "Test Radio"))
+        XCTAssertEqual(svc.link(.meshtastic).connection, .syncing(name: "Test Radio"))
     }
 
     // MARK: Drive-test pings

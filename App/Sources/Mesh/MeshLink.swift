@@ -24,7 +24,14 @@ final class MeshLink: Identifiable {
     var deviceName: String?
     /// Reconnect at launch (cleared by a user disconnect).
     var autoReconnect = false
-    var connection: MeshConnectionState = .idle
+    /// The real link state. Writes, pings and the handshake go by this one.
+    var connection: MeshConnectionState = .idle {
+        didSet { if connection != oldValue { connectionChanged() } }
+    }
+    /// What the screens, drive mode and drive log show: `connection` with drops
+    /// that come back within `dropGrace` smoothed over, so a radio at the edge of
+    /// Bluetooth range doesn't flicker between connected and not.
+    private(set) var displayedConnection: MeshConnectionState = .idle
     /// Nodes heard on this network. Node numbers are only unique per network.
     var nodes: [UInt32: MeshNode] = [:]
     var radio = MeshRadioInfo()
@@ -40,6 +47,71 @@ final class MeshLink: Identifiable {
     var batteryLevel: UInt32? { myNode?.batteryLevel }
     /// Anything worth saving or showing for this network.
     var hasData: Bool { isRemembered || !nodes.isEmpty || radio.myNodeNum != 0 }
+
+    // MARK: Drops, flicker and "not nearby"
+
+    /// A drop shorter than this is never shown (nor logged one by one).
+    nonisolated static let dropGrace: TimeInterval = 20
+
+    /// The clock for drops and "not nearby" (MeshService sets it; tests move it).
+    @ObservationIgnored var now: () -> Date = Date.init
+    /// When a working link went down, while that drop is still hidden by the grace.
+    @ObservationIgnored private(set) var droppedAt: Date?
+    /// When the link started waiting for a pending connection (kept through "not nearby").
+    @ObservationIgnored private(set) var waitingSince: Date?
+    /// Drops that came back within the grace, since the app started.
+    @ObservationIgnored private(set) var briefDrops = 0
+    /// Why the link last went down, in words, for the drive log.
+    @ObservationIgnored var lastDropReason: String?
+
+    private func connectionChanged() {
+        let t = now()
+        switch connection {
+        case .connected:
+            if let d = droppedAt, t.timeIntervalSince(d) < Self.dropGrace { briefDrops += 1 }
+            droppedAt = nil
+            show(connection)
+        case .connecting, .reconnecting, .syncing:
+            if displayedConnection.isConnected {
+                // A working link dropped (or is on its way back): keep showing it as connected for now.
+                if droppedAt == nil { droppedAt = t }
+            } else {
+                show(connection)
+            }
+        default:
+            droppedAt = nil
+            show(connection)
+        }
+        var stillWaiting = connection.isWaiting
+        if case .notNearby = connection { stillWaiting = true }
+        if !stillWaiting {
+            waitingSince = nil
+        } else if waitingSince == nil {
+            waitingSince = t
+        }
+    }
+
+    /// Shows a drop once it has lasted past the grace. True when it just did.
+    @discardableResult
+    func revealLongDrop() -> Bool {
+        guard let d = droppedAt, now().timeIntervalSince(d) >= Self.dropGrace else { return false }
+        droppedAt = nil
+        show(connection)
+        return true
+    }
+
+    /// Sets the displayed state only when it differs, so views aren't redrawn for nothing.
+    private func show(_ state: MeshConnectionState) {
+        if displayedConnection != state { displayedConnection = state }
+    }
+
+    /// Starts the "not nearby" countdown over (the user just asked to connect).
+    func restartWaitClock() {
+        if connection.isWaiting { waitingSince = now() }
+    }
+
+    /// How long the link has been waiting for its pending connection, or nil.
+    var waitingFor: TimeInterval? { waitingSince.map { now().timeIntervalSince($0) } }
 
     /// Reads, changes and stores a node, tagging it with this network.
     func update(_ num: UInt32, _ change: (inout MeshNode) -> Void) {
@@ -111,6 +183,10 @@ final class MeshLink: Identifiable {
 
     /// Keyed by `MeshCoreContact.nodeNum(forHash:)`.
     var neighbors: [UInt32: Neighbor] = [:]
+
+    /// Known contacts heard directly this session (the last hop of a packet,
+    /// resolved by position, or a 0-hop advert), and when.
+    var heardDirect: [UInt32: Date] = [:]
 
     /// The repeater heard most recently within `window`, for drive-test pings
     /// when no radio was chosen.

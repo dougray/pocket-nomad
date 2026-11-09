@@ -76,7 +76,7 @@ enum CoverageNetworkFilter: String, CaseIterable, Identifiable {
     func includes(_ f: MeshFirmware) -> Bool { network == nil || network == f }
 }
 
-/// What colours the coverage dots and hexagons.
+/// What colours the coverage hexagons.
 enum CoverageColorMode: String, CaseIterable, Identifiable {
     case signal, network
     var id: Self { self }
@@ -95,8 +95,16 @@ final class MapController {
     var showNodes = UserDefaults.standard.object(forKey: "map.showNodes") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showNodes, forKey: "map.showNodes") }
     }
+    /// Contacts learned through relayed adverts, not heard directly. Off by default: they can be far out of range.
+    var showMeshKnown = UserDefaults.standard.object(forKey: "map.showMeshKnown") as? Bool ?? false {
+        didSet { UserDefaults.standard.set(showMeshKnown, forKey: "map.showMeshKnown") }
+    }
     var showKnown = UserDefaults.standard.object(forKey: "map.showKnown") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showKnown, forKey: "map.showKnown") }
+    }
+    /// OpenFreeMap streets as the base map (downloaded, or live when online) when no region map is installed.
+    var showStreets = UserDefaults.standard.object(forKey: "map.streets") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showStreets, forKey: "map.streets") }
     }
     var coverage = CoverageLayer(rawValue: UserDefaults.standard.string(forKey: "map.coverage") ?? "") ?? .off {
         didSet { UserDefaults.standard.set(coverage.rawValue, forKey: "map.coverage") }
@@ -136,20 +144,59 @@ struct OfflineMapView: View {
     @State private var coverageStore = CoverageStore.shared
     @State private var known = KnownRadioStore.shared
     @State private var showKnownSheet = false
+    @State private var showStreetsSheet = false
     @State private var tappedRadio: KnownRadio?
+    @State private var tappedNode: MeshNode?
+    @State private var tappedNodeDirect = true
+    @State private var streets = StreetMapStore.shared
+    @State private var network = NetworkStatus.shared
 
-    /// Radios heard by either connected radio (each network's own radio left out).
+    /// Both radio layers, worked out from the coverage recordings and live packets.
+    /// The phone's own radios are never in either.
+    private var radioLayers: HeardRadios.Layers {
+        guard controller.showNodes || controller.showMeshKnown else { return HeardRadios.Layers() }
+        return HeardRadios.layers(in: mesh, samples: coverageStore.samples)
+    }
+
+    /// Radios heard directly, where they say they are.
     private var mappedNodes: [MeshNode] {
-        guard controller.showNodes else { return [] }
-        return mesh.links.flatMap { l in l.nodes.values.filter { $0.hasPosition && $0.num != l.radio.myNodeNum } }
+        controller.showNodes ? radioLayers.direct : []
     }
 
-    private var shownSamples: [CoverageSample] {
-        controller.coverage == .recorded ? coverageStore.samples.filter { controller.coverageNetwork.includes($0.firmware) } : []
+    /// Radios only known from adverts passed along the mesh.
+    private var meshKnownNodes: [MeshNode] {
+        controller.showMeshKnown ? radioLayers.mesh : []
     }
 
-    private var shownPings: [CoveragePing] {
-        controller.coverage == .recorded ? coverageStore.pings.filter { controller.coverageNetwork.includes($0.firmware) } : []
+    /// Community-map radios, minus this phone's own (they may have uploaded their adverts).
+    private var shownKnown: [KnownRadio] {
+        guard controller.showKnown else { return [] }
+        let ownTastic = mesh.link(.meshtastic).radio.myNodeNum
+        let ownCore = mesh.ownMeshCoreKeyHex.map { "c" + $0 }
+        return known.radios.filter { r in
+            if r.firmware == .meshtastic { return ownTastic == 0 || r.id != "t\(ownTastic)" }
+            guard let ownCore else { return true }
+            return !r.id.lowercased().hasPrefix(ownCore)
+        }
+    }
+
+    private var baseMap: BaseMap {
+        BaseMap.choose(hasRegions: !content.maps.isEmpty, streetsOn: controller.showStreets,
+                       hasPacks: streets.hasPacks, online: network.online)
+    }
+
+    /// Coverage hexagons: all recordings (private) or only what sharing would publish.
+    private var shownCells: [CoverageShare.Cell] {
+        switch controller.coverage {
+        case .off: []
+        case .recorded: coverageStore.privateCells(for: controller.coverageNetwork.network)
+        case .shared: coverageStore.sharedCells(for: controller.coverageNetwork.network)
+        }
+    }
+
+    /// Drive-test results, one per hexagon and network (never a dot per ping).
+    private var shownPingCells: [CoverageShare.PingCell] {
+        controller.coverage == .recorded ? coverageStore.pingCells(for: controller.coverageNetwork.network) : []
     }
 
     /// More than one network has recorded anything (or two radios are set up).
@@ -160,14 +207,23 @@ struct OfflineMapView: View {
     var body: some View {
         NavigationStack {
             MapLibreView(controller: controller, dark: scheme == .dark, regions: content.maps.map(\.url),
-                         nodes: mappedNodes, known: controller.showKnown ? known.radios : [],
+                         base: baseMap, streetsKey: streets.pinnedTiles ?? "",
+                         nodes: mappedNodes, meshNodes: meshKnownNodes, known: shownKnown,
                          coverage: controller.coverage,
                          colorMode: controller.coverageColor,
                          networkKey: controller.coverageNetwork.rawValue,
-                         samples: shownSamples,
-                         pings: shownPings,
-                         cells: controller.coverage == .shared ? coverageStore.sharedCells(for: controller.coverageNetwork.network) : [],
-                         onTapRadio: { id in tappedRadio = known.radios.first { $0.id == id } }) { coord in
+                         cells: shownCells,
+                         pingCells: shownPingCells,
+                         onTapRadio: { id in tappedRadio = known.radios.first { $0.id == id } },
+                         onTapNode: { id in
+                             if let n = mappedNodes.first(where: { $0.listID == id }) {
+                                 tappedNode = n
+                                 tappedNodeDirect = true
+                             } else {
+                                 tappedNode = meshKnownNodes.first { $0.listID == id }
+                                 tappedNodeDirect = false
+                             }
+                         }) { coord in
                 pendingPin = coord
                 pinName = ""
             }
@@ -184,22 +240,39 @@ struct OfflineMapView: View {
             .overlay(alignment: .bottomLeading) {
                 VStack(alignment: .leading, spacing: 8) {
                     if controller.coverage != .off { coverageLegend }
-                    if !mappedNodes.isEmpty || (controller.showKnown && !known.radios.isEmpty) { radioLegend }
+                    if (controller.showNodes && (!mappedNodes.isEmpty || !coverageStore.isEmpty))
+                        || (controller.showMeshKnown && !meshKnownNodes.isEmpty)
+                        || (controller.showKnown && !known.radios.isEmpty) { radioLegend }
                     if controller.showKnown && known.radios.isEmpty { knownPrompt }
                 }
                 .padding(.leading, 12)
                 .padding(.bottom, 100)
             }
             .overlay(alignment: .bottom) {
-                if content.maps.isEmpty {
-                    Text("World overview only. Add a region map in Library › Get Content for street-level detail.")
-                        .font(.footnote).padding(10)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
-                        .padding()
+                if content.maps.isEmpty && baseMap == .protomaps {
+                    Button { showStreetsSheet = true } label: {
+                        Text("World overview only. Tap to download streets around you, or add a region map in Library › Get Content.")
+                            .font(.footnote).foregroundStyle(.primary).padding(10)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                    }
+                    .padding()
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if baseMap != .protomaps {
+                    // OpenFreeMap and OpenStreetMap ask for visible credit.
+                    Text(OpenFreeMap.attribution)
+                        .font(.system(size: 10)).padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
+                        .padding(.trailing, 34).padding(.bottom, 6) // clear of MapLibre's (i) button
+                        .allowsHitTesting(false)
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
-            .onAppear { location.begin() }
+            .onAppear {
+                location.begin()
+                streets.start()
+            }
             .onDisappear { location.end() }
             .sheet(isPresented: Binding(get: { pendingPin != nil }, set: { if !$0 { pendingPin = nil } })) {
                 pinEditor
@@ -213,20 +286,29 @@ struct OfflineMapView: View {
             .sheet(isPresented: $showKnownSheet) {
                 KnownRadiosSheet(mapCenter: controller.mapView?.centerCoordinate)
             }
+            .sheet(isPresented: $showStreetsSheet) {
+                StreetMapsSheet(mapCenter: controller.mapView?.centerCoordinate)
+            }
             .sheet(item: $tappedRadio) { radio in
                 KnownRadioDetail(radio: radio).presentationDetents([.height(260)])
+            }
+            .sheet(item: $tappedNode) { node in
+                HeardRadioDetail(node: node, direct: tappedNodeDirect).presentationDetents([.height(300)])
             }
         }
     }
 
     private var layersMenu: some View {
         Menu {
-            Toggle(isOn: $controller.showNodes) { Label("Radios I've heard", systemImage: "antenna.radiowaves.left.and.right") }
+            Toggle(isOn: $controller.showNodes) { Label("Radios heard directly", systemImage: "antenna.radiowaves.left.and.right") }
+            Toggle(isOn: $controller.showMeshKnown) { Label("Known on the mesh (relayed)", systemImage: "point.3.connected.trianglepath.dotted") }
             Toggle(isOn: $controller.showKnown) { Label("Known radios (community maps)", systemImage: "dot.radiowaves.up.forward") }
             Button { showKnownSheet = true } label: { Label("Download known radios…", systemImage: "arrow.down.circle") }
+            Toggle(isOn: $controller.showStreets) { Label("Street map (OpenFreeMap)", systemImage: "road.lanes") }
+            Button { showStreetsSheet = true } label: { Label("Download streets around me…", systemImage: "map") }
             Picker(selection: $controller.coverage) {
                 ForEach(CoverageLayer.allCases) { Text($0.label).tag($0) }
-            } label: { Label("Coverage", systemImage: "circle.hexagongrid") }
+            } label: { Label("Coverage hexagons", systemImage: "circle.hexagongrid") }
             .pickerStyle(.menu)
             if controller.coverage != .off {
                 Picker(selection: $controller.coverageNetwork) {
@@ -260,18 +342,18 @@ struct OfflineMapView: View {
                 }
             }
             if controller.coverageColor == .network || twoNetworks {
-                // Network colours: the fill in "colour by network", otherwise the ring or hexagon edge.
+                // Network colours: the fill in "colour by network", otherwise the hexagon edge.
                 HStack(spacing: 8) {
                     if controller.coverageNetwork.includes(.meshtastic) { networkKey(RadioColors.meshtastic, "Meshtastic") }
                     if controller.coverageNetwork.includes(.meshcore) { networkKey(RadioColors.meshcore, "MeshCore") }
-                    if controller.coverage == .shared && controller.coverageNetwork == .both { networkKey(.white, "Both") }
+                    if controller.coverageNetwork == .both { networkKey(.white, "Both") }
                 }
                 if controller.coverageColor == .signal {
-                    Text(controller.coverage == .shared ? "Edge: network" : "Ring: network").font(.caption2).foregroundStyle(.secondary)
+                    Text("Edge: network").font(.caption2).foregroundStyle(.secondary)
                 }
             }
             if controller.coverage == .recorded && !coverageStore.pings.isEmpty {
-                Text("Drive-test pings").font(.caption.weight(.semibold)).padding(.top, 2)
+                Text("Drive-test pings (best per hexagon, inner shape)").font(.caption.weight(.semibold)).padding(.top, 2)
                 HStack(spacing: 8) {
                     legendDot(PingColors.reached, "Answered")
                     legendDot(PingColors.relayed, "Repeated")
@@ -311,6 +393,18 @@ struct OfflineMapView: View {
                 Text("Other").font(.caption2)
             }
             Label(mesh.rememberedLinks.count > 1 ? "Heard by your radios" : "Heard by your radio", systemImage: "antenna.radiowaves.left.and.right").font(.caption2)
+            if controller.showNodes {
+                Text(HeardRadios.summary(mappedNodes)).font(.caption2).foregroundStyle(.secondary)
+                if let note = HeardRadios.unidentifiedSummary(radioLayers.unidentified) {
+                    Text(note).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                }
+            }
+            if controller.showMeshKnown {
+                HStack(spacing: 6) {
+                    Circle().fill(Color.gray.opacity(0.45)).frame(width: 8, height: 8)
+                    Text("Known on the mesh (\(meshKnownNodes.count), not heard directly)").font(.caption2)
+                }
+            }
         }
         .foregroundStyle(.primary)
         .padding(10)
@@ -453,26 +547,26 @@ enum RadioColors {
     }
 }
 
-/// A mesh node on the map (drawn with its own icon, unlike saved places).
-final class NodeAnnotation: MLNPointAnnotation {
-    var nodeNum: UInt32 = 0
-    var firmware: MeshFirmware = .meshtastic
-}
-
 struct MapLibreView: UIViewRepresentable {
     let controller: MapController
     let dark: Bool
     let regions: [URL]
+    var base: BaseMap = .protomaps
+    /// Changes when the downloaded streets' tile version does, so the style is rebuilt.
+    var streetsKey = ""
     var nodes: [MeshNode] = []
+    /// Radios only known from relayed adverts: drawn faint and small, no names.
+    var meshNodes: [MeshNode] = []
     var known: [KnownRadio] = []
     var coverage: CoverageLayer = .off
     var colorMode: CoverageColorMode = .signal
     /// Changes when the network filter does, so the layer is rebuilt.
     var networkKey = ""
-    var samples: [CoverageSample] = []
-    var pings: [CoveragePing] = []
     var cells: [CoverageShare.Cell] = []
+    var pingCells: [CoverageShare.PingCell] = []
     var onTapRadio: (String) -> Void = { _ in }
+    /// A heard radio was tapped (its `listID`).
+    var onTapNode: (String) -> Void = { _ in }
     let onLongPress: (CLLocationCoordinate2D) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -509,8 +603,7 @@ struct MapLibreView: UIViewRepresentable {
         var parent: MapLibreView
         private var styleKey = ""
         private var shownPins: [UUID: MLNPointAnnotation] = [:]
-        /// By network and number: node numbers are only unique per network.
-        private var shownNodes: [String: NodeAnnotation] = [:]
+        private var nodesKey = ""
         private var coverageKey = ""
         private var knownKey = ""
         private var regionsFitted = false
@@ -521,10 +614,13 @@ struct MapLibreView: UIViewRepresentable {
         init(_ parent: MapLibreView) { self.parent = parent }
 
         func applyStyle(to view: MLNMapView) {
-            let key = "\(parent.dark)|\(parent.regions.map(\.path).joined(separator: ","))"
+            let key = "\(parent.dark)|\(parent.base)|\(parent.streetsKey)|\(parent.regions.map(\.path).joined(separator: ","))"
             guard key != styleKey else { return }
             styleKey = key
-            if let url = try? MapStyle.write(dark: parent.dark, regions: parent.regions) {
+            // Overlays (radios, coverage, known radios) go back on in didFinishLoading.
+            if let streets = StreetMapStore.shared.styleURL(for: parent.base, dark: parent.dark) {
+                view.styleURL = streets
+            } else if let url = try? MapStyle.write(dark: parent.dark, regions: parent.regions) {
                 view.styleURL = url
             }
             if !regionsFitted, let first = parent.regions.first, let info = PMTilesInfo(url: first) {
@@ -560,116 +656,117 @@ struct MapLibreView: UIViewRepresentable {
             }
         }
 
+        /// Heard radios as a circle layer (network colour; repeaters larger with a
+        /// white ring, like the community-map radios) with their names beside them.
         func syncNodes(on view: MLNMapView) {
-            let wanted = Dictionary(parent.nodes.map { ($0.listID, $0) }, uniquingKeysWith: { a, _ in a })
-            for (key, a) in shownNodes where wanted[key] == nil {
-                view.removeAnnotation(a)
-                shownNodes[key] = nil
+            guard let style = view.style else { return }
+            let key = (parent.nodes.map { "d\($0.listID)|\($0.displayName)|\($0.latitude ?? 0)|\($0.longitude ?? 0)|\($0.isRepeater)" }
+                + parent.meshNodes.map { "m\($0.listID)|\($0.displayName)|\($0.latitude ?? 0)|\($0.longitude ?? 0)|\($0.isRepeater)" })
+                .sorted().joined(separator: ";")
+            guard key != nodesKey else { return }
+            nodesKey = key
+            func feature(_ node: MeshNode, direct: Bool) -> MLNPointFeature? {
+                guard let lat = node.latitude, let lon = node.longitude else { return nil }
+                let f = MLNPointFeature()
+                f.coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                f.attributes = ["lid": node.listID, "fw": node.firmware.rawValue, "big": node.isRepeater ? 1 : 0,
+                                "name": direct ? node.displayName : "", "far": direct ? 0 : 1]
+                return f
             }
-            for node in wanted.values {
-                guard let lat = node.latitude, let lon = node.longitude else { continue }
-                let coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
-                let heard = node.lastHeard.map { "heard " + $0.formatted(.relative(presentation: .named)) } ?? "not heard yet"
-                let firmware = node.firmware
-                let subtitle = [firmware.displayName, heard].joined(separator: " · ")
-                if let a = shownNodes[node.listID], a.firmware == firmware {
-                    if a.coordinate.latitude != lat || a.coordinate.longitude != lon { a.coordinate = coord }
-                    a.title = node.displayName
-                    a.subtitle = subtitle
-                } else {
-                    if let old = shownNodes[node.listID] { view.removeAnnotation(old) }
-                    let a = NodeAnnotation()
-                    a.nodeNum = node.num
-                    a.firmware = firmware
-                    a.coordinate = coord
-                    a.title = node.displayName
-                    a.subtitle = subtitle
-                    view.addAnnotation(a)
-                    shownNodes[node.listID] = a
-                }
+            // Known-on-the-mesh first, so heard-directly dots draw on top.
+            let features = parent.meshNodes.compactMap { feature($0, direct: false) } + parent.nodes.compactMap { feature($0, direct: true) }
+            if let source = style.source(withIdentifier: "heard-radios") as? MLNShapeSource {
+                source.shape = MLNShapeCollectionFeature(shapes: features)
+                return
             }
+            let source = MLNShapeSource(identifier: "heard-radios", features: features, options: nil)
+            style.addSource(source)
+            let dots = MLNCircleStyleLayer(identifier: "heard-radios", source: source)
+            dots.circleColor = RadioColors.expression
+            dots.circleRadius = NSExpression(format: "TERNARY(far == 1, TERNARY(big == 1, 5, 3.5), TERNARY(big == 1, 9, 6.5))")
+            dots.circleStrokeColor = NSExpression(format: "TERNARY(big == 1, %@, %@)", UIColor.white, UIColor.black.withAlphaComponent(0.5))
+            dots.circleStrokeWidth = NSExpression(format: "TERNARY(far == 1, 0.5, TERNARY(big == 1, 3, 1))")
+            dots.circleOpacity = NSExpression(format: "TERNARY(far == 1, 0.45, 1)")
+            style.addLayer(dots)
+            let labels = MLNSymbolStyleLayer(identifier: "heard-radio-names", source: source)
+            labels.text = NSExpression(forKeyPath: "name")
+            labels.textFontNames = NSExpression(forConstantValue: ["Noto Sans Regular"])
+            labels.textFontSize = NSExpression(forConstantValue: 12)
+            labels.textAnchor = NSExpression(forConstantValue: "top")
+            labels.textOffset = NSExpression(forConstantValue: NSValue(cgVector: CGVector(dx: 0, dy: 0.9)))
+            labels.textColor = RadioColors.expression
+            labels.textHaloColor = NSExpression(forConstantValue: parent.dark ? UIColor.black : UIColor.white)
+            labels.textHaloWidth = NSExpression(forConstantValue: 1.5)
+            labels.textOptional = NSExpression(forConstantValue: true)
+            style.addLayer(labels)
         }
 
-        /// Rebuilds the coverage source and layer when the data or mode changes.
+        /// Rebuilds the coverage hexagons when the data or mode changes. Only
+        /// hexagons are ever drawn: points would trace the route you drove.
         func syncCoverage(on view: MLNMapView) {
             guard let style = view.style else { return }
-            let key = "\(parent.coverage.rawValue)|\(parent.colorMode.rawValue)|\(parent.networkKey)|\(parent.samples.count)|\(parent.pings.count)|\(parent.cells.count)|\(parent.cells.map(\.count).reduce(0, +))"
+            let pingKey = parent.pingCells.map { "\($0.q),\($0.r),\($0.firmware.rawValue),\($0.best.rawValue)" }.joined(separator: ";")
+            let key = "\(parent.coverage.rawValue)|\(parent.colorMode.rawValue)|\(parent.networkKey)|\(parent.cells.count)|\(parent.cells.map(\.count).reduce(0, +))|\(pingKey.hashValue)"
             guard key != coverageKey else { return }
             coverageKey = key
-            for id in ["coverage-points", "coverage-pings", "coverage-cells", "coverage-outline"] {
+            for id in ["coverage-cells", "coverage-outline", "coverage-ping-cells", "coverage-ping-outline"] {
                 if let layer = style.layer(withIdentifier: id) { style.removeLayer(layer) }
             }
             for id in ["coverage", "coverage-ping-source"] {
                 if let source = style.source(withIdentifier: id) { style.removeSource(source) }
             }
-
-            switch parent.coverage {
-            case .off:
-                return
-            case .recorded:
-                let features: [MLNPointFeature] = parent.samples.map { s in
-                    let f = MLNPointFeature()
-                    f.coordinate = CLLocationCoordinate2D(latitude: s.latitude, longitude: s.longitude)
-                    f.attributes = ["snr": Double(s.snr ?? -10), "fw": s.firmware.rawValue]
-                    return f
-                }
-                let source = MLNShapeSource(identifier: "coverage", features: features, options: nil)
-                style.addSource(source)
-                let layer = MLNCircleStyleLayer(identifier: "coverage-points", source: source)
-                layer.circleRadius = NSExpression(forConstantValue: 6)
-                layer.circleOpacity = NSExpression(forConstantValue: 0.85)
-                if parent.colorMode == .network {
-                    layer.circleColor = RadioColors.expression
-                    layer.circleStrokeColor = NSExpression(forConstantValue: UIColor.black.withAlphaComponent(0.4))
-                    layer.circleStrokeWidth = NSExpression(forConstantValue: 1)
-                } else {
-                    // Fill is signal; the ring says which radio heard it.
-                    layer.circleColor = CoverageColors.expression
-                    layer.circleStrokeColor = RadioColors.expression
-                    layer.circleStrokeWidth = NSExpression(forConstantValue: 2)
-                }
-                style.addLayer(layer)
-                // Drive-test pings: square-ish larger dots, coloured by what came back.
-                let pingFeatures: [MLNPointFeature] = parent.pings.map { p in
-                    let f = MLNPointFeature()
-                    f.coordinate = CLLocationCoordinate2D(latitude: p.latitude, longitude: p.longitude)
-                    f.attributes = ["outcome": p.outcome.rawValue, "fw": p.firmware.rawValue]
-                    return f
-                }
-                let pingSource = MLNShapeSource(identifier: "coverage-ping-source", features: pingFeatures, options: nil)
-                style.addSource(pingSource)
-                let pings = MLNCircleStyleLayer(identifier: "coverage-pings", source: pingSource)
-                pings.circleRadius = NSExpression(forConstantValue: 9)
-                pings.circleColor = PingColors.expression
-                pings.circleOpacity = NSExpression(forConstantValue: 0.9)
-                // Fill is the outcome; the ring is the network that sent the ping.
-                pings.circleStrokeColor = RadioColors.expression
-                pings.circleStrokeWidth = NSExpression(forConstantValue: 3)
-                style.addLayer(pings)
-            case .shared:
-                let features: [MLNPolygonFeature] = parent.cells.map { cell in
-                    var coords = cell.corners.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
-                    let f = MLNPolygonFeature(coordinates: &coords, count: UInt(coords.count))
-                    // A hexagon with only pings is coloured as if signal matched its best ping.
-                    let snr: Double = if let best = cell.bestSNR { Double(best) }
-                        else if cell.pingsReached > 0 { 8 } else if cell.pingsRelayed > 0 { 0 } else { -15 }
-                    let fw = cell.firmwares.count > 1 ? "both" : (cell.firmwares.first?.rawValue ?? "meshtastic")
-                    f.attributes = ["snr": snr, "fw": fw]
-                    return f
-                }
-                let source = MLNShapeSource(identifier: "coverage", features: features, options: nil)
-                style.addSource(source)
-                let byNetwork = parent.colorMode == .network
-                let fill = MLNFillStyleLayer(identifier: "coverage-cells", source: source)
-                fill.fillColor = byNetwork ? RadioColors.expression : CoverageColors.expression
-                fill.fillOpacity = NSExpression(forConstantValue: 0.45)
-                style.addLayer(fill)
-                // The edge says which networks were heard in the hexagon (white: both).
-                let outline = MLNLineStyleLayer(identifier: "coverage-outline", source: source)
-                outline.lineColor = RadioColors.expression
-                outline.lineWidth = NSExpression(forConstantValue: byNetwork ? 1.2 : 2)
-                style.addLayer(outline)
+            guard parent.coverage != .off else { return }
+            // Coverage sits under the heard radios, so their dots and names stay readable.
+            let below = style.layer(withIdentifier: "heard-radios")
+            func add(_ layer: MLNStyleLayer) {
+                if let below { style.insertLayer(layer, below: below) } else { style.addLayer(layer) }
             }
+
+            let features: [MLNPolygonFeature] = parent.cells.map { cell in
+                var coords = cell.corners.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+                let f = MLNPolygonFeature(coordinates: &coords, count: UInt(coords.count))
+                // A hexagon with only pings is coloured as if signal matched its best ping.
+                let snr: Double = if let best = cell.bestSNR { Double(best) }
+                    else if cell.pingsReached > 0 { 8 } else if cell.pingsRelayed > 0 { 0 } else { -15 }
+                let fw = cell.firmwares.count > 1 ? "both" : (cell.firmwares.first?.rawValue ?? "meshtastic")
+                f.attributes = ["snr": snr, "fw": fw]
+                return f
+            }
+            let source = MLNShapeSource(identifier: "coverage", features: features, options: nil)
+            style.addSource(source)
+            let byNetwork = parent.colorMode == .network
+            let fill = MLNFillStyleLayer(identifier: "coverage-cells", source: source)
+            fill.fillColor = byNetwork ? RadioColors.expression : CoverageColors.expression
+            fill.fillOpacity = NSExpression(forConstantValue: 0.45)
+            add(fill)
+            // The edge says which networks were heard in the hexagon (white: both).
+            let outline = MLNLineStyleLayer(identifier: "coverage-outline", source: source)
+            outline.lineColor = RadioColors.expression
+            outline.lineWidth = NSExpression(forConstantValue: byNetwork ? 1.2 : 2)
+            add(outline)
+
+            // Drive-test results: a smaller hexagon inside each one, filled by the
+            // best outcome, edged by the network. With both networks in one
+            // hexagon, MeshCore's sits inside Meshtastic's.
+            guard !parent.pingCells.isEmpty else { return }
+            let shared = Set(parent.pingCells.filter { $0.firmware == .meshtastic }.map { "\($0.q),\($0.r)" })
+            let pingFeatures: [MLNPolygonFeature] = parent.pingCells.map { cell in
+                let inner = cell.firmware == .meshcore && shared.contains("\(cell.q),\(cell.r)")
+                var coords = cell.corners(scale: inner ? 0.35 : 0.6).map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+                let f = MLNPolygonFeature(coordinates: &coords, count: UInt(coords.count))
+                f.attributes = ["outcome": cell.best.rawValue, "fw": cell.firmware.rawValue]
+                return f
+            }
+            let pingSource = MLNShapeSource(identifier: "coverage-ping-source", features: pingFeatures, options: nil)
+            style.addSource(pingSource)
+            let pingFill = MLNFillStyleLayer(identifier: "coverage-ping-cells", source: pingSource)
+            pingFill.fillColor = PingColors.expression
+            pingFill.fillOpacity = NSExpression(forConstantValue: 0.85)
+            add(pingFill)
+            let pingOutline = MLNLineStyleLayer(identifier: "coverage-ping-outline", source: pingSource)
+            pingOutline.lineColor = RadioColors.expression
+            pingOutline.lineWidth = NSExpression(forConstantValue: 2.5)
+            add(pingOutline)
         }
 
         /// Community-map radios as one circle layer (thousands of annotations would be slow).
@@ -696,8 +793,8 @@ struct MapLibreView: UIViewRepresentable {
             layer.circleStrokeColor = NSExpression(format: "TERNARY(big == 1, %@, %@)", UIColor.white, UIColor.black.withAlphaComponent(0.35))
             layer.circleStrokeWidth = NSExpression(format: "TERNARY(big == 1, 2, 0.5)")
             layer.circleOpacity = NSExpression(forConstantValue: 0.9)
-            // Under the coverage layers so recordings stay readable.
-            if let below = style.layer(withIdentifier: "coverage-points") ?? style.layer(withIdentifier: "coverage-cells") {
+            // Under the coverage layers and heard radios so those stay readable.
+            if let below = style.layer(withIdentifier: "coverage-cells") ?? style.layer(withIdentifier: "heard-radios") {
                 style.insertLayer(layer, below: below)
             } else {
                 style.addLayer(layer)
@@ -708,34 +805,16 @@ struct MapLibreView: UIViewRepresentable {
             guard let view = g.view as? MLNMapView else { return }
             let p = g.location(in: view)
             let box = CGRect(x: p.x - 12, y: p.y - 12, width: 24, height: 24)
-            if let f = view.visibleFeatures(in: box, styleLayerIdentifiers: ["known-radios"]).first,
+            if let f = view.visibleFeatures(in: box, styleLayerIdentifiers: ["heard-radios"]).first,
+               let id = f.attribute(forKey: "lid") as? String {
+                parent.onTapNode(id)
+            } else if let f = view.visibleFeatures(in: box, styleLayerIdentifiers: ["known-radios"]).first,
                let id = f.attribute(forKey: "rid") as? String {
                 parent.onTapRadio(id)
             }
         }
 
         nonisolated func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
-
-        private func nodeImage(_ firmware: MeshFirmware) -> UIImage {
-            let size = CGSize(width: 30, height: 30)
-            return UIGraphicsImageRenderer(size: size).image { _ in
-                RadioColors.color(firmware).setFill()
-                UIBezierPath(ovalIn: CGRect(origin: .zero, size: size).insetBy(dx: 1, dy: 1)).fill()
-                let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .bold)
-                if let symbol = UIImage(systemName: "antenna.radiowaves.left.and.right", withConfiguration: config)?
-                    .withTintColor(.black, renderingMode: .alwaysOriginal) {
-                    symbol.draw(at: CGPoint(x: (size.width - symbol.size.width) / 2, y: (size.height - symbol.size.height) / 2))
-                }
-            }
-        }
-
-        nonisolated func mapView(_ mapView: MLNMapView, imageFor annotation: any MLNAnnotation) -> MLNAnnotationImage? {
-            guard let node = annotation as? NodeAnnotation else { return nil }
-            let firmware = node.firmware
-            let id = "mesh-node-\(firmware.rawValue)"
-            let image = MainActor.assumeIsolated { nodeImage(firmware) }
-            return MLNAnnotationImage(image: image, reuseIdentifier: id)
-        }
 
         @objc func longPress(_ g: UILongPressGestureRecognizer) {
             guard g.state == .began, let view = g.view as? MLNMapView else { return }
@@ -759,9 +838,10 @@ struct MapLibreView: UIViewRepresentable {
         nonisolated func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
             MainActor.assumeIsolated {
                 syncPins(on: mapView)
-                syncNodes(on: mapView)
-                coverageKey = "" // a new style has no coverage or known-radio layer yet
+                nodesKey = "" // a new style has no heard-radio, coverage or known-radio layer yet
+                coverageKey = ""
                 knownKey = ""
+                syncNodes(on: mapView)
                 syncCoverage(on: mapView)
                 syncKnown(on: mapView)
             }

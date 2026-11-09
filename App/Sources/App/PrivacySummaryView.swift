@@ -10,7 +10,7 @@ struct PrivacySummaryView: View {
         ("brain", "AI runs on the phone",
          "Ask uses Apple's on-device model or a model file you downloaded. Questions and answers aren't saved."),
         ("location", "Location only for you",
-         "Used for the map, the compass, an SOS you choose to send with your position, and the coverage scanner if you turn it on. Drive mode keeps the scanner going with the phone locked until you stop it (4 hours at most). The app never sends your location by itself."),
+         "Used for the map, the compass, an SOS you choose to send with your position, and the coverage scanner if you turn it on. Drive mode keeps the scanner going with the phone locked until you stop it. The app never sends your location by itself."),
         ("antenna.radiowaves.left.and.right", "Mesh messages go over the air",
          "What you send through your radio reaches other people's radios. Default public channels use a well-known key, so anyone nearby can read them. Use a private channel for anything sensitive."),
         ("circle.hexagongrid", "Coverage sharing is opt-in",

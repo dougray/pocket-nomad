@@ -22,6 +22,8 @@ class FakeMeshTransport : MeshTransport {
     var pendingReads = 0
     var connectedID: String? = null
     var scanning = false
+    /** MeshTransport.setLowPower: on while the radio is Not nearby. */
+    var inLowPower = false
 
     override fun start() { onEvent?.invoke(MeshTransportEvent.Availability(MeshBluetoothAvailability.POWERED_ON)) }
     override fun startScan() { scanning = true }
@@ -36,6 +38,7 @@ class FakeMeshTransport : MeshTransport {
     }
     override fun write(toRadio: ByteArray) { writes.add(toRadio) }
     override fun readFromRadio() { pendingReads += 1 }
+    override fun setLowPower(on: Boolean) { inLowPower = on }
 
     fun emit(e: MeshTransportEvent) { onEvent?.invoke(e) }
 

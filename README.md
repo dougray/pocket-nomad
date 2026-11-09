@@ -57,7 +57,7 @@ sharing would publish" previews it exactly.
 
 Mesh › Coverage map › Drive mode keeps the coverage scanner running, from the
 phone's own GPS, while the phone is locked in a car mount (iOS shows the
-location indicator; it turns itself off after 4 hours). With the ping test on,
+location indicator; it runs until you turn it off). With the ping test on,
 it sends one test every 300 m, at most every 45 s:
 
 - **Meshtastic**: a tiny packet on a private app port that chat apps ignore.

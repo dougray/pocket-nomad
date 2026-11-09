@@ -22,7 +22,7 @@ final class ToolMathTests: XCTestCase {
     }
 
     func testDMS() {
-        XCTAssertEqual(CoordinateFormat.dms(.init(latitude: 30.5, longitude: -97.25)), "30°30′00.0″N 97°15′00.0″W")
+        XCTAssertEqual(CoordinateFormat.dms(.init(latitude: 39.75, longitude: -104.25)), "39°45′00.0″N 104°15′00.0″W")
     }
 
     func testCardinal() {

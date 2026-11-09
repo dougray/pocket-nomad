@@ -20,6 +20,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.nomadpocket.mesh.proto.MeshCoreContact
 import java.io.File
 
 /** What an SOS did on one radio: the text sent, or null if it could not be sent. */
@@ -138,6 +139,59 @@ class MeshRadios(
     val sortedNodes: List<Pair<Firmware, MeshNode>>
         get() = links.flatMap { (fw, link) -> link.sortedNodes.map { fw to it } }
             .sortedByDescending { it.second.lastHeardMillis ?: Long.MIN_VALUE }
+
+    /**
+     * The user's own radios, on either network: a node number that is either
+     * link's own (so your Meshtastic radio heard by your MeshCore one counts
+     * too), or on MeshCore a repeater path hash that matches the start of your
+     * radio's public key. Coverage never records these and the map never draws them.
+     */
+    fun isOwnRadio(node: Long, firmware: Firmware): Boolean {
+        if (node == 0L) return false
+        if (links.values.any { it.myNodeNum != 0L && it.myNodeNum == node }) return true
+        if (firmware != Firmware.MESHCORE) return false
+        val core = links[Firmware.MESHCORE] ?: return false
+        val key = core.myNode?.publicKeyPrefix ?: return false
+        if (key.isEmpty()) return false
+        core.neighbors[node]?.let { if (key.startsWith(it.hash)) return true }
+        // A 1-3 byte path hash is keyed by MeshCoreContact.nodeNumForHash.
+        return (1..3).any { MeshCoreContact.nodeNumForHash(key.prefix(it).array) == node }
+    }
+
+    /**
+     * Every radio either link knows that has a position (heard directly or
+     * only through the mesh), never the user's own (on either network) or blocked ones,
+     * most recently heard first. A node is its network plus number.
+     */
+    val radiosHeard: List<MapNode>
+        get() = links.flatMap { (fw, link) -> link.sortedNodes.mapNotNull { it.toMapNode(fw) } }
+            .filterNot { isOwnRadio(it.num, it.firmware) }
+            .sortedByDescending { it.lastHeardMillis ?: Long.MIN_VALUE }
+
+    /**
+     * The map's two radio layers (HeardResolver): radios heard directly, from
+     * the coverage recordings, from MeshCore repeaters heard in the last 10
+     * minutes (placed by `fix`, the phone's position now) and from zero-hop
+     * entries on each radio's own list; and the other located radios, known
+     * only through the mesh. Never the user's own radios or blocked ones.
+     */
+    fun heard(samples: List<CoverageRecord>, fix: Fix?): HeardRadios {
+        val contacts = links.mapValues { (_, link) -> link.sortedNodes.associateBy { it.num } }
+        val t = now()
+        val live = if (fix == null) emptyList() else links[Firmware.MESHCORE]?.neighbors?.values
+            ?.filter { t - it.lastHeardMillis <= MeshService.NEIGHBOR_WINDOW_MS }
+            ?.map { CoverageRecord(it.lastHeardMillis, fix.latitude, fix.longitude, fix.accuracy, Firmware.MESHCORE,
+                MeshCoreContact.nodeNumForHash(it.hash.array), it.snr, 1) } ?: emptyList()
+        val zeroHop = links.flatMap { (fw, link) -> link.sortedNodes.filter { it.hopsAway == 0L }.map { fw to it } }
+        return HeardResolver.derive(samples + live, contacts, ::isOwnRadio, zeroHop)
+    }
+
+    /** What identifies the user's radios on the community maps (and the map's own radio layer). */
+    val ownRadios: OwnRadios
+        get() = OwnRadios(
+            nodeNums = links.values.map { it.myNodeNum }.filter { it != 0L }.toSet(),
+            meshCoreKeyPrefixes = setOfNotNull(links[Firmware.MESHCORE]?.myNode?.publicKeyPrefix?.takeIf { !it.isEmpty() }?.hex()),
+        )
 
     /** A node's name on either network, for the coverage opt-out check. */
     fun nodeName(num: Long): String =

@@ -14,7 +14,8 @@
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
     <uses-feature android:name="android.hardware.sensor.compass" android:required="false" />
 
-    <!-- Nothing is backed up to the cloud: Medical ID, pins and recordings stay on this phone. -->
+    <!-- Nothing leaves the phone: no cloud backup and no device-to-device transfer. Coverage
+         backups go to a folder on this phone's own storage that the user picks (Coverage › Backup). -->
     <application
         android:name=".NomadApp"
         android:allowBackup="false"

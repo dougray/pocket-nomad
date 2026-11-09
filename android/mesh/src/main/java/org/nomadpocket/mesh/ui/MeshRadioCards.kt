@@ -72,7 +72,8 @@ fun FirmwareBadge(firmware: Firmware, compact: Boolean = false) {
 @Composable
 fun MeshRadioCard(firmware: Firmware, link: MeshService, onDisconnect: () -> Unit, onForget: () -> Unit, onReconnect: () -> Unit,
                   onSettings: () -> Unit = {}) {
-    val connection by link.connectionFlow.collectAsState()
+    // The displayed link: a drop of a few seconds at the edge of Bluetooth range doesn't flicker the card.
+    val connection by link.displayConnectionFlow.collectAsState()
     val nodes by link.nodesFlow.collectAsState()
     val radio by link.radioFlow.collectAsState()
     val nearby by Mesh.nearbyMeshCore.collectAsState()
@@ -83,9 +84,11 @@ fun MeshRadioCard(firmware: Firmware, link: MeshService, onDisconnect: () -> Uni
     val tint = when (connection) {
         is MeshConnectionState.Connected -> MeshColors.ok
         is MeshConnectionState.Failed -> MeshColors.danger
-        MeshConnectionState.Idle -> MeshColors.secondary
+        MeshConnectionState.Idle, is MeshConnectionState.NotNearby, is MeshConnectionState.NotWithMe -> MeshColors.secondary
         else -> MeshColors.warn
     }
+    val trying = connection is MeshConnectionState.Reconnecting || connection is MeshConnectionState.Connecting ||
+        connection is MeshConnectionState.NotNearby
     MeshCard {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -98,11 +101,17 @@ fun MeshRadioCard(firmware: Firmware, link: MeshService, onDisconnect: () -> Uni
             radio.settingsSummary?.let { Text(it, fontSize = 15.sp, color = MeshColors.secondary) }
             if (noRegion) Text("No region set: this radio won't transmit. Open Radio settings to pick yours.", fontSize = 15.sp, color = MeshColors.danger)
             hint?.let { Text(it, fontSize = 15.sp, color = MeshColors.warn) }
+            // Left at home today: stop looking for it until Connect or the next launch (auto-reconnect stays on).
+            if (trying && link.lastDeviceID != null) {
+                TextButton(onClick = { link.notWithMeToday() }) { Text("Not with me today", color = MeshColors.accent) }
+            }
             Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (connection == MeshConnectionState.Idle || connection is MeshConnectionState.Failed) {
-                    TextButton(onClick = onReconnect) { Text("Reconnect", color = MeshColors.accent) }
-                } else {
-                    TextButton(onClick = onDisconnect) { Text("Disconnect", color = MeshColors.danger) }
+                when (connection) {
+                    MeshConnectionState.Idle, is MeshConnectionState.Failed ->
+                        TextButton(onClick = onReconnect) { Text("Reconnect", color = MeshColors.accent) }
+                    is MeshConnectionState.NotWithMe ->
+                        TextButton(onClick = onReconnect) { Text("Connect", color = MeshColors.accent) }
+                    else -> TextButton(onClick = onDisconnect) { Text("Disconnect", color = MeshColors.danger) }
                 }
                 TextButton(onClick = onSettings) { Text("Radio settings…", color = MeshColors.accent) }
                 TextButton(onClick = onForget) { Text("Forget", color = MeshColors.secondary) }
@@ -118,5 +127,7 @@ private fun radioStateWord(state: MeshConnectionState): String = when (state) {
     is MeshConnectionState.Syncing -> "Syncing"
     is MeshConnectionState.Connected -> "Connected"
     is MeshConnectionState.Reconnecting -> "Waiting for the radio"
+    is MeshConnectionState.NotNearby -> "Not nearby · reconnects when it's back"
+    is MeshConnectionState.NotWithMe -> "Not with me today · Connect"
     is MeshConnectionState.Failed -> state.reason
 }

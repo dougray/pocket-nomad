@@ -117,7 +117,7 @@ struct MeshStatusCard: View {
         switch state {
         case .connected: return "antenna.radiowaves.left.and.right"
         case .failed: return "exclamationmark.triangle.fill"
-        case .idle: return "antenna.radiowaves.left.and.right.slash"
+        case .idle, .notNearby, .notWithMeToday: return "antenna.radiowaves.left.and.right.slash"
         default: return "dot.radiowaves.left.and.right"
         }
     }
@@ -126,7 +126,7 @@ struct MeshStatusCard: View {
         switch state {
         case .connected: return MeshUI.ok
         case .failed: return Theme.danger
-        case .idle: return .secondary
+        case .idle, .notNearby, .notWithMeToday: return .secondary
         default: return MeshUI.warn
         }
     }
@@ -139,6 +139,8 @@ struct MeshStatusCard: View {
         case .syncing(let n): return "Syncing with \(n)"
         case .connected(let n): return "Connected: \(n)"
         case .reconnecting(let n): return "Waiting for \(n)"
+        case .notNearby(let n): return "\(n) not nearby"
+        case .notWithMeToday(let n): return "\(n): not with me today"
         case .failed: return "Connection problem"
         }
     }
@@ -158,6 +160,8 @@ struct MeshStatusCard: View {
             if radio.settingsSummary?.hasSuffix("· \(channel)") != true { bits.append(channel) }
             return bits.joined(separator: " · ")
         case .reconnecting: return "Will reconnect by itself when the radio is in range."
+        case .notNearby: return "Reconnects by itself when it's back."
+        case .notWithMeToday: return "Not reconnecting until you tap Connect."
         case .failed(let why): return why
         }
     }
@@ -258,22 +262,35 @@ struct MeshRadioCard: View {
     @State private var known = KnownRadioStore.shared
 
     private var mesh: MeshService { MeshService.shared }
+    /// As shown: a drop shorter than 20 s doesn't change the card.
+    private var state: MeshConnectionState { link.displayedConnection }
 
     /// "Most radios near you use 910.525 MHz" when this MeshCore radio is on other settings.
     private var hint: String? {
-        guard link.firmware == .meshcore, link.connection.isConnected else { return nil }
+        guard link.firmware == .meshcore, state.isConnected else { return nil }
         return MeshCoreRadioHint.text(current: link.radio.meshCoreParams,
                                       nearby: MeshCoreNearbyConsensus.compute(known.radios))
     }
 
     private var regionUnset: Bool {
-        link.firmware == .meshtastic && link.connection.isConnected && link.radio.region == MeshtasticRegion.unset
+        link.firmware == .meshtastic && state.isConnected && link.radio.region == MeshtasticRegion.unset
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             cardRow
-            if let hint {
+            if case .notWithMeToday = state {
+                Button { mesh.reconnect(link.firmware) } label: {
+                    Label("Connect", systemImage: "arrow.triangle.2.circlepath")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.accent)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 10)
+                .accessibilityLabel("Connect \(link.displayName)")
+            } else if let hint {
                 hintButton("\(hint) — Radio settings")
             } else if regionUnset {
                 hintButton("No region set, so this radio can't transmit — Radio settings")
@@ -320,7 +337,7 @@ struct MeshRadioCard: View {
                         }
                         Text(stateLine).font(.subheadline).foregroundStyle(.secondary)
                             .multilineTextAlignment(.leading)
-                        if let b = link.batteryLevel, link.connection.isConnected {
+                        if let b = link.batteryLevel, state.isConnected {
                             Label(b > 100 ? "Plugged in" : "Battery \(b)%", systemImage: b > 100 ? "powerplug.fill" : "battery.50")
                                 .font(.subheadline).foregroundStyle(.secondary)
                         }
@@ -332,9 +349,16 @@ struct MeshRadioCard: View {
             .buttonStyle(.plain)
             .accessibilityLabel("\(link.displayName), \(link.firmware.displayName). \(stateLine)")
             Menu {
-                if link.connection == .idle || isFailed {
+                if state == .idle || isFailed {
                     Button("Reconnect", systemImage: "arrow.triangle.2.circlepath") { mesh.reconnect(link.firmware) }
+                } else if case .notWithMeToday = state {
+                    Button("Connect", systemImage: "arrow.triangle.2.circlepath") { mesh.reconnect(link.firmware) }
+                    Button("Disconnect", systemImage: "xmark.circle") { mesh.disconnect(link.firmware) }
                 } else {
+                    if !state.isConnected && link.autoReconnect {
+                        // Stops reconnecting until Connect or the next launch; still reconnects tomorrow.
+                        Button("Not With Me Today", systemImage: "moon.zzz") { mesh.notWithMeToday(link.firmware) }
+                    }
                     Button("Disconnect", systemImage: "xmark.circle") { mesh.disconnect(link.firmware) }
                 }
                 if link.connection.isConnected {
@@ -352,37 +376,37 @@ struct MeshRadioCard: View {
     }
 
     private var isFailed: Bool {
-        if case .failed = link.connection { return true }
+        if case .failed = state { return true }
         return false
     }
 
     private var isBusy: Bool {
-        switch link.connection {
+        switch state {
         case .scanning, .connecting, .syncing, .reconnecting: return true
         default: return false
         }
     }
 
     private var symbol: String {
-        switch link.connection {
+        switch state {
         case .connected: return "antenna.radiowaves.left.and.right"
         case .failed: return "exclamationmark.triangle.fill"
-        case .idle: return "antenna.radiowaves.left.and.right.slash"
+        case .idle, .notNearby, .notWithMeToday: return "antenna.radiowaves.left.and.right.slash"
         default: return "dot.radiowaves.left.and.right"
         }
     }
 
     private var tint: Color {
-        switch link.connection {
+        switch state {
         case .connected: return MeshUI.ok
         case .failed: return Theme.danger
-        case .idle: return .secondary
+        case .idle, .notNearby, .notWithMeToday: return .secondary
         default: return MeshUI.warn
         }
     }
 
     private var stateLine: String {
-        switch link.connection {
+        switch state {
         case .idle: return "Not connected"
         case .scanning: return "Looking for radios"
         case .connecting: return "Connecting. If iOS asks for a PIN, read it off the radio's screen."
@@ -395,6 +419,8 @@ struct MeshRadioCard: View {
             if link.radio.settingsSummary?.hasSuffix("· \(channel)") != true { bits.append(channel) }
             return bits.joined(separator: " · ")
         case .reconnecting: return "Waiting. Reconnects by itself when the radio is in range."
+        case .notNearby: return "Not nearby · reconnects when it's back"
+        case .notWithMeToday: return "Not with me today"
         case .failed(let why): return why
         }
     }

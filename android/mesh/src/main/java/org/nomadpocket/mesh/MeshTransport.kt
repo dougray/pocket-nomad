@@ -50,4 +50,9 @@ interface MeshTransport {
     /** Meshtastic: one ToRadio. MeshCore: one command frame. */
     fun write(toRadio: ByteArray)
     fun readFromRadio()
+    /**
+     * While on, the radio is probably not nearby: keep the background reconnect
+     * going but as cheaply as possible (slow retries). Off when it comes back.
+     */
+    fun setLowPower(on: Boolean) {}
 }

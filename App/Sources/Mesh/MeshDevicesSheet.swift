@@ -63,10 +63,10 @@ struct MeshDevicesSheet: View {
         ForEach(mesh.rememberedLinks) { l in
             VStack(alignment: .leading, spacing: 12) {
                 MeshRadioCard(link: l)
-                if !l.radio.firmwareVersion.isEmpty, l.connection.isConnected {
+                if !l.radio.firmwareVersion.isEmpty, l.displayedConnection.isConnected {
                     Text("Firmware \(l.radio.firmwareVersion)").font(.footnote).foregroundStyle(.secondary)
                 }
-                if l.connection != .idle {
+                if l.displayedConnection != .idle, !l.displayedConnection.isNotWithMeToday {
                     Button(role: .destructive) { mesh.disconnect(l.firmware) } label: {
                         Label("Disconnect \(l.displayName)", systemImage: "xmark.circle")
                     }

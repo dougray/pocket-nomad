@@ -237,9 +237,87 @@ fun KnownRadiosSheet(mapCenter: LatLng?, onDismiss: () -> Unit) {
     }
 }
 
+/**
+ * "Streets around me": one tap saves two areas around the phone (or the middle of
+ * the map): a wide one with highways, main roads, cities and towns, and a smaller
+ * one with every street. Shows the size first, then progress, with cancel.
+ */
+@Composable
+fun StreetsAroundMeSheet(mapCenter: LatLng?, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val regions by OfflineRegions.regions.collectAsState()
+    val error by OfflineRegions.error.collectAsState()
+    val location = rememberLocation()
+    var wideKm by remember { mutableIntStateOf(StreetsArea.DEFAULT_WIDE_KM) }
+    var detailKm by remember { mutableIntStateOf(StreetsArea.DEFAULT_DETAIL_KM) }
+    val center: Pair<Double, Double>? = location?.let { it.latitude to it.longitude } ?: mapCenter?.let { it.latitude to it.longitude }
+    val usingGPS = location != null
+    val plan = center?.let { StreetsArea.plan(it.first, it.second, wideKm, detailKm) }
+    val streets = regions.filter { it.isStreets }
+    val active = streets.filter { !it.complete }
+    val nf = NumberFormat.getIntegerInstance()
+
+    Sheet(onDismiss) {
+        SheetTitle("Streets around me", onDismiss)
+        Text("Saves the map around you for use with no signal, in two parts.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Header("Highways, main roads, cities and towns")
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            StreetsArea.wideChoicesKm.forEach { km ->
+                FilterChip(selected = wideKm == km, onClick = { wideKm = km }, label = { Text("$km km") })
+            }
+        }
+        Header("Every street")
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            StreetsArea.detailChoicesKm.forEach { km ->
+                FilterChip(selected = detailKm == km, onClick = { detailKm = km }, label = { Text("$km km") })
+            }
+        }
+        Header("Download")
+        if (plan == null) {
+            Text("Waiting for GPS or the map. Move the map to your area if there's no GPS fix.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            LabeledRow("Size", "About ${TileMath.formatBytes(plan.bytes)} (${nf.format(plan.tiles)} tiles)")
+            LabeledRow("Centred on", if (usingGPS) "Where you are" else "The middle of the map")
+            if (plan.tooBig) {
+                Text("That's too much for one download. Pick a smaller distance.", color = Brand.danger, style = MaterialTheme.typography.bodySmall)
+            }
+            Button(
+                onClick = { OfflineRegions.downloadStreets(context, plan) },
+                enabled = !plan.tooBig && active.isEmpty(),
+                modifier = Modifier.padding(top = 6.dp),
+            ) {
+                Icon(Icons.Filled.Download, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Download streets around me")
+            }
+        }
+        error?.let { Text(it, Modifier.padding(top = 6.dp), color = Brand.danger, style = MaterialTheme.typography.bodySmall) }
+        streets.forEach { r ->
+            Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                Text(r.name)
+                Text(
+                    if (r.complete) "Saved · ${TileMath.formatBytes(r.bytes)}" else "Downloading… ${r.percent}% (${TileMath.formatBytes(r.bytes)})",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (!r.complete) LinearProgressIndicator(progress = { r.percent / 100f }, modifier = Modifier.fillMaxWidth())
+            }
+        }
+        if (active.isNotEmpty()) {
+            TextButton(onClick = { OfflineRegions.cancelStreets() }) { Text("Cancel download", color = Brand.danger) }
+        }
+        Footnote(
+            (if (center != null && !usingGPS) "No GPS fix yet, so this saves around the middle of the map: move the map to your area first. " else "") +
+                "Downloads from OpenFreeMap once and keeps it on this phone; your location isn't sent, only the map tiles are requested. " +
+                "Delete saved parts in Layers › Offline maps. Size is an estimate.",
+            Modifier.padding(top = 6.dp),
+        )
+        Footnote("Map data © OpenStreetMap contributors · OpenFreeMap", Modifier.padding(top = 4.dp))
+    }
+}
+
 /** Save the area on screen for offline use, with a size estimate, and delete saved areas. */
 @Composable
-fun OfflineMapsSheet(visibleBounds: () -> LatLngBounds?, onDismiss: () -> Unit) {
+fun OfflineMapsSheet(visibleBounds: () -> LatLngBounds?, onDismiss: () -> Unit, onStreets: () -> Unit = {}) {
     val context = LocalContext.current
     val regions by OfflineRegions.regions.collectAsState()
     val error by OfflineRegions.error.collectAsState()
@@ -252,6 +330,11 @@ fun OfflineMapsSheet(visibleBounds: () -> LatLngBounds?, onDismiss: () -> Unit) 
 
     Sheet(onDismiss) {
         SheetTitle("Offline maps", onDismiss)
+        TextButton(onClick = onStreets) {
+            Icon(Icons.Filled.Download, null)
+            Spacer(Modifier.width(8.dp))
+            Text("Download streets around me…")
+        }
         Header("Save this area")
         if (bounds == null || tiles == null) {
             Text("Wait for the map to load, then try again.", color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -6,7 +6,8 @@
 // phone was. With two radios connected (one Meshtastic, one MeshCore) both
 // record at once, and every sample and ping carries its network, so the map
 // can show or filter each one. That maps where the mesh reaches, which is how you pick spots for
-// repeaters. Everything stays on the phone unless the user turns sharing on,
+// repeaters. The map only ever draws them binned into hexagons, never as
+// points: a trail of dots would map your drive, not the mesh. Everything stays on the phone unless the user turns sharing on,
 // and even then only a privacy-filtered summary (hexagons, no node names or
 // IDs, no times finer than a month, private zones blanked) is ever written out.
 
@@ -35,6 +36,15 @@ enum MeshPingOutcome: String, Codable, Sendable {
     case relayed
     /// Nothing heard it.
     case none
+
+    /// Better outcomes rank higher: reached, then relayed, then none.
+    var rank: Int {
+        switch self {
+        case .reached: 2
+        case .relayed: 1
+        case .none: 0
+        }
+    }
 }
 
 /// One drive-test ping: where the phone was when it was sent, and what came back.
@@ -57,6 +67,19 @@ struct CoverageZone: Codable, Identifiable, Equatable, Sendable {
 
     func contains(latitude lat: Double, longitude lon: Double) -> Bool {
         CoverageShare.distance(latitude, longitude, lat, lon) <= radius
+    }
+}
+
+extension CoverageZone {
+    /// Lenient: a zone from another app may have no id, or one that isn't a UUID.
+    init(from decoder: Decoder) throws {
+        enum Keys: String, CodingKey { case id, name, latitude, longitude, radius }
+        let c = try decoder.container(keyedBy: Keys.self)
+        id = (try? c.decodeIfPresent(UUID.self, forKey: .id)) ?? UUID()
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? "Private place"
+        latitude = try c.decode(Double.self, forKey: .latitude)
+        longitude = try c.decode(Double.self, forKey: .longitude)
+        radius = try c.decodeIfPresent(Double.self, forKey: .radius) ?? 500
     }
 }
 
@@ -101,6 +124,7 @@ final class CoverageStore {
     private let pingsURL: URL
     private let location: () -> CLLocation?
     private let nodeName: (UInt32, MeshFirmware) -> String
+    private let isOwnRadio: (UInt32, MeshFirmware) -> Bool
     private let now: () -> Date
     private let controlsGPS: Bool
     private var usingLocation = false
@@ -117,6 +141,7 @@ final class CoverageStore {
          fileURL: URL = URL.applicationSupportDirectory.appending(path: "coverage.json"),
          location: @escaping () -> CLLocation? = { LocationService.shared.location },
          nodeName: @escaping (UInt32, MeshFirmware) -> String = { MeshService.shared.link($1).nodes[$0]?.longName ?? "" },
+         isOwnRadio: @escaping (UInt32, MeshFirmware) -> Bool = { MeshService.shared.isOwnRadio($0, on: $1) },
          now: @escaping () -> Date = Date.init,
          controlsGPS: Bool = true) {
         self.defaults = defaults
@@ -125,6 +150,7 @@ final class CoverageStore {
         pingsURL = fileURL.deletingPathExtension().appendingPathExtension("pings.json")
         self.location = location
         self.nodeName = nodeName
+        self.isOwnRadio = isOwnRadio
         self.now = now
         recording = defaults.bool(forKey: Keys.recording)
         sharing = defaults.bool(forKey: Keys.sharing)
@@ -149,9 +175,11 @@ final class CoverageStore {
 
     /// Notes where the phone is now. Ignored when recording is off or there's no
     /// fresh, reasonably accurate fix; one sample per node (per network) per
-    /// 20 s unless the phone has moved more than 25 m.
+    /// 20 s unless the phone has moved more than 25 m. The phone's own radios
+    /// (either network) are never recorded.
     func record(_ heard: MeshHeard) {
-        guard recording, !optedOut(heard.node, heard.firmware), let fix = freshFix() else { return }
+        guard recording, !isOwnRadio(heard.node, heard.firmware), !optedOut(heard.node, heard.firmware),
+              let fix = freshFix() else { return }
         let t = now()
         let lat = fix.coordinate.latitude, lon = fix.coordinate.longitude
         if let last = samples.last(where: { $0.node == heard.node && $0.firmware == heard.firmware }),
@@ -191,6 +219,42 @@ final class CoverageStore {
         saveNow()
     }
 
+    /// Adds a backup's points and zones to what is here, skipping ones already
+    /// present. Nothing here is ever removed. Retention is raised (never
+    /// lowered) so the restored points survive the next prune, up to the longest
+    /// choice. Returns how many samples, pings and zones were new.
+    @discardableResult
+    func merge(samples newSamples: [CoverageSample], pings newPings: [CoveragePing], zones newZones: [CoverageZone],
+               retentionDays restoredRetention: Int? = nil) -> (samples: Int, pings: Int, zones: Int) {
+        // Saved points that couldn't be read yet are merged in first, as saveNow does.
+        if !savedWasRead, let saved = Self.readSaved(fileURL, pingsURL) {
+            samples = (saved.samples + samples).sorted { $0.date < $1.date }
+            pings = (saved.pings + pings).sorted { $0.date < $1.date }
+            savedWasRead = true
+        }
+        let s = CoverageBackup.merge(samples, newSamples)
+        let p = CoverageBackup.merge(pings, newPings)
+        let z = CoverageBackup.merge(zones, newZones)
+        let oldest = (s.merged.first?.date ?? .distantFuture, p.merged.first?.date ?? .distantFuture)
+        let ageDays = now().timeIntervalSince(min(oldest.0, oldest.1)) / 86_400
+        let needed = Self.retentionChoices.first { Double($0) >= ageDays } ?? Self.retentionChoices.last!
+        let wanted = max(retentionDays, restoredRetention ?? 0, needed)
+        samples = s.merged
+        pings = p.merged
+        if z.added > 0 { zones = z.merged; saveZones() }
+        // Setting retention prunes, so it goes in after the merge; anything older than the longest choice goes then.
+        if wanted != retentionDays { retentionDays = min(wanted, Self.retentionChoices.last!) } else { prune() }
+        saveNow()
+        return (s.added, p.added, z.added)
+    }
+
+    /// Changes whenever the points or zones do, so a backup can tell whether there is anything new.
+    var fingerprint: String {
+        "\(samples.count)|\(pings.count)|\(zones.count)|\(samples.last?.date.timeIntervalSince1970 ?? 0)|\(pings.last?.date.timeIntervalSince1970 ?? 0)"
+    }
+
+    var isEmpty: Bool { samples.isEmpty && pings.isEmpty }
+
     func addZone(name: String, latitude: Double, longitude: Double, radius: Double) {
         zones.append(CoverageZone(name: name, latitude: latitude, longitude: longitude, radius: radius))
         saveZones()
@@ -211,6 +275,21 @@ final class CoverageStore {
     func sharedCells(for network: MeshFirmware?) -> [CoverageShare.Cell] {
         CoverageShare.cells(from: samples.filter { !optedOut($0.node, $0.firmware) && (network == nil || $0.firmware == network) },
                             pings: pings.filter { network == nil || $0.firmware == network }, zones: zones)
+    }
+
+    /// The private map view: every recording binned into hexagons (private
+    /// zones included, since it never leaves the phone). Signal only; pings are
+    /// in `pingCells(for:)`. Hexagons, never points, so the map shows where the
+    /// mesh reaches rather than the route you drove.
+    func privateCells(for network: MeshFirmware?) -> [CoverageShare.Cell] {
+        CoverageShare.cells(from: samples.filter { !optedOut($0.node, $0.firmware) && (network == nil || $0.firmware == network) },
+                            zones: [])
+    }
+
+    /// Drive-test pings binned into the same hexagons: the best outcome per
+    /// hexagon and network. The raw pings stay on the phone.
+    func pingCells(for network: MeshFirmware?) -> [CoverageShare.PingCell] {
+        CoverageShare.pingCells(from: pings.filter { network == nil || $0.firmware == network })
     }
 
     /// How many samples and pings each network has recorded.
@@ -341,11 +420,51 @@ enum CoverageShare {
         var corners: [(latitude: Double, longitude: Double)] { CoverageShare.corners(q: q, r: r) }
     }
 
+    /// One network's drive-test result for one hexagon: the best that came back
+    /// from any ping sent inside it.
+    struct PingCell: Equatable, Sendable {
+        var q: Int
+        var r: Int
+        var firmware: MeshFirmware
+        var best: MeshPingOutcome
+        var count: Int
+
+        var center: (latitude: Double, longitude: Double) { CoverageShare.center(q: q, r: r) }
+        /// The hexagon's corners, shrunk toward its centre by `scale` (1: the whole hexagon).
+        func corners(scale: Double = 1) -> [(latitude: Double, longitude: Double)] { CoverageShare.corners(q: q, r: r, scale: scale) }
+    }
+
+    /// Bins pings into hexagons per network, keeping the best outcome
+    /// (reached beats relayed beats none). Pings in or near a private zone are
+    /// dropped by the same rule as `cells`. No per-ping position survives.
+    static func pingCells(from pings: [CoveragePing], zones: [CoverageZone] = []) -> [PingCell] {
+        var bins: [String: PingCell] = [:]
+        for p in pings {
+            guard let (q, r) = hexOutsideZones(latitude: p.latitude, longitude: p.longitude, zones: zones) else { continue }
+            let key = "\(q),\(r),\(p.firmware.rawValue)"
+            var cell = bins[key] ?? PingCell(q: q, r: r, firmware: p.firmware, best: p.outcome, count: 0)
+            cell.count += 1
+            if p.outcome.rank > cell.best.rank { cell.best = p.outcome }
+            bins[key] = cell
+        }
+        return bins.values.sorted { ($0.q, $0.r, $0.firmware) < ($1.q, $1.r, $1.firmware) }
+    }
+
+    /// The hexagon a point falls in, or nil when the point is in a private zone
+    /// or its hexagon reaches into one.
+    private static func hexOutsideZones(latitude lat: Double, longitude lon: Double, zones: [CoverageZone]) -> (q: Int, r: Int)? {
+        if zones.contains(where: { $0.contains(latitude: lat, longitude: lon) }) { return nil }
+        let (q, r) = hex(latitude: lat, longitude: lon)
+        let c = center(q: q, r: r)
+        // A cell's corners are at most one cell size from its centre.
+        if zones.contains(where: { distance($0.latitude, $0.longitude, c.latitude, c.longitude) <= $0.radius + cellSize }) { return nil }
+        return (q, r)
+    }
+
     /// Bins samples into hexagons, dropping anything in or near a private zone:
     /// both samples inside a zone and whole cells that touch one, so a cell that
     /// straddles your street doesn't give it away.
     static func cells(from samples: [CoverageSample], pings: [CoveragePing] = [], zones: [CoverageZone]) -> [Cell] {
-        let reach = cellSize // a cell's corners are at most one cell size from its centre
         var bins: [String: Cell] = [:]
         let month = DateFormatter()
         month.locale = Locale(identifier: "en_US_POSIX")
@@ -353,10 +472,7 @@ enum CoverageShare {
         month.dateFormat = "yyyy-MM"
         // Adds one point to its hexagon, unless it is in or near a private zone.
         func add(_ lat: Double, _ lon: Double, _ date: Date, _ firmware: MeshFirmware, _ update: (inout Cell) -> Void) {
-            if zones.contains(where: { $0.contains(latitude: lat, longitude: lon) }) { return }
-            let (q, r) = hex(latitude: lat, longitude: lon)
-            let c = center(q: q, r: r)
-            if zones.contains(where: { distance($0.latitude, $0.longitude, c.latitude, c.longitude) <= $0.radius + reach }) { return }
+            guard let (q, r) = hexOutsideZones(latitude: lat, longitude: lon, zones: zones) else { return }
             let m = month.string(from: date)
             let key = "\(q),\(r)"
             var cell = bins[key] ?? Cell(q: q, r: r, count: 0, bestSNR: nil, firmwares: [], firstMonth: m, lastMonth: m)
@@ -451,12 +567,13 @@ enum CoverageShare {
         return unmercator(x, y)
     }
 
-    static func corners(q: Int, r: Int) -> [(latitude: Double, longitude: Double)] {
+    static func corners(q: Int, r: Int, scale: Double = 1) -> [(latitude: Double, longitude: Double)] {
         let cx = cellSize * sqrt(3) * (Double(q) + Double(r) / 2)
         let cy = cellSize * 1.5 * Double(r)
+        let size = cellSize * scale
         return (0 ..< 6).map { i in
             let a = (60 * Double(i) - 30) * .pi / 180
-            return unmercator(cx + cellSize * cos(a), cy + cellSize * sin(a))
+            return unmercator(cx + size * cos(a), cy + size * sin(a))
         }
     }
 

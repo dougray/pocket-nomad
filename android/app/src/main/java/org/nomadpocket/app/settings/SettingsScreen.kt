@@ -127,7 +127,7 @@ private val points: List<Triple<ImageVector, String, String>> = listOf(
     Triple(Icons.Filled.Psychology, "AI will run on the phone",
         "Ask isn't in this version yet. When it comes, it will run on the phone with a model file you download, and questions and answers won't be saved."),
     Triple(Icons.Filled.LocationOn, "Location only for you",
-        "Used for the map, the compass, sunrise and sunset, an SOS you choose to send with your position, and the coverage scanner if you turn it on. Drive mode keeps the scanner going with the screen off, with a notification showing, until you stop it (4 hours at most). The app never sends your location by itself."),
+        "Used for the map, the compass, sunrise and sunset, an SOS you choose to send with your position, and the coverage scanner if you turn it on. Drive mode keeps the scanner going with the screen off, with a notification showing, until you stop it. The app never sends your location by itself."),
     Triple(Icons.Filled.SettingsInputAntenna, "Mesh messages go over the air",
         "What you send through your radio reaches other people's radios. Default public channels use a well-known key, so anyone nearby can read them. Use a private channel for anything sensitive."),
     Triple(Icons.Filled.Hexagon, "Coverage sharing is opt-in",

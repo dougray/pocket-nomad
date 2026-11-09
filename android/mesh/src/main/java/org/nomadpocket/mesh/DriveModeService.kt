@@ -7,7 +7,7 @@
 // the radios' Bluetooth links kept up (both, with a Meshtastic and a MeshCore
 // radio connected: the links live in Mesh, this service keeps the process in
 // the foreground so neither is dropped). DriveMode starts and stops it;
-// DriveMode itself turns off after 4 hours.
+// Drive mode runs until the user turns it off.
 
 package org.nomadpocket.mesh
 
@@ -63,21 +63,24 @@ class DriveModeService : Service() {
             holdingLocation = true
             Mesh.location.begin()
         }
-        // Keeps the ping loop ticking with the screen off; released on stop, and
-        // it can't outlive drive mode's own 4-hour limit by much.
+        // Keeps the ping loop ticking with the screen off; released on stop. Drive
+        // mode has no time limit, so the lock is renewed on every notification update.
         if (wakeLock == null) {
             wakeLock = getSystemService(PowerManager::class.java)
                 ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PocketNomad:DriveMode")
-                ?.apply { setReferenceCounted(false); acquire(DriveMode.MAX_DURATION_MILLIS + 10 * 60_000L) }
+                ?.apply { setReferenceCounted(false); acquire(WAKE_LOCK_MILLIS) }
         }
         if (scope == null) {
             val s = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
             scope = s
             s.launch {
-                val links = combine(Mesh.radios.links.values.map { it.connectionFlow }) { radiosLine() }
+                val links = combine(Mesh.radios.links.values.map { it.displayConnectionFlow }) { radiosLine() }
                 combine(Mesh.drive.stateFlow, Mesh.coverage.samplesFlow, links) { st, samples, line -> Triple(st, samples.size, line) }
                     .collect { (st, n, line) ->
-                        if (st.active) getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, notification(st, n, line))
+                        if (st.active) {
+                            getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, notification(st, n, line))
+                            wakeLock?.acquire(WAKE_LOCK_MILLIS) // renew: drive mode has no time limit
+                        }
                     }
             }
         }
@@ -98,9 +101,11 @@ class DriveModeService : Service() {
 
     /** "Meshtastic connected · MeshCore waiting", for the radios in use. */
     private fun radiosLine(): String = Mesh.radios.inUse.joinToString(" · ") { (fw, link) ->
-        fw.displayName + " " + when (link.connection) {
+        fw.displayName + " " + when (link.displayConnection) {
             is MeshConnectionState.Connected -> "connected"
             is MeshConnectionState.Syncing, is MeshConnectionState.Connecting -> "connecting"
+            is MeshConnectionState.NotNearby -> "not nearby"
+            is MeshConnectionState.NotWithMe -> "not with me"
             else -> "waiting"
         }
     }.ifEmpty { "No radio connected" }
@@ -120,7 +125,7 @@ class DriveModeService : Service() {
             .setSmallIcon(R.drawable.mesh_ic_drive)
             .setContentTitle(if (Mesh.radios.inUse.size > 1) "Drive mode on · both radios" else "Drive mode on")
             .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText("$text\n$radios\nTurns itself off after 4 hours."))
+            .setStyle(NotificationCompat.BigTextStyle().bigText("$text\n$radios\nRuns until you tap Stop."))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
@@ -132,6 +137,8 @@ class DriveModeService : Service() {
     }
 
     companion object {
+        /** How long one wake-lock hold lasts; renewed on every notification update while driving. */
+        private const val WAKE_LOCK_MILLIS = 2 * 3600 * 1000L
         const val ACTION_STOP = "org.nomadpocket.mesh.action.STOP_DRIVE"
         private const val CHANNEL_ID = "mesh.drive"
         private const val NOTIFICATION_ID = 4107

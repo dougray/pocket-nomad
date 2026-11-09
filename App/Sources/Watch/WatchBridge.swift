@@ -127,7 +127,7 @@ final class WatchBridge: NSObject {
     private func observeMesh() {
         withObservationTracking {
             _ = mesh.messages
-            for l in mesh.links { _ = l.connection }
+            for l in mesh.links { _ = l.displayedConnection }
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.pushStatus()

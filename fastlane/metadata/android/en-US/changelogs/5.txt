@@ -1,0 +1,1 @@
+New: on-device backup of your coverage recordings (to a folder on the phone, never the cloud) and offline street maps. The map now credits only the repeater your radio actually heard; relayed radios are on their own "Known on the mesh" layer. Your own radios are never plotted. Radios that drop out show "Not nearby" and reconnect on their own. Drive mode runs until you stop it.

@@ -372,14 +372,29 @@ final class MeshCoreServiceTests: XCTestCase {
         let c7 = MeshCoreContact.nodeNum(forHash: Data([0xC7]))
         XCTAssertEqual(first.node, c7)
         XCTAssertEqual(svc.autoPingTarget(on: .meshcore), c7, "the repeater just heard is the ping target")
-        // A packet from a known contact's repeater hash is credited to that contact.
+        // A known contact's hash is recorded as the hash (credit is worked out
+        // later from where the sample was taken), and the contact is only
+        // marked heard live when the phone is known to be in range of it.
+        svc.currentFix = { nil }
         fake.frame(CoreFrames.rxLog(snr: 2, CoreFrames.packet(route: 1, type: 5, path: [[0xAA]], payload: [1])))
+        XCTAssertEqual(heard.last?.node, MeshCoreContact.nodeNum(forHash: Data([0xAA])))
+        XCTAssertNotEqual(svc.sortedNodes.first { $0.longName == "Ana" }?.snr, 2, "no fix: no guess")
+        svc.currentFix = { (39.7400, -104.9900) } // about 100 m from Ana, but Ana is a companion: it never repeats
+        fake.frame(CoreFrames.rxLog(snr: 3, CoreFrames.packet(route: 1, type: 5, path: [[0xAA]], payload: [1])))
         let ana = try XCTUnwrap(svc.sortedNodes.first { $0.longName == "Ana" })
-        XCTAssertEqual(heard.last?.node, ana.num)
-        XCTAssertEqual(svc.sortedNodes.first { $0.longName == "Ana" }?.snr, 2)
+        XCTAssertNotEqual(ana.snr, 3)
+        XCTAssertNil(svc.link(.meshcore).heardDirect[ana.num])
+        // As a repeater in range she is credited; from Fort Collins (~95 km) she isn't.
+        svc.link(.meshcore).update(ana.num) { $0.meshCoreType = .repeater }
+        fake.frame(CoreFrames.rxLog(snr: 4, CoreFrames.packet(route: 1, type: 5, path: [[0xAA]], payload: [1])))
+        XCTAssertEqual(svc.sortedNodes.first { $0.longName == "Ana" }?.snr, 4)
+        XCTAssertNotNil(svc.link(.meshcore).heardDirect[ana.num])
+        svc.currentFix = { (40.5853, -105.0844) }
+        fake.frame(CoreFrames.rxLog(snr: 5, CoreFrames.packet(route: 1, type: 5, path: [[0xAA]], payload: [1])))
+        XCTAssertEqual(svc.sortedNodes.first { $0.longName == "Ana" }?.snr, 4)
         // Unparseable bytes are ignored.
         fake.frame(Data([0x88, 0, 0, 0x05]))
-        XCTAssertEqual(heard.count, 2)
+        XCTAssertEqual(heard.count, 5)
     }
 
     func testRepeaterPingIsATraceAnsweredByTraceData() throws {

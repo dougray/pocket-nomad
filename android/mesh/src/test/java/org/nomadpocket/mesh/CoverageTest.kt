@@ -264,6 +264,56 @@ class CoverageTest {
         assertFalse(props.has("node"))
     }
 
+    @Test fun pingsBecomeHexagonsWithTheBestAnswerPerNetworkNeverPoints() {
+        // A drive past one spot and on: five pings, a few metres apart, then one ~2 km on.
+        val pings = listOf(
+            CoveragePing(12.2700, -30.7400, PingOutcome.NONE, Firmware.MESHTASTIC),
+            CoveragePing(12.2701, -30.7401, PingOutcome.RELAYED, Firmware.MESHTASTIC),
+            CoveragePing(12.2702, -30.7400, PingOutcome.NONE, Firmware.MESHTASTIC),
+            CoveragePing(12.2701, -30.7400, PingOutcome.REACHED, Firmware.MESHCORE),
+            CoveragePing(12.2700, -30.7402, PingOutcome.NONE, Firmware.MESHCORE),
+            CoveragePing(12.2900, -30.7400, PingOutcome.NONE, Firmware.MESHCORE),
+        )
+        val samples = listOf(CoverageSample(12.2701, -30.7401, 4f, Firmware.MESHTASTIC), CoverageSample(12.2700, -30.7400, -2f, Firmware.MESHTASTIC))
+        val cells = CoverageShare.mapCells(CoverageData(samples, pings))
+        assertEquals("one hexagon per place, not one dot per ping", 2, cells.size)
+        val here = cells.first { it.pings == 5 }
+        assertEquals(mapOf(Firmware.MESHTASTIC to PingOutcome.RELAYED, Firmware.MESHCORE to PingOutcome.REACHED), here.bestPing)
+        assertEquals(PingOutcome.REACHED, here.bestPing(null))
+        assertEquals(PingOutcome.RELAYED, here.bestPing(Firmware.MESHTASTIC))
+        assertEquals(2, here.heard)
+        assertEquals(4f, here.bestSNR)
+        // Drawn at the hexagon's own corners: no ping's exact position is in it.
+        val corners = here.corners.toSet()
+        assertFalse(pings.any { (it.latitude to it.longitude) in corners || (it.latitude to it.longitude) == here.center })
+        val there = cells.first { it.pings == 1 }
+        assertEquals(PingOutcome.NONE, there.bestPing(null))
+        assertNull("no Meshtastic ping there", there.bestPing(Firmware.MESHTASTIC))
+
+        // The network filter keeps only that network's recordings and pings.
+        val mt = CoverageShare.mapCells(CoverageData(samples, pings), Firmware.MESHTASTIC)
+        assertEquals(1, mt.size)
+        assertEquals(setOf(Firmware.MESHTASTIC), mt[0].firmwares)
+        assertEquals(3, mt[0].pings)
+    }
+
+    @Test fun anExportHoldsHexagonsNotPings() {
+        val s = store()
+        s.recordPing(PingOutcome.REACHED, at(12.2700, -30.7400), Firmware.MESHTASTIC)
+        s.recordPing(PingOutcome.NONE, at(12.2703, -30.7402), Firmware.MESHTASTIC)
+        s.recordPing(PingOutcome.RELAYED, at(12.3000, -30.7000), Firmware.MESHCORE)
+        s.addZone("Somewhere else", 12.50, -30.50, 100.0)
+        s.sharing = true
+        val text = s.exportFile(File(dir, "out")).readText()
+        val features = JSONObject(text).getJSONArray("features")
+        assertEquals("two hexagons for three pings", 2, features.length())
+        for (i in 0 until features.length()) {
+            assertEquals("Polygon", features.getJSONObject(i).getJSONObject("geometry").getString("type"))
+        }
+        assertFalse("no ping position is written", text.contains("12.27,") || text.contains("-30.74,") || text.contains("12.3,"))
+        assertEquals("the raw pings stay on the phone for the cells", 3, s.pings.size)
+    }
+
     @Test fun cellsWithoutPingsLeaveThePingFieldsOut() {
         val sample = CoverageRecord(clock, 12.27, -30.74, 5.0, Firmware.MESHTASTIC, 9, 3f, 0)
         val props = JSONObject(CoverageShare.geoJSON(CoverageShare.cells(listOf(sample), zones = emptyList())))
@@ -346,8 +396,8 @@ class DriveModeTest {
         mesh.disconnect()
         d.tick()
         assertEquals("Waiting for the radio", d.state.pingNote)
-        clock += DriveMode.MAX_DURATION_MILLIS + 1
+        clock += 12 * 3600 * 1000L
         d.tick()
-        assertFalse(d.state.active)
+        assertTrue("drive mode runs until the user stops it", d.state.active)
     }
 }

@@ -146,7 +146,7 @@ fun MeshStatusCard(state: MeshConnectionState, radio: MeshRadioInfo, onTap: (() 
     val tint = when (state) {
         is MeshConnectionState.Connected -> MeshColors.ok
         is MeshConnectionState.Failed -> MeshColors.danger
-        MeshConnectionState.Idle -> MeshColors.secondary
+        MeshConnectionState.Idle, is MeshConnectionState.NotNearby, is MeshConnectionState.NotWithMe -> MeshColors.secondary
         else -> MeshColors.warn
     }
     val icon = when (state) {
@@ -182,6 +182,8 @@ fun statusTitle(state: MeshConnectionState): String = when (state) {
     is MeshConnectionState.Syncing -> "Syncing with ${state.name}"
     is MeshConnectionState.Connected -> "Connected: ${state.name}"
     is MeshConnectionState.Reconnecting -> "Waiting for ${state.name}"
+    is MeshConnectionState.NotNearby -> "${state.name} isn't nearby"
+    is MeshConnectionState.NotWithMe -> "${state.name} isn't with you today"
     is MeshConnectionState.Failed -> "Connection problem"
 }
 
@@ -195,6 +197,8 @@ fun statusSubtitle(state: MeshConnectionState, radio: MeshRadioInfo): String = w
         radio.primaryChannelName.ifEmpty { "Primary channel" },
     ).joinToString(" · ")
     is MeshConnectionState.Reconnecting -> "Will reconnect by itself when the radio is in range."
+    is MeshConnectionState.NotNearby -> "Reconnects by itself when it's back."
+    is MeshConnectionState.NotWithMe -> "Not looking for it until you tap Connect or open the app again."
     is MeshConnectionState.Failed -> state.reason
 }
 

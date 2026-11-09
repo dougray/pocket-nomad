@@ -281,10 +281,24 @@ extension MeshBLETransport: @preconcurrency CBCentralManagerDelegate {
         let reconnect = wanted.contains(id)
         if !reconnect { links[id] = nil }
         if let error, let msg = pairingMessage(for: error) { emit(.pairingProblem(id: id, msg)) }
-        emit(.disconnected(id: id, reason: error?.localizedDescription, willReconnect: reconnect))
+        emit(.disconnected(id: id, reason: Self.dropReason(error), willReconnect: reconnect))
         if reconnect {
             central.connect(peripheral, options: nil)
         }
+    }
+
+    /// Why a link went down, in words for the drive log and notices.
+    nonisolated static func dropReason(_ error: Error?) -> String? {
+        guard let error else { return nil }
+        if let cb = error as? CBError {
+            switch cb.code {
+            case .connectionTimeout: return "out of range (the link timed out)"
+            case .peripheralDisconnected: return "the radio closed the link (restarted or switched off)"
+            case .connectionLimitReached: return "too many Bluetooth connections"
+            default: break
+            }
+        }
+        return error.localizedDescription
     }
 }
 

@@ -32,7 +32,6 @@ enum KiwixCatalog {
         ("medlineplus.gov_en_all", nil, "MedlinePlus: plain-language health encyclopedia from the U.S. National Library of Medicine"),
         ("wikipedia_en_medicine", "maxi", "WikiMed with pictures"),
         ("ifixit_en_all", nil, "iFixit repair guides"),
-        ("lrnselfreliance_en_all", nil, "Learning Self-Reliance videos and articles"),
         ("wikipedia_en_100", nil, "Wikipedia's top 100 articles (good for testing)"),
         ("wikipedia_en_all", "mini", "All of Wikipedia, intros only"),
         ("wikipedia_en_all", "nopic", "All of Wikipedia, no pictures"),

@@ -109,6 +109,7 @@ class MeshStore(val directory: File) {
             n.batteryLevel?.let { put("batteryLevel", it) }
             n.publicKeyPrefix?.let { put("publicKeyPrefix", it.hex()) }
             n.meshCoreType?.let { put("meshCoreType", it.raw) }
+            n.role?.let { put("role", it) }
         }
 
         private fun decodeNode(o: JSONObject) = MeshNode(
@@ -124,6 +125,7 @@ class MeshStore(val directory: File) {
             hasPublicKey = o.optBoolean("hasPublicKey"),
             publicKeyPrefix = if (o.has("publicKeyPrefix")) Bytes.fromHex(o.getString("publicKeyPrefix")) else null,
             meshCoreType = if (o.has("meshCoreType")) MeshCoreContactType.of(o.getInt("meshCoreType")) else null,
+            role = if (o.has("role")) o.getLong("role") else null,
         )
 
         private fun encodeRadio(r: MeshRadioInfo) = JSONObject().apply {

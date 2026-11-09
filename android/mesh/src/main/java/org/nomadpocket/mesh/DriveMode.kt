@@ -76,9 +76,9 @@ class DriveMode(
         const val MIN_DISTANCE_METRES = 300.0
         /** With two radios, at least this long between one radio's ping and the other's. */
         const val STAGGER_MILLIS = 15_000L
-        /** Drive mode turns itself off after this long, in case it is forgotten. */
-        const val MAX_DURATION_MILLIS = 4 * 3600 * 1000L
         const val TICK_MILLIS = 5_000L
+        /** The status line when every radio in use is away (not nearby or not with the user). */
+        const val AWAY_NOTE = "Radio not nearby · pings resume when it's back"
 
         private const val LEGACY_TARGET = "drive.target"
         private fun targetKey(fw: Firmware) = "drive.target.${fw.rawValue}"
@@ -136,6 +136,8 @@ class DriveMode(
     private val loggedNotes = mutableMapOf<Firmware, String?>()
     private var lastHeartbeatMillis: Long? = null
     private var samplesAtHeartbeat = 0
+    /** Each radio's MeshService.briefDrops at the last heartbeat. */
+    private val dropsAtHeartbeat = mutableMapOf<Firmware, Int>()
 
     private object Keys {
         const val PINGING = "drive.pinging"
@@ -156,12 +158,6 @@ class DriveMode(
     fun resumeIfNeeded() {
         if (state.active || !prefs.contains(Keys.ACTIVE_SINCE)) return
         val since = prefs.getLong(Keys.ACTIVE_SINCE, 0)
-        if (now() - since >= MAX_DURATION_MILLIS) {
-            prefs.remove(Keys.ACTIVE_SINCE)
-            if (!prefs.getBoolean(Keys.COVERAGE_WAS_ON, false)) coverage.recording = false
-            log("drive mode off: it ran past 4 hours while the app was closed")
-            return
-        }
         coverageWasOn = prefs.getBoolean(Keys.COVERAGE_WAS_ON, false)
         log("drive mode resumed after Android closed the app")
         begin(since)
@@ -177,6 +173,8 @@ class DriveMode(
         loggedNotes.clear()
         lastHeartbeatMillis = null
         samplesAtHeartbeat = coverage.samples.size
+        dropsAtHeartbeat.clear()
+        radios().forEach { (fw, mesh) -> dropsAtHeartbeat[fw] = mesh.briefDrops }
         coverage.recording = true
         onActiveChanged(true)
         loop = scope.launch {
@@ -201,20 +199,24 @@ class DriveMode(
 
     /** One step of the loop; public so tests can drive it. */
     fun tick() {
-        val startedAt = state.startedAtMillis
-        if (startedAt != null && now() - startedAt > MAX_DURATION_MILLIS) { stop("4 hours are up"); return }
-        val radios = radios()
-        logState(radios)
+        val inUse = radios()
+        // The link timers (brief drop, Not nearby) also run here, in case Android delayed their own wake-up.
+        inUse.forEach { it.second.checkLink() }
+        logState(inUse)
+        // A radio that is not nearby, or not with the user today, is left out as if it weren't there.
+        val radios = inUse.filterNot { it.second.connection.isAway }
+        inUse.filter { it.second.connection.isAway }.forEach { (fw, _) -> radioNote(fw, null) }
         if (!pinging) {
             radios.forEach { (fw, _) -> radioNote(fw, null) }
             notes(radios); return
         }
-        if (radios.isEmpty()) { note("Waiting for the radio"); return }
+        if (radios.isEmpty()) { note(if (inUse.isEmpty()) "Waiting for the radio" else AWAY_NOTE); return }
         val fix = coverage.freshFix()
         for ((fw, mesh) in radios) {
             val target = target(fw) ?: mesh.autoPingTarget()
+            // Notes go by the displayed link, so a drop of a few seconds doesn't change them.
             val why = when {
-                mesh.connection !is MeshConnectionState.Connected -> "Waiting for the radio"
+                mesh.displayConnection !is MeshConnectionState.Connected -> "Waiting for the radio"
                 fw == Firmware.MESHCORE && target == null -> "Waiting to hear a repeater"
                 target != null && mesh.nodes[target] == null && mesh.neighbors[target] == null -> "The radio to ping isn't known on this mesh"
                 fix == null -> "Waiting for GPS"
@@ -222,6 +224,8 @@ class DriveMode(
             }
             radioNote(fw, why)
             if (why != null || fix == null) continue
+            // A brief drop still in progress: wait quietly for the link to come back.
+            if (mesh.connection !is MeshConnectionState.Connected) continue
             if (radio(fw).waiting) continue
             val last = lastPing[fw]
             if (last != null && (now() - last.first < MIN_INTERVAL_MILLIS ||
@@ -252,14 +256,31 @@ class DriveMode(
         log("${fw.displayName} ping: ${outcome.name.lowercase()}")
     }
 
-    /** Radio links coming and going, and a heartbeat each minute. */
+    /**
+     * Radio links coming and going (with why they went, by the displayed link,
+     * so drops shorter than MeshService.FLICKER_MILLIS don't appear), and a
+     * heartbeat each minute that counts those brief drops.
+     */
     private fun logState(radios: List<Pair<Firmware, MeshService>>) {
         for ((fw, mesh) in radios) {
-            val c = mesh.connection
-            val text = if (c is MeshConnectionState.Connected) "connected" else "not connected (${c::class.simpleName?.lowercase()})"
-            if (loggedConnection[fw] != text) {
+            val c = mesh.displayConnection
+            val text = when (c) {
+                is MeshConnectionState.Connected -> "connected"
+                is MeshConnectionState.NotNearby -> "not nearby · reconnects when it's back"
+                is MeshConnectionState.NotWithMe -> "not with me today · no reconnecting until Connect"
+                else -> "not connected (${c::class.simpleName?.lowercase()})"
+            }
+            val was = loggedConnection[fw]
+            if (was != text) {
                 loggedConnection[fw] = text
-                log("${fw.displayName} radio $text")
+                val why = when {
+                    was == null -> ""
+                    was == "connected" && c !is MeshConnectionState.NotWithMe -> mesh.lastDropReason?.let { ": $it" } ?: ""
+                    was.startsWith("not nearby") -> " (was not nearby)"
+                    was.startsWith("not with me") -> " (was not with me today)"
+                    else -> ""
+                }
+                log("${fw.displayName} radio $text$why")
             }
         }
         val t = now()
@@ -269,7 +290,12 @@ class DriveMode(
         val fix = coverage.freshFix()
         val gps = if (fix != null) "GPS ±${fix.accuracy.toInt()} m" else "no fresh GPS fix"
         val points = coverage.samples.size
-        log("still running · $gps · ${points - samplesAtHeartbeat} new coverage points")
+        val drops = radios.mapNotNull { (fw, mesh) ->
+            val n = mesh.briefDrops - (dropsAtHeartbeat[fw] ?: mesh.briefDrops)
+            dropsAtHeartbeat[fw] = mesh.briefDrops
+            if (n > 0) (if (radios.size > 1) "${fw.displayName} " else "") + "brief drop ×$n" else null
+        }
+        log((listOf("still running", gps, "${points - samplesAtHeartbeat} new coverage points") + drops).joinToString(" · "))
         samplesAtHeartbeat = points
     }
 

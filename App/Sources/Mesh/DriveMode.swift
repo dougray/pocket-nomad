@@ -23,8 +23,6 @@ final class DriveMode {
     /// At most one ping per 45 s per radio, and only after moving 300 m (about one map hexagon).
     static let minInterval: TimeInterval = 45
     static let minDistance: Double = 300
-    /// Drive mode turns itself off after this long, in case it is forgotten.
-    static let maxDuration: TimeInterval = 4 * 3600
     /// How often drive mode checks whether a ping is due.
     static let tickInterval: Duration = .seconds(5)
 
@@ -76,11 +74,14 @@ final class DriveMode {
     private var lastPing: [MeshFirmware: (date: Date, location: CLLocation)] = [:]
     private var coverageWasOn = false
     private let log: DriveLog?
+    /// Called after each drive ends (the automatic backup hangs off this).
+    @ObservationIgnored var onStop: (() -> Void)?
     /// For the drive log: what was last written about each radio, and when the last heartbeat went in.
     private var loggedConnection: [MeshFirmware: String] = [:]
     private var loggedNotes: [MeshFirmware: String] = [:]
     private var lastHeartbeat: Date?
     private var samplesAtHeartbeat = 0
+    private var briefDropsAtHeartbeat: [MeshFirmware: Int] = [:]
 
     private enum Keys {
         static let pinging = "drive.pinging"
@@ -133,12 +134,6 @@ final class DriveMode {
     /// it in the background for Bluetooth or location). Call once at launch.
     func resumeIfNeeded() {
         guard !active, let since = defaults.object(forKey: Keys.activeSince) as? Date else { return }
-        guard now().timeIntervalSince(since) < Self.maxDuration else {
-            defaults.removeObject(forKey: Keys.activeSince)
-            if !defaults.bool(forKey: Keys.coverageWasOn) { coverage.recording = false }
-            log?.note("drive mode off: it ran past 4 hours while the app was closed")
-            return
-        }
         coverageWasOn = defaults.bool(forKey: Keys.coverageWasOn)
         let inBackground = UIApplication.shared.applicationState == .background
         begin(at: since)
@@ -157,6 +152,7 @@ final class DriveMode {
         loggedNotes = [:]
         lastHeartbeat = nil
         samplesAtHeartbeat = coverage.samples.count
+        briefDropsAtHeartbeat = Dictionary(uniqueKeysWithValues: mesh.links.map { ($0.firmware, $0.briefDrops) })
         coverage.recording = true
         log?.watchApp { [weak self] in self?.active == true }
         LocationService.shared.beginBackground()
@@ -180,25 +176,55 @@ final class DriveMode {
         UIApplication.shared.isIdleTimerDisabled = false
         if !coverageWasOn { coverage.recording = false }
         notes = [:]
+        onStop?()
+    }
+
+    // MARK: Backup
+
+    /// The drive settings and ping targets, for the backup file.
+    var backupSettings: CoverageBackup.Drive {
+        CoverageBackup.Drive(pinging: pinging, keepScreenOn: keepScreenOn,
+                             targets: Dictionary(uniqueKeysWithValues: targets.map { ($0.key.rawValue, $0.value) }))
+    }
+
+    /// Takes the settings from a backup. The switches come back only when
+    /// `switches` is set (a phone with no coverage data yet); ping targets only
+    /// fill networks that have none here, so a restore never undoes a choice made on this phone.
+    func restore(_ saved: CoverageBackup.Drive, switches: Bool) {
+        if switches, let p = saved.pinging { pinging = p }
+        if switches, let k = saved.keepScreenOn { keepScreenOn = k }
+        for (name, num) in saved.targets ?? [:] {
+            guard let f = MeshFirmware(rawValue: name), targets[f] == nil, num != 0 else { continue }
+            setTarget(num, for: f)
+        }
     }
 
     /// One check: sends at most one ping, from the connected radio that pinged
     /// longest ago and is due. The other radio gets its turn on a later tick.
+    /// A radio that is "not nearby" or "not with me today" counts as absent:
+    /// no pings, no "waiting" note.
     func tick() {
-        if let startedAt, now().timeIntervalSince(startedAt) > Self.maxDuration { stop(reason: "4 hours are up"); return }
+        mesh.updateLinks()
         logState()
         guard pinging else { notes = [:]; return }
         var newNotes: [MeshFirmware: String] = [:]
         defer { notes = newNotes; logNotes(newNotes) }
-        let candidates = mesh.links.filter { $0.isRemembered || $0.connection.isConnected }
-        guard !candidates.isEmpty else { newNotes[mesh.defaultNetwork] = "Waiting for the radio"; return }
+        let candidates = mesh.links.filter { ($0.isRemembered && !$0.connection.isAway) || $0.connection.isConnected }
+        guard !candidates.isEmpty else {
+            if mesh.rememberedLinks.isEmpty { newNotes[mesh.defaultNetwork] = "Waiting for the radio" }
+            return
+        }
         var pinged = false
         let order = candidates.sorted {
             (lastPing[$0.firmware]?.date ?? .distantPast, $0.firmware) < (lastPing[$1.firmware]?.date ?? .distantPast, $1.firmware)
         }
         for l in order {
             let network = l.firmware
-            guard l.connection.isConnected else { newNotes[network] = "Waiting for the radio"; continue }
+            guard l.connection.isConnected else {
+                // A brief drop isn't shown: pings just pause until it's back.
+                if !l.displayedConnection.isConnected { newNotes[network] = "Waiting for the radio" }
+                continue
+            }
             let target = targets[network] ?? mesh.autoPingTarget(on: network)
             if network == .meshcore && target == nil { newNotes[network] = "Waiting to hear a repeater"; continue }
             if let target, l.nodes[target] == nil, l.neighbors[target] == nil {
@@ -236,15 +262,27 @@ final class DriveMode {
 
     // MARK: Drive log
 
-    /// Radio links coming and going, and a heartbeat each minute.
+    /// Radio links coming and going (as shown: drops under 20 s are only
+    /// counted, in the heartbeat), and a heartbeat each minute.
     private func logState() {
         guard let log else { return }
-        for l in mesh.links where l.isRemembered || l.connection.isConnected {
-            let state = l.connection.isConnected ? "connected" : "not connected (\(l.connection))"
-            if loggedConnection[l.firmware] != state {
-                loggedConnection[l.firmware] = state
-                log.note("\(l.firmware.displayName) radio \(state)")
+        for l in mesh.links where l.isRemembered || l.displayedConnection.isConnected {
+            let state = Self.logState(l.displayedConnection)
+            let before = loggedConnection[l.firmware]
+            guard before != state else { continue }
+            loggedConnection[l.firmware] = state
+            var line = "\(l.firmware.displayName) radio \(state)"
+            switch l.displayedConnection {
+            case .reconnecting, .idle, .failed:
+                if let why = l.lastDropReason, before == Self.logState(.connected(name: "")) { line += " (\(why))" }
+            case .connected where before?.hasPrefix("not nearby") == true:
+                line += " (back in range, no longer not nearby)"
+            case .connected where before?.hasPrefix("not with me today") == true:
+                line += " (no longer not with me today)"
+            default:
+                break
             }
+            log.note(line)
         }
         let t = now()
         if let last = lastHeartbeat, t.timeIntervalSince(last) < 60 { return }
@@ -256,8 +294,29 @@ final class DriveMode {
             gps = "no fresh GPS fix"
         }
         let points = coverage.samples.count
-        log.note("still running · \(gps) · \(points - samplesAtHeartbeat) new coverage points · app \(Self.appState)")
+        var drops = ""
+        for l in mesh.links {
+            let n = l.briefDrops - (briefDropsAtHeartbeat[l.firmware] ?? 0)
+            if n > 0 { drops += " · \(l.firmware.displayName) brief drop ×\(n)" }
+            briefDropsAtHeartbeat[l.firmware] = l.briefDrops
+        }
+        log.note("still running · \(gps) · \(points - samplesAtHeartbeat) new coverage points\(drops) · app \(Self.appState)")
         samplesAtHeartbeat = points
+    }
+
+    /// A link state in drive-log words.
+    private static func logState(_ state: MeshConnectionState) -> String {
+        switch state {
+        case .connected: "connected"
+        case .syncing: "syncing"
+        case .connecting: "connecting"
+        case .reconnecting: "dropped, reconnecting"
+        case .notNearby: "not nearby · reconnects when it's back"
+        case .notWithMeToday: "not with me today · not reconnecting until Connect"
+        case .idle: "disconnected"
+        case .scanning: "scanning"
+        case .failed(let why): "failed: \(why)"
+        }
     }
 
     private func logNotes(_ new: [MeshFirmware: String]) {

@@ -76,8 +76,8 @@ android {
         targetSdk = 37
         // Play needs every APK under one package to have its own version code:
         // the watch uses 10000 + the phone app's.
-        versionCode = 10004
-        versionName = "0.4.0-beta"
+        versionCode = 10005
+        versionName = "0.5.0-beta"
     }
 
     signingConfigs {

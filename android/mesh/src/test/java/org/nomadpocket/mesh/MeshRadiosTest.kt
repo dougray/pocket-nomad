@@ -272,7 +272,8 @@ class MeshRadiosTest {
         heardOnBoth()
         // Same node number, same place, same moment: still two records, one per network.
         assertEquals(listOf(Firmware.MESHTASTIC, Firmware.MESHCORE), c.samples.map { it.firmware })
-        assertEquals(listOf(shared, shared), c.samples.map { it.node })
+        // A MeshCore advert push may have been relayed from far away: a coverage point only (node 0).
+        assertEquals(listOf(shared, 0L), c.samples.map { it.node })
         heardOnBoth()
         assertEquals("the 20 s limit applies per network", 2, c.samples.size)
 
@@ -289,6 +290,70 @@ class MeshRadiosTest {
         c.saveNow()
         val again = CoverageStore(h.prefs, File(h.dir, "coverage.json"), h.scope, location = { fix }, now = { clock })
         assertEquals(c.samples.map { it.firmware }, again.samples.map { it.firmware })
+    }
+
+    @Test fun ownRadiosAreNeverRecordedOnEitherNetwork() {
+        val r = both()
+        val c = CoverageStore(h.prefs, File(h.dir, "coverage.json"), h.scope, location = { fix },
+            nodeName = { r.nodeName(it) }, now = { clock }, isOwnRadio = { n, fw -> r.isOwnRadio(n, fw) })
+        r.links.values.forEach { it.onHeard = { heard -> c.record(heard) } }
+        c.recording = true
+        fix = Fix(10.2, -20.4, 5.0, clock)
+        val meCore = r.link(Firmware.MESHCORE).myNodeNum
+        assertEquals(0x4433_2211L, meCore)
+        // Either radio's own number counts on both networks (one radio heard by the other).
+        for (fw in Firmware.entries) {
+            assertTrue(r.isOwnRadio(me, fw))
+            assertTrue(r.isOwnRadio(meCore, fw))
+            c.record(MeshHeard(me, 5f, 0, fw))
+            c.record(MeshHeard(meCore, 5f, 0, fw))
+        }
+        // A MeshCore path hash that is the start of our own key.
+        assertTrue(r.isOwnRadio(MeshCoreContact.nodeNumForHash(byteArrayOf(0x11)), Firmware.MESHCORE))
+        assertTrue(r.isOwnRadio(MeshCoreContact.nodeNumForHash(byteArrayOf(0x11, 0x22)), Firmware.MESHCORE))
+        assertFalse(r.isOwnRadio(MeshCoreContact.nodeNumForHash(byteArrayOf(0x11)), Firmware.MESHTASTIC))
+        mc.emit(MeshTransportEvent.Frame(CoreFrames.rxLog(4f, CoreFrames.packet(1, 5, listOf(listOf(0x11)), listOf(1)))))
+        assertTrue("nothing of ours recorded", c.samples.isEmpty())
+
+        // Everyone else still is.
+        assertFalse(r.isOwnRadio(shared, Firmware.MESHCORE))
+        mc.emit(MeshTransportEvent.Frame(CoreFrames.rxLog(4f, CoreFrames.packet(1, 5, listOf(listOf(0xC7)), listOf(1)))))
+        heardOnBoth()
+        assertEquals(3, c.samples.size)
+        assertFalse(c.samples.any { r.isOwnRadio(it.node, it.firmware) })
+
+        // What the map uses to leave our radios off the community-map layer.
+        assertEquals(setOf(me, meCore), r.ownRadios.nodeNums)
+        assertEquals(setOf("112233445566"), r.ownRadios.meshCoreKeyPrefixes)
+    }
+
+    @Test fun radiosHeardLeavesOutOwnRadiosAndOnesWithNoPosition() {
+        val r = both()
+        val meCore = r.link(Firmware.MESHCORE).myNodeNum
+        val router = 0x5555_0001L
+        val quiet = 0x5555_0002L
+        mt.enqueue(MeshPBFromRadioVariant.NodeInfo(MeshPBNodeInfo(num = router, user = MeshPBUser(longName = "Hill Router", role = 4),
+            position = MeshPBPosition(latitudeI = 101_300_000, longitudeI = -206_600_000), lastHeard = nowSec() - 30)))
+        // Our own MeshCore radio as heard by the Meshtastic one (same number), with a position: never drawn.
+        mt.enqueue(MeshPBFromRadioVariant.NodeInfo(MeshPBNodeInfo(num = meCore, user = MeshPBUser(longName = "Base Camp"),
+            position = MeshPBPosition(latitudeI = 101_200_000, longitudeI = -206_500_000), lastHeard = nowSec() - 10)))
+        // Heard, but no position: nothing to put on the map.
+        mt.enqueue(MeshPBFromRadioVariant.NodeInfo(MeshPBNodeInfo(num = quiet, user = MeshPBUser(longName = "No GPS"), lastHeard = nowSec() - 5)))
+        mt.emit(MeshTransportEvent.FromNumChanged); mt.pump()
+
+        val heard = r.radiosHeard
+        assertEquals(setOf(Firmware.MESHTASTIC to shared, Firmware.MESHTASTIC to router, Firmware.MESHCORE to shared),
+            heard.map { it.firmware to it.num }.toSet())
+        assertFalse(heard.any { r.isOwnRadio(it.num, it.firmware) })
+        assertFalse(heard.any { it.num == quiet })
+        assertTrue("a Meshtastic repeater role is ringed", heard.first { it.num == router }.isRepeater)
+        assertFalse(heard.first { it.num == shared && it.firmware == Firmware.MESHTASTIC }.isRepeater)
+        assertEquals("1 Meshtastic radio and 1 MeshCore radio heard", RadiosHeard.summary(heard.filterNot { it.isRepeater }))
+        assertEquals("1 Meshtastic repeater, 1 Meshtastic radio and 1 MeshCore radio heard", RadiosHeard.summary(heard))
+        val many = List(27) { MapNode(it.toLong(), "R$it", Firmware.MESHCORE, 0.0, 0.0, null, isRepeater = true) } +
+            List(3) { MapNode(100L + it, "M$it", Firmware.MESHTASTIC, 0.0, 0.0, null) }
+        assertEquals("27 MeshCore repeaters and 3 Meshtastic radios heard", RadiosHeard.summary(many))
+        assertNull(RadiosHeard.summary(emptyList()))
     }
 
     @Test fun coverageFilesWrittenBeforeTwoRadiosStillLoad() {

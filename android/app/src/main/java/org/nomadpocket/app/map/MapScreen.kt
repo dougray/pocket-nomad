@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Settings
@@ -95,6 +96,8 @@ import org.nomadpocket.mesh.CoverageShare
 import org.nomadpocket.mesh.Firmware
 import org.nomadpocket.mesh.MapNode
 import org.nomadpocket.mesh.Mesh
+import org.nomadpocket.mesh.RadiosHeard
+import org.nomadpocket.mesh.UnidentifiedRepeater
 import org.nomadpocket.mesh.rawValue
 import kotlin.math.max
 
@@ -112,8 +115,6 @@ sealed interface MapTap {
 }
 
 private const val SRC_KNOWN = "known-radios"
-private const val SRC_COVERAGE = "coverage"
-private const val SRC_PINGS = "coverage-ping-source"
 private const val SRC_NODES = "mesh-nodes"
 private const val SRC_PINS = "pins"
 private const val SRC_CELLS = "coverage-cells"
@@ -125,6 +126,7 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
     val prefs = remember { context.getSharedPreferences("map", Context.MODE_PRIVATE) }
     var showNodes by remember { mutableStateOf(prefs.getBoolean("showNodes", true)) }
     var showKnown by remember { mutableStateOf(prefs.getBoolean("showKnown", true)) }
+    var showMeshKnown by remember { mutableStateOf(prefs.getBoolean("showMeshKnown", false)) }
     var coverageMode by remember { mutableStateOf(CoverageLayer.from(prefs.getString("coverage", null))) }
     var coverageNetwork by remember { mutableStateOf(CoverageNetwork.from(prefs.getString("coverageNetwork", null))) }
     var pins by remember { mutableStateOf(MapPin.load(context)) }
@@ -135,19 +137,27 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
 
     val location = rememberLocation()
     val permitted by LocationService.permitted.collectAsState()
-    val meshNodes by Mesh.repository.nodes.collectAsState()
+    val heard by Mesh.repository.heard.collectAsState()
     val demoNodes by DemoData.nodesFlow.collectAsState()
     val meshCoverage by Mesh.repository.coverage.collectAsState()
     val demoCoverage by DemoData.coverageFlow.collectAsState()
     val known by KnownRadioStore.state.collectAsState()
+    val own by Mesh.repository.own.collectAsState()
     val regions by OfflineRegions.regions.collectAsState()
 
     // A node is its network plus number: the same number can turn up on both networks.
-    val nodes = if (showNodes) (meshNodes + demoNodes).distinctBy { it.firmware to it.num } else emptyList()
+    // "Heard directly" (on by default) and "Known on the mesh" (relayed adverts, off by default).
+    val directNodes = if (showNodes) (heard.direct + demoNodes).distinctBy { it.firmware to it.num } else emptyList()
+    val meshKnownNodes = if (showMeshKnown) heard.known.filterNot { k -> directNodes.any { it.firmware == k.firmware && it.num == k.num } } else emptyList()
+    val nodes = directNodes + meshKnownNodes
     val allCoverage: CoverageData = demoCoverage ?: meshCoverage
     val coverage = coverageNetwork.filter(allCoverage)
-    val shownCoverage = if (coverageMode == CoverageLayer.RECORDED) coverage else CoverageData(emptyList(), emptyList())
-    val shownKnown = if (showKnown) known.radios else emptyList()
+    // The private layer is hexagons too: one dot per recording or ping would draw the trip, not the mesh.
+    val myCells = remember(allCoverage, coverageNetwork, coverageMode) {
+        if (coverageMode == CoverageLayer.RECORDED) CoverageShare.mapCells(allCoverage, coverageNetwork.firmware) else emptyList()
+    }
+    // The user's own radios are never drawn, even when a community map lists them.
+    val shownKnown = if (showKnown) remember(known.radios, own) { KnownRadioParser.withoutOwn(known.radios, own) } else emptyList()
     val cells = rememberSharedCells(coverageMode == CoverageLayer.SHARED, coverageNetwork)
 
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
@@ -156,6 +166,7 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
     var showPlaces by remember { mutableStateOf(false) }
     var showKnownSheet by remember { mutableStateOf(false) }
     var showOffline by remember { mutableStateOf(false) }
+    var showStreets by remember { mutableStateOf(false) }
     var showLayers by remember { mutableStateOf(false) }
     var tapped by remember { mutableStateOf<MapTap?>(null) }
 
@@ -237,24 +248,11 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
     }
 
     LaunchedEffect(style, pins) { style?.source(SRC_PINS)?.setGeoJson(pinFeatures(pins)) }
-    LaunchedEffect(style, nodes) { style?.source(SRC_NODES)?.setGeoJson(nodeFeatures(nodes)) }
+    LaunchedEffect(style, directNodes, meshKnownNodes) { style?.source(SRC_NODES)?.setGeoJson(nodeFeatures(directNodes, meshKnownNodes)) }
     LaunchedEffect(style, shownKnown) { style?.source(SRC_KNOWN)?.setGeoJson(knownFeatures(shownKnown)) }
-    LaunchedEffect(style, shownCoverage) {
-        style?.source(SRC_COVERAGE)?.setGeoJson(FeatureCollection.fromFeatures(shownCoverage.samples.map { s ->
-            Feature.fromGeometry(Point.fromLngLat(s.longitude, s.latitude)).apply {
-                addNumberProperty("snr", (s.snr ?: -10f).toDouble())
-                addStringProperty("fw", s.firmware.rawValue)
-            }
-        }))
-        style?.source(SRC_PINGS)?.setGeoJson(FeatureCollection.fromFeatures(shownCoverage.pings.map { p ->
-            Feature.fromGeometry(Point.fromLngLat(p.longitude, p.latitude)).apply {
-                addStringProperty("outcome", PingColors.key(p.outcome))
-                addStringProperty("fw", p.firmware.rawValue)
-            }
-        }))
+    LaunchedEffect(style, cells, myCells, coverageNetwork, coverageMode) {
+        style?.source(SRC_CELLS)?.setGeoJson(if (coverageMode == CoverageLayer.RECORDED) myCellFeatures(myCells, coverageNetwork.firmware) else cellFeatures(cells))
     }
-
-    LaunchedEffect(style, cells) { style?.source(SRC_CELLS)?.setGeoJson(cellFeatures(cells)) }
 
     Box(Modifier.fillMaxSize()) {
         AndroidView({ mapView }, Modifier.fillMaxSize())
@@ -272,14 +270,19 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
             Box {
                 MapButton(Icons.Filled.Layers, "Map layers") { showLayers = true }
                 DropdownMenu(expanded = showLayers, onDismissRequest = { showLayers = false }) {
-                    CheckItem("Radios I've heard", Icons.Filled.SettingsInputAntenna, showNodes) {
+                    CheckItem("Radios heard directly", Icons.Filled.SettingsInputAntenna, showNodes) {
                         showNodes = !showNodes; prefs.edit().putBoolean("showNodes", showNodes).apply()
+                    }
+                    CheckItem("Known on the mesh", Icons.Filled.Hub, showMeshKnown) {
+                        showMeshKnown = !showMeshKnown; prefs.edit().putBoolean("showMeshKnown", showMeshKnown).apply()
                     }
                     CheckItem("Known radios (community maps)", Icons.Filled.Contactless, showKnown) {
                         showKnown = !showKnown; prefs.edit().putBoolean("showKnown", showKnown).apply()
                     }
                     DropdownMenuItem(text = { Text("Download known radios…") }, leadingIcon = { Icon(Icons.Filled.Download, null) },
                         onClick = { showLayers = false; showKnownSheet = true })
+                    DropdownMenuItem(text = { Text("Download streets around me…") }, leadingIcon = { Icon(Icons.Filled.Map, null) },
+                        onClick = { showLayers = false; showStreets = true })
                     HorizontalDivider()
                     Text("Coverage", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -315,8 +318,11 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
             Modifier.align(Alignment.BottomStart).padding(start = 12.dp, end = 12.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (coverageMode != CoverageLayer.OFF) CoverageLegend(allCoverage, coverage, coverageMode, coverageNetwork, cells.size)
-            if (nodes.isNotEmpty() || shownKnown.isNotEmpty()) RadioLegend()
+            if (coverageMode != CoverageLayer.OFF) CoverageLegend(allCoverage, coverage, coverageMode, coverageNetwork,
+                if (coverageMode == CoverageLayer.SHARED) cells.size else myCells.size)
+            val unidentified = if (showNodes) heard.unidentified else emptyList()
+            if (nodes.isNotEmpty() || shownKnown.isNotEmpty() || unidentified.isNotEmpty())
+                RadioLegend(RadiosHeard.summary(directNodes), unidentified, meshKnownNodes.isNotEmpty())
             if (showKnown && known.radios.isEmpty()) {
                 Panel(Modifier.clickable { showKnownSheet = true }) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -363,7 +369,11 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
         KnownRadiosSheet(mapCenter = map?.cameraPosition?.target, onDismiss = { showKnownSheet = false })
     }
     if (showOffline) {
-        OfflineMapsSheet(visibleBounds = { map?.projection?.visibleRegion?.latLngBounds }, onDismiss = { showOffline = false })
+        OfflineMapsSheet(visibleBounds = { map?.projection?.visibleRegion?.latLngBounds }, onDismiss = { showOffline = false },
+            onStreets = { showOffline = false; showStreets = true })
+    }
+    if (showStreets) {
+        StreetsAroundMeSheet(mapCenter = map?.cameraPosition?.target, onDismiss = { showStreets = false })
     }
     tapped?.let { t -> TapDetailSheet(t) { tapped = null } }
 }
@@ -383,11 +393,14 @@ private fun pinFeatures(pins: List<MapPin>) = FeatureCollection.fromFeatures(pin
     }
 })
 
-private fun nodeFeatures(nodes: List<MapNode>) = FeatureCollection.fromFeatures(nodes.map { n ->
+private fun nodeFeatures(direct: List<MapNode>, meshKnown: List<MapNode>) =
+    FeatureCollection.fromFeatures(direct.map { it to true }.plus(meshKnown.map { it to false }).map { (n, heard) ->
     Feature.fromGeometry(Point.fromLngLat(n.longitude, n.latitude)).apply {
+        addNumberProperty("direct", if (heard) 1 else 0)
         addNumberProperty("num", n.num)
         addStringProperty("name", n.name)
         addStringProperty("fw", if (n.firmware == Firmware.MESHCORE) "meshcore" else "meshtastic")
+        addNumberProperty("rep", if (n.isRepeater) 1 else 0)
     }
 })
 
@@ -413,6 +426,20 @@ private fun cellFeatures(cells: List<CoverageShare.Cell>) = FeatureCollection.fr
         }
         addNumberProperty("snr", snr)
         // Outlined by network: green Meshtastic, blue MeshCore, white where both were heard.
+        addStringProperty("fw", CoverageNetwork.key(cell.firmwares))
+    }
+})
+
+/**
+ * The private layer: this phone's recordings and pings binned into hexagons.
+ * A hexagon pinged from is coloured by the best answer there (green answered,
+ * yellow repeated, red nothing); one only heard in, by its best signal.
+ */
+private fun myCellFeatures(cells: List<CoverageShare.MapCell>, network: Firmware?) = FeatureCollection.fromFeatures(cells.map { cell ->
+    val ring = cell.corners.map { (lat, lon) -> Point.fromLngLat(lon, lat) }.let { it + it.first() }
+    Feature.fromGeometry(Polygon.fromLngLats(listOf(ring))).apply {
+        addNumberProperty("snr", (cell.bestSNR ?: -10f).toDouble())
+        cell.bestPing(network)?.let { addStringProperty("outcome", PingColors.key(it)) }
         addStringProperty("fw", CoverageNetwork.key(cell.firmwares))
     }
 })
@@ -444,7 +471,7 @@ private fun cellOutlineColor(): Expression =
 
 /** Known radios under coverage, under live nodes, under pins. */
 private fun addLayers(style: Style) {
-    listOf(SRC_KNOWN, SRC_CELLS, SRC_COVERAGE, SRC_PINGS, SRC_NODES, SRC_PINS).forEach {
+    listOf(SRC_KNOWN, SRC_CELLS, SRC_NODES, SRC_PINS).forEach {
         style.addSource(GeoJsonSource(it, FeatureCollection.fromFeatures(emptyList())))
     }
     style.addLayer(CircleLayer(SRC_KNOWN, SRC_KNOWN).withProperties(
@@ -455,37 +482,30 @@ private fun addLayers(style: Style) {
         PropertyFactory.circleStrokeWidth(Expression.switchCase(eq(get("big"), literal(1)), literal(2f), literal(0.5f))),
         PropertyFactory.circleOpacity(0.9f),
     ))
-    // What sharing would publish: the privacy-filtered hexagons, coloured by best signal.
+    // Coverage hexagons (what sharing would publish, or the private ones): coloured by the best
+    // drive-test answer where there was a ping, else by best signal.
     style.addLayer(FillLayer(SRC_CELLS, SRC_CELLS).withProperties(
-        PropertyFactory.fillColor(snrColor()),
+        PropertyFactory.fillColor(Expression.switchCase(Expression.has("outcome"),
+            Expression.match(get("outcome"), color(PingColors.none.toArgb()),
+                stop("reached", color(PingColors.reached.toArgb())), stop("relayed", color(PingColors.relayed.toArgb()))),
+            snrColor())),
         PropertyFactory.fillOpacity(0.45f),
     ))
     style.addLayer(LineLayer("coverage-outline", SRC_CELLS).withProperties(
         PropertyFactory.lineColor(cellOutlineColor()),
         PropertyFactory.lineWidth(1.6f),
     ))
-    // Recordings: filled by signal, ringed by the network that heard it.
-    style.addLayer(CircleLayer("coverage-points", SRC_COVERAGE).withProperties(
-        PropertyFactory.circleRadius(6f),
-        PropertyFactory.circleColor(snrColor()),
-        PropertyFactory.circleOpacity(0.85f),
-        PropertyFactory.circleStrokeColor(firmwareColor()),
-        PropertyFactory.circleStrokeWidth(2f),
-    ))
-    // Drive-test pings: larger dots, coloured by what came back, ringed by the network that sent it.
-    style.addLayer(CircleLayer("coverage-pings", SRC_PINGS).withProperties(
-        PropertyFactory.circleRadius(9f),
-        PropertyFactory.circleColor(Expression.match(get("outcome"), color(PingColors.none.toArgb()),
-            stop("reached", color(PingColors.reached.toArgb())), stop("relayed", color(PingColors.relayed.toArgb())))),
-        PropertyFactory.circleOpacity(0.9f),
-        PropertyFactory.circleStrokeColor(firmwareColor()),
-        PropertyFactory.circleStrokeWidth(3f),
-    ))
+    // Radios heard directly: the main layer. Network colour, repeaters ringed in white.
+    // Radios known only through the mesh are smaller and faded.
+    val direct = eq(get("direct"), literal(1))
     style.addLayer(CircleLayer(SRC_NODES, SRC_NODES).withProperties(
-        PropertyFactory.circleRadius(11f),
+        PropertyFactory.circleRadius(Expression.switchCase(direct, literal(11f), literal(6f))),
+        PropertyFactory.circleOpacity(Expression.switchCase(direct, literal(1f), literal(0.55f))),
+        PropertyFactory.circleStrokeOpacity(Expression.switchCase(direct, literal(1f), literal(0.55f))),
         PropertyFactory.circleColor(firmwareColor()),
-        PropertyFactory.circleStrokeColor(color(android.graphics.Color.BLACK)),
-        PropertyFactory.circleStrokeWidth(2f),
+        PropertyFactory.circleStrokeColor(Expression.switchCase(eq(get("rep"), literal(1)), color(android.graphics.Color.WHITE),
+            color(android.graphics.Color.BLACK))),
+        PropertyFactory.circleStrokeWidth(Expression.switchCase(eq(get("rep"), literal(1)), literal(3.5f), literal(2f))),
     ))
     style.addLayer(SymbolLayer("mesh-node-labels", SRC_NODES).withProperties(
         PropertyFactory.textField(get("name")),
@@ -583,7 +603,7 @@ private fun CoverageLegend(all: CoverageData, coverage: CoverageData, mode: Cove
     val bothNetworks = counts.values.count { it > 0 } > 1
     Panel {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(if (shared) "Would be shared" else "Heard here (private)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            Text(if (shared) "Would be shared" else "Coverage (private)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 CoverageColors.stops.forEach { (_, c) -> Box(Modifier.size(10.dp).background(c, CircleShape)) }
                 Text("weak → strong", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -601,8 +621,12 @@ private fun CoverageLegend(all: CoverageData, coverage: CoverageData, mode: Cove
                 Text(if (cellCount == 0) "Nothing to share yet." else "$cellCount hexagons, no exact positions, names or private zones.",
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            if (!shared && cellCount > 0) {
+                Text("$cellCount hexagons, about 300 m across. Exact spots are never drawn.",
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             if (!shared && coverage.pings.isNotEmpty()) {
-                Text("Drive-test pings", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 2.dp))
+                Text("Drive-test pings (best per hexagon)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 2.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     LegendDot(PingColors.reached, "Answered")
                     LegendDot(PingColors.relayed, "Repeated")
@@ -628,10 +652,18 @@ private fun RingDot(ring: Color, label: String) {
 }
 
 @Composable
-private fun RadioLegend() {
+private fun RadioLegend(heard: String?, unidentified: List<UnidentifiedRepeater>, showsMeshKnown: Boolean) {
     Panel {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("Mesh radios", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            heard?.let { Text("$it directly", style = MaterialTheme.typography.labelSmall) }
+            // Heard as the last hop, but no known radio with that hash is in range: named, never placed.
+            if (unidentified.isNotEmpty()) {
+                val shown = unidentified.take(4).joinToString(", ") { it.hash }
+                val more = if (unidentified.size > 4) " and ${unidentified.size - 4} more" else ""
+                Text(if (unidentified.size == 1) unidentified[0].label
+                    else "Repeaters $shown$more, not identified", style = MaterialTheme.typography.labelSmall)
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 LegendDot(RadioColors.meshtastic, "Meshtastic")
                 LegendDot(RadioColors.meshcore, "MeshCore")
@@ -645,6 +677,10 @@ private fun RadioLegend() {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Box(Modifier.size(12.dp).background(Color.Gray, CircleShape).border(2.dp, Color.Black, CircleShape))
                 Text("Heard by your radios", style = MaterialTheme.typography.labelSmall)
+            }
+            if (showsMeshKnown) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(Modifier.size(7.dp).background(Color.Gray.copy(alpha = 0.55f), CircleShape))
+                Text("Known on the mesh (relayed)", style = MaterialTheme.typography.labelSmall)
             }
         }
     }

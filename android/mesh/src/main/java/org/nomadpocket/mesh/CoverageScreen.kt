@@ -3,14 +3,19 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Coverage scanner controls: drive mode and its ping test, recording,
-// retention, private zones and the opt-in, privacy-filtered export. Private by
-// default. Port of CoverageSettingsView.swift.
+// retention, private zones, the opt-in, privacy-filtered export, and backups
+// of the raw data to a place the user picks. Private by default. Port of
+// CoverageSettingsView.swift.
 
 @file:OptIn(ExperimentalMaterial3Api::class)
 
 package org.nomadpocket.mesh
 
 import android.content.Intent
+import android.provider.DocumentsContract
+import android.text.format.DateUtils
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +29,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Hexagon
@@ -48,6 +57,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import org.nomadpocket.mesh.ui.MeshBigButton
 import org.nomadpocket.mesh.ui.MeshCard
 import org.nomadpocket.mesh.ui.MeshColors
@@ -104,6 +115,23 @@ private fun CoverageContent() {
     var confirmDelete by remember { mutableStateOf(false) }
     var addingZone by remember { mutableStateOf(false) }
     var permissionNote by remember { mutableStateOf<String?>(null) }
+    val backup = Mesh.backup
+    val backupStatus by backup.statusFlow.collectAsStateWithLifecycle()
+    var backupNote by remember { mutableStateOf<String?>(null) }
+    val uiScope = rememberCoroutineScope()
+    val chooseFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) { backupNote = null; backup.chooseFolder(uri) }
+    }
+    val exportBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(CoverageBackup.MIME_TYPE)) { uri ->
+        if (uri != null) uiScope.launch { backupNote = backup.exportTo(uri) ?: "Saved a copy of your coverage data." }
+    }
+    val restoreBackup = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) uiScope.launch { backupNote = backup.restoreFrom(uri).message }
+    }
+    val suggestedFolder = remember {
+        runCatching { DocumentsContract.buildDocumentUri(CoverageBackup.LOCAL_STORAGE_AUTHORITY, CoverageBackup.SUGGESTED_FOLDER_DOCUMENT_ID) }.getOrNull()
+    }
+    fun restore() = restoreBackup.launch(arrayOf(CoverageBackup.MIME_TYPE, "text/plain", "application/octet-stream"))
 
     // GPS while this screen is open, for "add a private zone where I am".
     DisposableEffect(Unit) {
@@ -126,8 +154,8 @@ private fun CoverageContent() {
 
         // Drive mode
         FormSection("Drive mode",
-            footer = "Keeps recording while the screen is off or you're in another app, and turns itself off after 4 hours. " +
-                "The ping test sends a tiny test message every 300 m (at most every 45 s) and marks the spot green if the radio you chose answered, " +
+            footer = "Keeps recording while the screen is off or you're in another app, until you turn it off. " +
+                "The ping test sends a tiny test message every 300 m (at most every 45 s) and colours that map hexagon (about 300 m) by the best result there: green if the radio you chose answered, " +
                 "yellow if another radio only repeated it, or red if nothing heard it. " +
                 (if (meshCore) "On MeshCore the ping is a trace to the repeater heard most recently (or one you pick), which repeaters answer on their own; a person's radio gets a short direct message instead. " else "") +
                 (if (radios.size > 1) "With two radios, each pings on its own network, a few seconds apart, and the map shows which network each result is from. " else "") +
@@ -183,7 +211,18 @@ private fun CoverageContent() {
                 else if (MeshPermissions.hasLocation(context)) store.recording = true
                 else askForRecording(MeshPermissions.location)
             }
+            // The mesh heard, the map's main layer: radios with a position, never your own.
+            val heard by Mesh.repository.nodes.collectAsStateWithLifecycle()
+            Text(RadiosHeard.summary(heard) ?: "No radios with a position heard yet.", fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold)
             ValueRow("Recordings", "${samples.size}")
+            if (samples.isEmpty() && pings.isEmpty()) {
+                TextButton(onClick = { restore() }) {
+                    Icon(Icons.Filled.Restore, null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Restore from a backup")
+                }
+            }
             if (samples.any { it.firmware == Firmware.MESHCORE } && samples.any { it.firmware == Firmware.MESHTASTIC }) {
                 ValueRow("  Meshtastic · MeshCore",
                     "${samples.count { it.firmware == Firmware.MESHTASTIC }} · ${samples.count { it.firmware == Firmware.MESHCORE }}")
@@ -216,6 +255,45 @@ private fun CoverageContent() {
             }
             MeshBigButton("Add a private zone where I am", { addingZone = true }, icon = Icons.Filled.AddCircle,
                 filled = false, enabled = hasGPS)
+        }
+
+        // Backup
+        FormSection("Backup",
+            footer = "Backups stay on this phone, in a folder you choose outside the app, so they survive uninstalling and reinstalling Pocket Nomad. " +
+                "They contain your location history; nothing is uploaded. " +
+                "Pick Documents › Pocket Nomad Backups on this phone (make the folder in the picker). Pocket Nomad rewrites one file there, " +
+                "${CoverageBackup.FILE_NAME}, after drives and when you leave the app. Restoring adds what's missing and never removes anything.") {
+            val status = when {
+                !backupStatus.on -> "Off"
+                !backupStatus.folderUsable -> "Pocket Nomad lost access to ${backupStatus.folderName}. Choose the folder again."
+                backupStatus.working -> "Backing up to ${backupStatus.folderName}…"
+                else -> "Backing up to ${backupStatus.folderName} · " + (backupStatus.lastMillis?.let {
+                    "last backup " + DateUtils.getRelativeTimeSpanString(it, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString().lowercase()
+                } ?: "not backed up yet")
+            }
+            Text(status, fontSize = 15.sp, color = if (backupStatus.on && backupStatus.folderUsable) Color.White else MeshColors.secondary,
+                modifier = Modifier.padding(vertical = 6.dp))
+            backupStatus.error?.let { Text(it, fontSize = 14.sp, color = MeshColors.danger) }
+            backupStatus.note?.let { Text(it, fontSize = 14.sp, color = MeshColors.ok) }
+            backupNote?.let { Text(it, fontSize = 14.sp, color = MeshColors.ok) }
+            MeshBigButton(if (backupStatus.on) "Choose a different folder" else "Choose a folder for automatic backups",
+                { chooseFolder.launch(suggestedFolder) }, icon = Icons.Filled.CreateNewFolder, filled = !backupStatus.on)
+            if (backupStatus.on) {
+                MeshBigButton("Back up now", { backupNote = null; backup.backUp(CoverageBackup.Reason.MANUAL) },
+                    icon = Icons.Filled.Backup, filled = false,
+                    enabled = backupStatus.folderUsable && !backupStatus.working && !(samples.isEmpty() && pings.isEmpty() && zones.isEmpty()))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { exportBackup.launch(CoverageBackup.FILE_NAME) }) {
+                    Icon(Icons.Filled.SaveAlt, null); Spacer(Modifier.width(6.dp)); Text("Export a copy…")
+                }
+                TextButton(onClick = { restore() }) {
+                    Icon(Icons.Filled.Restore, null); Spacer(Modifier.width(6.dp)); Text("Restore")
+                }
+                if (backupStatus.on) {
+                    TextButton(onClick = { backup.turnOff() }) { Text("Turn off", color = MeshColors.danger) }
+                }
+            }
         }
 
         // Sharing

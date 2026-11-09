@@ -2,11 +2,12 @@
 // Pocket Nomad - Mesh module
 // SPDX-License-Identifier: Apache-2.0
 //
-// Coverage scanner controls: recording, retention, private zones and the
-// opt-in, privacy-filtered export. Private by default.
+// Coverage scanner controls: recording, retention, private zones, backups
+// and the opt-in, privacy-filtered export. Private by default.
 
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 struct CoverageSettingsView: View {
     @Environment(\.dismiss) private var dismiss
@@ -19,14 +20,25 @@ struct CoverageSettingsView: View {
     @State private var exportFile: ExportFile?
     @State private var drive = DriveMode.shared
     @State private var mesh = MeshService.shared
+    @State private var backup = CoverageBackupService.shared
+    @State private var pickingFolder = false
+    @State private var restoring = false
+    @State private var restoreMessage: String?
 
     var body: some View {
         NavigationStack {
             Form {
+                if store.isEmpty {
+                    Section {
+                        Button { restoring = true } label: { Label("Restore from a backup…", systemImage: "arrow.counterclockwise") }
+                    }
+                }
+
                 driveSection
 
                 Section {
                     Toggle("Record coverage", isOn: $store.recording)
+                    Label(HeardRadios.summary(HeardRadios.mapped(in: mesh)), systemImage: "antenna.radiowaves.left.and.right")
                     LabeledContent("Recordings", value: store.samples.count.formatted())
                     if Set(store.samples.map(\.firmware)).count > 1 || mesh.rememberedLinks.count > 1 {
                         ForEach(MeshFirmware.allCases, id: \.self) { net in
@@ -40,7 +52,7 @@ struct CoverageSettingsView: View {
                     Button("Delete all coverage data", role: .destructive) { confirmDelete = true }
                         .disabled(store.samples.isEmpty)
                 } header: { Text("Coverage scanner") } footer: {
-                    Text("While Pocket Nomad is open (or in drive mode) and connected to a radio, it notes where your phone was each time the radio hears another node, and how strong the signal was. With a Meshtastic and a MeshCore radio connected, both record at once and each point is tagged with its network. See it on the map under Layers › Coverage. It stays on this phone.")
+                    Text("While Pocket Nomad is open (or in drive mode) and connected to a radio, it notes where your phone was each time the radio hears another node, and how strong the signal was. With a Meshtastic and a MeshCore radio connected, both record at once and each point is tagged with its network. The map shows the radios heard where they say they are (Layers › Radios heard); your recordings show only as hexagons (Layers › Coverage hexagons), never as a trail of your route. It stays on this phone.")
                 }
 
                 Section {
@@ -82,6 +94,8 @@ struct CoverageSettingsView: View {
                          ? "Add a private zone first. Sharing never happens on its own: you export a file and choose where it goes, such as the community coverage map."
                          : "Sharing never happens on its own: you export a file and choose where it goes. Preview it on the map under Layers › Coverage › What sharing would publish.")
                 }
+
+                backupSection
             }
             .navigationTitle("Coverage map")
             .navigationBarTitleDisplayMode(.inline)
@@ -93,6 +107,59 @@ struct CoverageSettingsView: View {
             }
             .sheet(isPresented: $addingZone) { zoneEditor }
             .sheet(item: $exportFile) { ActivityView(items: [$0.url]) }
+            .sheet(isPresented: $pickingFolder) {
+                FolderPicker { url in
+                    Task {
+                        await backup.chooseFolder(url)
+                        restoreMessage = backup.folderRestoreMessage
+                    }
+                }
+                .ignoresSafeArea()
+            }
+            .fileImporter(isPresented: $restoring, allowedContentTypes: [.json]) { result in
+                switch result {
+                case .success(let url):
+                    do { restoreMessage = try backup.restore(from: url) } catch {
+                        restoreMessage = (error as? LocalizedError)?.errorDescription ?? "Couldn't read that file."
+                    }
+                case .failure:
+                    break
+                }
+            }
+            .alert("Restore", isPresented: Binding(get: { restoreMessage != nil }, set: { if !$0 { restoreMessage = nil } })) {
+                Button("OK") { restoreMessage = nil }
+            } message: { Text(restoreMessage ?? "") }
+        }
+    }
+
+    private var backupStatus: String {
+        guard let folder = backup.folderName else { return "Off" }
+        let last = backup.lastBackup.map { "last backup " + $0.formatted(.relative(presentation: .named)) } ?? "no backup yet"
+        return "Backing up to \(folder) · \(last)"
+    }
+
+    private var backupSection: some View {
+        Section {
+            LabeledContent("Automatic backup") {
+                if backup.busy { ProgressView() } else { Text(backupStatus).multilineTextAlignment(.trailing) }
+            }
+            if let error = backup.lastError {
+                Text(error).font(.footnote).foregroundStyle(.red)
+            }
+            Button { pickingFolder = true } label: {
+                Label(backup.isOn ? "Change backup folder…" : "Choose backup folder…", systemImage: "folder")
+            }
+            if backup.isOn {
+                Button { Task { await backup.backUpNow() } } label: { Label("Back up now", systemImage: "arrow.clockwise") }
+                    .disabled(backup.busy)
+                Button("Turn off automatic backup", role: .destructive) { backup.turnOff() }
+            }
+            Button {
+                if let url = try? backup.exportFile() { exportFile = ExportFile(url: url) }
+            } label: { Label("Export a copy…", systemImage: "square.and.arrow.up") }
+            Button { restoring = true } label: { Label("Restore from backup…", systemImage: "arrow.counterclockwise") }
+        } header: { Text("Backup") } footer: {
+            Text("Backups stay on this iPhone, in a folder you choose outside the app, so they survive deleting and reinstalling Pocket Nomad. They contain your location history; nothing is uploaded. Make a folder such as On My iPhone › Pocket Nomad Backups in the Files app and choose it here; it is updated after each drive and when you leave the app, and a backup already in it is merged in first. Export a copy only if you want one elsewhere: where it goes is your choice. Restoring adds to what is here and never deletes anything.")
         }
     }
 
@@ -142,7 +209,7 @@ struct CoverageSettingsView: View {
                 .font(.footnote)
             }
         } header: { Text("Drive mode") } footer: {
-            Text("Keeps recording while the phone is locked or in another app, and turns itself off after 4 hours. The ping test sends a tiny test message every 300 m (at most every 45 s) and marks the spot green if the radio you chose answered, yellow if another radio only repeated it, or red if nothing heard it. \(driveNetworks.count > 1 ? "With two radios, each pings on its own network, taking turns. " : "")\(driveNetworks.contains(.meshcore) ? "On MeshCore the ping is a trace to the repeater heard most recently (or one you pick), which repeaters answer on their own; a person's radio gets a short direct message instead. " : "")Uses battery and GPS: keep the phone on a charger.")
+            Text("Keeps recording while the phone is locked or in another app, until you turn it off. The ping test sends a tiny test message every 300 m (at most every 45 s) and marks its map hexagon green if the radio you chose answered, yellow if another radio only repeated it, or red if nothing heard it (the best result in each hexagon wins). \(driveNetworks.count > 1 ? "With two radios, each pings on its own network, taking turns. " : "")\(driveNetworks.contains(.meshcore) ? "On MeshCore the ping is a trace to the repeater heard most recently (or one you pick), which repeaters answer on their own; a person's radio gets a short direct message instead. " : "")Uses battery and GPS: keep the phone on a charger.")
         }
     }
 
@@ -186,4 +253,30 @@ struct ActivityView: UIViewControllerRepresentable {
         UIActivityViewController(activityItems: items, applicationActivities: nil)
     }
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+}
+
+/// The system folder picker, for choosing where backups go.
+struct FolderPicker: UIViewControllerRepresentable {
+    let onPick: (URL) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
+        picker.allowsMultipleSelection = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+
+    @MainActor
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onPick: (URL) -> Void
+        init(onPick: @escaping (URL) -> Void) { self.onPick = onPick }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            if let url = urls.first { onPick(url) }
+        }
+    }
 }

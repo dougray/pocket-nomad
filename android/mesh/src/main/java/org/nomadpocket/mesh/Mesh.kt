@@ -31,6 +31,7 @@ object Mesh {
     private var _radios: MeshRadios? = null
     private var _coverage: CoverageStore? = null
     private var _drive: DriveMode? = null
+    private var _backup: CoverageAutoBackup? = null
     private var _location: MeshLocation? = null
     private var _transports: List<MeshBleTransport> = emptyList()
     internal var appContext: Context? = null
@@ -45,6 +46,8 @@ object Mesh {
     /** Coverage recordings, pings and private zones. */
     val coverage: CoverageStore get() = _coverage ?: notReady()
     val drive: DriveMode get() = _drive ?: notReady()
+    /** Coverage backups: the automatic one to a chosen folder, export and restore. */
+    val backup: CoverageAutoBackup get() = _backup ?: notReady()
     val location: MeshLocation get() = _location ?: notReady()
 
     /** Map data. Exists before init (empty), so it is safe to collect at any time. */
@@ -82,13 +85,19 @@ object Mesh {
         val coverage = CoverageStore(prefs, File(dir, "coverage.json"), scope,
             location = { location.fix },
             nodeName = { radios.nodeName(it) },
-            useLocation = { if (it) location.begin() else location.end() })
+            useLocation = { if (it) location.begin() else location.end() },
+            isOwnRadio = { node, fw -> radios.isOwnRadio(node, fw) })
         val driveLog = DriveLog(File(dir, "drive-log.txt"))
+        val backup = CoverageAutoBackup(app, prefs, scope, coverage, drive = { _drive })
         val drive = DriveMode({ radios.inUse }, coverage, prefs, scope, onActiveChanged = {
-            if (it) DriveModeService.start(app) else DriveModeService.stop(app)
+            if (it) DriveModeService.start(app)
+            else {
+                DriveModeService.stop(app)
+                backup.backUp(CoverageBackup.Reason.DRIVE_STOPPED)
+            }
         }, log = driveLog::note)
         _location = location; _transports = listOf(scanner) + slotTransports.values; _radios = radios
-        _coverage = coverage; _drive = drive
+        _coverage = coverage; _drive = drive; _backup = backup
 
         // Both radios feed the coverage scanner at the same time; each MeshHeard carries its firmware.
         radios.links.values.forEach { it.onHeard = { heard -> coverage.record(heard) } }
@@ -97,24 +106,50 @@ object Mesh {
         drive.resumeIfNeeded()
 
         scope.launch {
-            val perLink = radios.links.map { (fw, link) ->
-                combine(link.nodesFlow, link.blockedFlow, link.radioFlow) { nodes, blocked, radio ->
-                    MeshService.sortedNodes(nodes, radio.myNodeNum, blocked).mapNotNull { it.toMapNode(fw) }
-                }
+            // Never draw the user's own radios, including one radio as heard by the other (MeshRadios.isOwnRadio).
+            // Re-derived from the recordings each time, so older recordings follow today's rules.
+            val perLink = radios.links.values.map { link -> combine(link.nodesFlow, link.blockedFlow, link.radioFlow) { _, _, _ -> } }
+            combine(combine(perLink) { }, coverage.samplesFlow) { _, samples ->
+                radios.heard(samples.filterNot { coverage.hidden(it) }, location.fix)
+            }.collect {
+                repository.heardState.value = it
+                repository.nodesState.value = it.direct
             }
-            combine(perLink) { lists -> lists.flatMap { it }.sortedByDescending { it.lastHeardMillis ?: Long.MIN_VALUE } }
-                .collect { repository.nodesState.value = it }
+        }
+        scope.launch {
+            val perLink = radios.links.values.map { link -> combine(link.radioFlow, link.nodesFlow) { _, _ -> } }
+            combine(perLink) { radios.ownRadios }.collect { repository.ownState.value = it }
         }
         scope.launch {
             combine(coverage.samplesFlow, coverage.pingsFlow) { samples, pings ->
                 CoverageData(
-                    samples.filterNot { coverage.optedOut(it.node) }
+                    samples.filterNot { coverage.hidden(it) }
                         .map { CoverageSample(it.latitude, it.longitude, it.snr, it.firmware) },
                     pings.map { CoveragePing(it.latitude, it.longitude, it.outcome, it.firmware) },
                 )
             }.collect { repository.coverageState.value = it }
         }
-        (app as? Application)?.let { keepScreenOnDuringDrives(it, scope, drive) }
+        (app as? Application)?.let {
+            keepScreenOnDuringDrives(it, scope, drive)
+            backUpWhenLeaving(it, backup)
+        }
+    }
+
+    /** Backs coverage up (when a folder is chosen and something is new) as the app goes to the background. */
+    private fun backUpWhenLeaving(app: Application, backup: CoverageAutoBackup) {
+        var started = 0
+        app.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
+            override fun onActivityStarted(activity: Activity) { started++ }
+            override fun onActivityStopped(activity: Activity) {
+                started = maxOf(0, started - 1)
+                if (started == 0 && !activity.isChangingConfigurations) backup.backUp(CoverageBackup.Reason.BACKGROUND)
+            }
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
+            override fun onActivityResumed(activity: Activity) {}
+            override fun onActivityPaused(activity: Activity) {}
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+            override fun onActivityDestroyed(activity: Activity) {}
+        })
     }
 
     /** Call after the user grants Bluetooth or location permission. */
@@ -150,32 +185,66 @@ object Mesh {
 /** What the map shows from the mesh. */
 class MeshRepository internal constructor() {
     internal val nodesState = MutableStateFlow<List<MapNode>>(emptyList())
+    internal val heardState = MutableStateFlow(HeardRadios())
     internal val coverageState = MutableStateFlow(CoverageData(emptyList(), emptyList()))
+    internal val ownState = MutableStateFlow(OwnRadios())
 
     /**
-     * Radios with a position heard by either of your radios, excluding your own
-     * and blocked ones, most recently heard first. Each carries its network.
+     * Radios with a position heard directly by either of your radios (the
+     * "Heard directly" layer, HeardResolver), excluding your own and blocked
+     * ones, most recently heard first. Each carries its network.
      */
     val nodes: StateFlow<List<MapNode>> = nodesState.asStateFlow()
+    /** Both radio layers, plus unidentified repeaters (text only) and the coverage-only count. */
+    val heard: StateFlow<HeardRadios> = heardState.asStateFlow()
     /** This phone's coverage recordings and drive-test pings from both radios, each tagged with its firmware (opted-out radios left out). */
     val coverage: StateFlow<CoverageData> = coverageState.asStateFlow()
+    /** The user's own radios, so the map can leave them off the community-map layer too. */
+    val own: StateFlow<OwnRadios> = ownState.asStateFlow()
 }
+
+/** The user's own radios: node numbers on either network, and MeshCore public-key prefixes (lowercase hex). */
+data class OwnRadios(val nodeNums: Set<Long> = emptySet(), val meshCoreKeyPrefixes: Set<String> = emptySet())
 
 /** Downloaded MeshCore radios near the phone: one entry per radio, null when its settings are unknown. */
 data class NearbyMeshCore(val downloaded: Boolean = false, val params: List<MeshCoreRadioParams?> = emptyList()) {
     val match: NearbyRadioMatch? by lazy { NearbyRadioParams.mostCommon(params) }
 }
 
-data class MapNode(val num: Long, val name: String, val firmware: Firmware, val latitude: Double, val longitude: Double, val lastHeardMillis: Long?)
+data class MapNode(
+    val num: Long, val name: String, val firmware: Firmware, val latitude: Double, val longitude: Double, val lastHeardMillis: Long?,
+    /** A MeshCore repeater or a Meshtastic router/repeater: ringed on the map. */
+    val isRepeater: Boolean = false,
+)
+
+/** The one-line count of radios heard, for the map legend and Coverage settings. */
+object RadiosHeard {
+    /** "27 MeshCore repeaters and 3 Meshtastic radios heard"; null when none. */
+    fun summary(nodes: List<MapNode>): String? {
+        if (nodes.isEmpty()) return null
+        val parts = Firmware.entries.flatMap { fw ->
+            val mine = nodes.filter { it.firmware == fw }
+            val repeaters = mine.count { it.isRepeater }
+            val others = mine.size - repeaters
+            listOfNotNull(
+                repeaters.takeIf { it > 0 }?.let { "$it ${fw.displayName} repeater${if (it == 1) "" else "s"}" },
+                others.takeIf { it > 0 }?.let { "$it ${fw.displayName} radio${if (it == 1) "" else "s"}" },
+            )
+        }.sortedByDescending { it.substringBefore(' ').toInt() }
+        val joined = if (parts.size == 1) parts[0] else parts.dropLast(1).joinToString(", ") + " and " + parts.last()
+        return "$joined heard"
+    }
+}
 enum class Firmware { MESHTASTIC, MESHCORE }
 data class CoverageData(val samples: List<CoverageSample>, val pings: List<CoveragePing>)
 data class CoverageSample(val latitude: Double, val longitude: Double, val snr: Float?, val firmware: Firmware)
 data class CoveragePing(val latitude: Double, val longitude: Double, val outcome: PingOutcome, val firmware: Firmware)
+/** Best first: a cell keeps the lowest ordinal it got. */
 enum class PingOutcome { REACHED, RELAYED, NONE }
 
 /** The node's network is the one of the radio that heard it. */
 internal fun MeshNode.toMapNode(firmware: Firmware): MapNode? {
     val lat = latitude ?: return null
     val lon = longitude ?: return null
-    return MapNode(num, displayName, firmware, lat, lon, lastHeardMillis)
+    return MapNode(num, displayName, firmware, lat, lon, lastHeardMillis, isRepeater)
 }

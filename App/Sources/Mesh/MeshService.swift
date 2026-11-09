@@ -47,12 +47,21 @@ final class MeshService {
     private let store: MeshStore
     private let defaults: UserDefaults
     private let location: () -> MeshLocationProvider
+    private let now: () -> Date
     private var started = false
+    @ObservationIgnored private var linkWatch: Task<Void, Never>?
     private var saveTask: Task<Void, Never>?
     @ObservationIgnored private lazy var locationProvider: MeshLocationProvider = location()
     /// Called each time a radio hears another node live (for the coverage scanner).
     /// `MeshHeard.firmware` says which radio heard it.
     @ObservationIgnored var onHeard: ((MeshHeard) -> Void)?
+    /// Where the phone is (latitude, longitude), when known, for telling which
+    /// repeater a MeshCore last-hop hash belongs to. Nil: don't guess.
+    @ObservationIgnored var currentFix: () -> (latitude: Double, longitude: Double)? = {
+        guard let fix = LocationService.shared.location, Date().timeIntervalSince(fix.timestamp) < 60,
+              fix.horizontalAccuracy >= 0, fix.horizontalAccuracy <= 200 else { return nil }
+        return (fix.coordinate.latitude, fix.coordinate.longitude)
+    }
 
     private enum Keys {
         // Before two-radio support: one remembered radio.
@@ -70,12 +79,15 @@ final class MeshService {
     init(transport: MeshTransport? = nil,
          store: MeshStore = MeshStore(),
          defaults: UserDefaults = .standard,
-         location: @escaping () -> MeshLocationProvider = { MeshLocationProvider() }) {
+         location: @escaping () -> MeshLocationProvider = { MeshLocationProvider() },
+         now: @escaping () -> Date = Date.init) {
         self.transport = transport ?? MeshBLETransport()
         self.store = store
         self.defaults = defaults
         self.location = location
+        self.now = now
         links = MeshFirmware.allCases.map { MeshLink(firmware: $0) }
+        for l in links { l.now = now }
         blocked = Set((defaults.array(forKey: Keys.blocked) as? [Int] ?? []).map { UInt32(truncatingIfNeeded: $0) })
 
         let snap = store.load()
@@ -184,6 +196,44 @@ final class MeshService {
             l.connection = .reconnecting(name: l.displayName)
             transport.connect(id: id)
         }
+        linkWatch = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                guard let self else { return }
+                self.updateLinks()
+            }
+        }
+    }
+
+    /// A remembered radio still not back after this long is "not nearby".
+    nonisolated static let notNearbyAfter: TimeInterval = 120
+
+    /// Time-based link changes: a drop that outlasted the grace is shown, and a
+    /// radio that hasn't come back for two minutes becomes "not nearby". Its
+    /// pending Bluetooth connection is kept (it costs nothing), so it still
+    /// reconnects by itself the moment it's back. Runs every few seconds.
+    /// With Bluetooth off nothing is "not nearby": the phone just can't look.
+    func updateLinks() {
+        for l in links {
+            l.revealLongDrop()
+            guard availability == .poweredOn, l.autoReconnect, l.connection.isWaiting, let waited = l.waitingFor, waited >= Self.notNearbyAfter else { continue }
+            l.connection = .notNearby(name: l.displayName)
+        }
+    }
+
+    /// "Not with me today": stops reconnecting to this radio until the user taps
+    /// Connect or the app next launches. Unlike Disconnect it stays set to
+    /// reconnect at launch, so tomorrow it comes back by itself.
+    func notWithMeToday(_ network: MeshFirmware) {
+        let l = link(network)
+        guard let id = l.deviceID else { return }
+        l.handshakeTimeout?.cancel()
+        coreReset(l)
+        for p in l.pendingPings.keys { finishPing(p, on: l, MeshPingOutcome.none) }
+        l.lastDropReason = "set to not with me today"
+        l.connection = .notWithMeToday(name: l.displayName)
+        transport.disconnect(id: id) // cancels the pending connect
+        l.isReading = false
     }
 
     func startScan() {
@@ -221,6 +271,7 @@ final class MeshService {
         for l in links where network == nil || l.firmware == network {
             l.autoReconnect = false
             saveSlot(l)
+            if l.connection != .idle { l.lastDropReason = "you disconnected it" }
             l.handshakeTimeout?.cancel()
             coreReset(l)
             if let id = l.deviceID, l.connection != .idle { transport.disconnect(id: id) }
@@ -239,18 +290,21 @@ final class MeshService {
         }
     }
 
-    /// Aggregate link state: the best state of any radio (connected beats
-    /// syncing beats connecting...), naming every radio in that state.
+    /// Aggregate link state as shown (brief drops smoothed over): the best state
+    /// of any radio (connected beats syncing beats connecting...), naming every
+    /// radio in that state.
     var connection: MeshConnectionState {
         func named(_ match: (MeshConnectionState) -> Bool) -> String? {
-            let names = links.filter { match($0.connection) }.map(\.displayName)
+            let names = links.filter { match($0.displayedConnection) }.map(\.displayName)
             return names.isEmpty ? nil : names.joined(separator: " + ")
         }
         if let n = named({ $0.isConnected }) { return .connected(name: n) }
         if let n = named({ if case .syncing = $0 { true } else { false } }) { return .syncing(name: n) }
         if let n = named({ if case .connecting = $0 { true } else { false } }) { return .connecting(name: n) }
         if let n = named({ if case .reconnecting = $0 { true } else { false } }) { return .reconnecting(name: n) }
-        if let failed = links.lazy.compactMap({ l -> String? in if case .failed(let why) = l.connection { why } else { nil } }).first {
+        if let n = named({ if case .notNearby = $0 { true } else { false } }) { return .notNearby(name: n) }
+        if let n = named({ if case .notWithMeToday = $0 { true } else { false } }) { return .notWithMeToday(name: n) }
+        if let failed = links.lazy.compactMap({ l -> String? in if case .failed(let why) = l.displayedConnection { why } else { nil } }).first {
             return .failed(failed)
         }
         return isScanning ? .scanning : .idle
@@ -288,6 +342,41 @@ final class MeshService {
     }
 
     func isBlocked(_ num: UInt32) -> Bool { blocked.contains(num) }
+
+    /// True for this phone's own radios, on either network: they never become a
+    /// coverage point or a dot on the map (your own radio "hearing" itself says
+    /// nothing about coverage, and its position is usually where you live).
+    func isOwnRadio(_ num: UInt32, on network: MeshFirmware) -> Bool {
+        let core = link(.meshcore)
+        return Self.isOwnRadio(num, on: network,
+                               ownNums: links.map(\.radio.myNodeNum),
+                               ownKeyPrefix: core.myNode?.publicKeyPrefix ?? Self.keyBytes(core.radio.myNodeNum))
+    }
+
+    /// The rule itself, kept pure for tests. `ownNums` are both radios' node
+    /// numbers (0 when unknown); `ownKeyPrefix` is the start of the MeshCore
+    /// radio's public key. A MeshCore repeater known only by its 1-3 byte path
+    /// hash counts as ours when that hash is the start of our key: with 1-byte
+    /// hashes a stranger's repeater can collide with it, and leaving that one
+    /// out is the safe way round.
+    nonisolated static func isOwnRadio(_ num: UInt32, on network: MeshFirmware, ownNums: [UInt32], ownKeyPrefix: Data?) -> Bool {
+        guard num != 0 else { return false }
+        if ownNums.contains(where: { $0 != 0 && $0 == num }) { return true }
+        guard network == .meshcore, let key = ownKeyPrefix, !key.isEmpty, key.contains(where: { $0 != 0 }) else { return false }
+        if MeshCoreContact.nodeNum(for: key) == num { return true }
+        return (1 ... min(3, key.count)).contains { MeshCoreContact.nodeNum(forHash: key.prefix($0)) == num }
+    }
+
+    /// The MeshCore radio's key prefix as lowercase hex (community-map ids start with it), or nil.
+    var ownMeshCoreKeyHex: String? {
+        guard let key = link(.meshcore).myNode?.publicKeyPrefix, !key.isEmpty else { return nil }
+        return key.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// A MeshCore node number back to the key bytes it was made from (first four, little-endian).
+    nonisolated private static func keyBytes(_ num: UInt32) -> Data? {
+        num == 0 ? nil : Data([UInt8(num & 0xFF), UInt8(num >> 8 & 0xFF), UInt8(num >> 16 & 0xFF), UInt8(num >> 24)])
+    }
 
     /// Hides a radio on this phone: deletes its messages, drops new ones and takes it
     /// off the node list. Nothing is sent; the other radio can't tell.
@@ -569,7 +658,10 @@ final class MeshService {
             if a != .poweredOn {
                 for l in links {
                     l.isReading = false
-                    if l.connection.isLinkUp { l.connection = .reconnecting(name: l.displayName) }
+                    if l.connection.isLinkUp {
+                        l.lastDropReason = a == .poweredOff ? "Bluetooth turned off" : "Bluetooth unavailable"
+                        l.connection = .reconnecting(name: l.displayName)
+                    }
                 }
             }
 
@@ -584,6 +676,8 @@ final class MeshService {
         case .connecting(let id, let name):
             guard let l = link(forDevice: id) else { return } // e.g. restored by iOS: adopted when ready
             l.deviceName = name
+            // A radio that isn't nearby stays so until it actually connects.
+            if case .notNearby = l.connection { return }
             l.connection = .connecting(name: name)
 
         case .ready(let id, let name, let firmware):
@@ -602,7 +696,11 @@ final class MeshService {
             l.isReading = false
             l.handshakeTimeout?.cancel()
             coreReset(l)
+            if l.connection.isLinkUp {
+                l.lastDropReason = l.awaitingRestart || l.adminSetID != 0 ? "radio rebooted (settings change)" : (reason ?? "link lost")
+            }
             radioLinkDropped(l)
+            if l.connection.isAway { return } // "not with me today" cancelled it; stay so
             if willReconnect {
                 l.connection = .reconnecting(name: l.displayName)
             } else {
@@ -612,6 +710,8 @@ final class MeshService {
 
         case .connectFailed(let id, let reason):
             guard let l = link(forDevice: id) else { return }
+            // Away radios keep trying quietly: no notice each time.
+            if l.connection.isAway { return }
             notice = labelled(reason, l)
             l.connection = l.autoReconnect ? .reconnecting(name: l.displayName) : .failed(reason)
 
@@ -695,6 +795,7 @@ final class MeshService {
         l.autoReconnect = true
         saveSlot(l)
         l.connection = .connecting(name: name)
+        l.restartWaitClock() // a tap on Connect gives it another two minutes
         transport.connect(id: id)
     }
 
@@ -825,6 +926,7 @@ final class MeshService {
         if !u.shortName.isEmpty { n.shortName = u.shortName }
         if u.hwModel != 0 { n.hwModel = u.hwModel }
         if !u.publicKey.isEmpty { n.hasPublicKey = true }
+        n.role = u.role
     }
 
     private func apply(_ p: MeshPBPosition, to n: inout MeshNode) {
@@ -1020,11 +1122,16 @@ final class MeshService {
             coreUpsert(c, on: l)
         case .newAdvert(let c):
             coreUpsert(c, on: l)
-            onHeard?(MeshHeard(node: c.nodeNum, snr: nil, hops: c.pathLength.map(UInt32.init), firmware: .meshcore))
+            // Only a 0-hop advert was heard from the radio itself; a relayed one
+            // came from somewhere on the mesh (its last hop is credited from the
+            // packet log), so it is a coverage point only.
+            let direct = c.pathLength == 0
+            onHeard?(MeshHeard(node: direct ? c.nodeNum : 0, snr: nil, hops: c.pathLength.map(UInt32.init), firmware: .meshcore))
         case .advert(let key):
             let num = MeshCoreContact.nodeNum(for: key)
             if l.nodes[num] != nil { l.update(num) { $0.lastHeard = Date() } }
-            onHeard?(MeshHeard(node: num, snr: nil, hops: nil, firmware: .meshcore))
+            // How many hops it came is unknown, so it says nothing about who is in range.
+            onHeard?(MeshHeard(node: 0, snr: nil, hops: nil, firmware: .meshcore))
         case .channelInfo(let ch):
             let index = Int32(ch.index)
             l.radio.channelNames[index] = ch.isEmpty ? nil : ch.name
@@ -1085,24 +1192,35 @@ final class MeshService {
     /// Every packet the radio hears is a coverage point, whoever it was for: the
     /// sender is the repeater that passed it to us (or, for a straight-from-the-source
     /// advert, the node itself).
+    ///
+    /// A repeater is recorded by its hash (as a stand-in node number); which
+    /// contact that is gets worked out from where each sample was taken
+    /// (`HeardResolver`), since a 1-byte hash matches many radios across a mesh.
+    /// Live, the contact is only updated when one is known to be in range now.
     private func coreHeardPacket(_ log: MeshCoreRxLog, on l: MeshLink) {
         guard let packet = log.packet else { return }
         let node: UInt32
+        var heard: UInt32?
         switch packet.heardFrom {
         case .repeater(let hash)?:
-            node = l.nodes.values.first { $0.publicKeyPrefix?.starts(with: hash) == true }?.num
-                ?? MeshCoreContact.nodeNum(forHash: hash)
-            l.neighbors[MeshCoreContact.nodeNum(forHash: hash)] = MeshLink.Neighbor(hash: hash, lastHeard: Date(), snr: log.snr)
+            node = MeshCoreContact.nodeNum(forHash: hash)
+            l.neighbors[node] = MeshLink.Neighbor(hash: hash, lastHeard: Date(), snr: log.snr)
+            if let fix = currentFix() {
+                heard = HeardResolver.resolve(hash: hash, latitude: fix.latitude, longitude: fix.longitude, among: l.nodes.values,
+                                              excluding: { self.isOwnRadio($0, on: .meshcore) })?.num
+            }
         case .node(let key)?:
             node = MeshCoreContact.nodeNum(for: key)
+            heard = node
         case nil:
             node = 0
         }
-        if node != 0, l.nodes[node] != nil {
-            l.update(node) { n in
+        if let heard, heard != 0, !isOwnRadio(heard, on: .meshcore), l.nodes[heard] != nil {
+            l.update(heard) { n in
                 n.lastHeard = Date()
                 n.snr = log.snr
             }
+            l.heardDirect[heard] = Date()
         }
         onHeard?(MeshHeard(node: node, snr: log.snr, hops: UInt32(packet.path.count), firmware: .meshcore))
     }
@@ -1130,8 +1248,10 @@ final class MeshService {
             }
         }
         // Messages queued on the radio while the phone was away are old; skip those.
+        // A relayed message came from somewhere on the mesh, not from a radio in
+        // range (its last hop is credited from the packet log): coverage only.
         if timestamp == 0 || abs(Date().timeIntervalSince1970 - TimeInterval(timestamp)) < 120 {
-            onHeard?(MeshHeard(node: from, snr: snr, hops: path == 0xFF ? nil : UInt32(path & 0x3F), firmware: .meshcore))
+            onHeard?(MeshHeard(node: path == 0 ? from : 0, snr: snr, hops: path == 0xFF ? nil : UInt32(path & 0x3F), firmware: .meshcore))
         }
         trimHistory()
         scheduleSave()
