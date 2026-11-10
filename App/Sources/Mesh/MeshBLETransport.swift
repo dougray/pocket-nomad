@@ -72,6 +72,8 @@ final class MeshBLETransport: NSObject, MeshTransport {
     /// The devices we want to stay connected to. A user disconnect removes one.
     private var wanted: Set<UUID> = []
     private var wantsScan = false
+    /// Scanning only to find a wanted radio that isn't connected (see updateReconnectScan).
+    private var reconnectScanning = false
 
     func start() {
         guard central == nil else { return }
@@ -88,6 +90,7 @@ final class MeshBLETransport: NSObject, MeshTransport {
     func startScan() {
         start()
         wantsScan = true
+        reconnectScanning = false
         guard let central, central.state == .poweredOn else { return }
         central.scanForPeripherals(
             withServices: MeshBLEUUID.allServices,
@@ -107,6 +110,24 @@ final class MeshBLETransport: NSObject, MeshTransport {
     func stopScan() {
         wantsScan = false
         central?.stopScan()
+        updateReconnectScan()
+    }
+
+    /// A pending connect alone can wait forever (seen on a real drive: the radio
+    /// was back but iOS never completed it). While a wanted radio isn't
+    /// connected, also scan for the radios' services, which keeps working in the
+    /// background, and connect the moment it advertises. Stops once every
+    /// wanted radio is connected; the user's own scan takes precedence.
+    private func updateReconnectScan() {
+        guard let central, central.state == .poweredOn, !wantsScan else { return }
+        let missing = wanted.contains { links[$0]?.peripheral.state != .connected }
+        if missing, !reconnectScanning {
+            reconnectScanning = true
+            central.scanForPeripherals(withServices: MeshBLEUUID.allServices, options: nil)
+        } else if !missing, reconnectScanning {
+            reconnectScanning = false
+            central.stopScan()
+        }
     }
 
     func connect(id: UUID) {
@@ -129,10 +150,12 @@ final class MeshBLETransport: NSObject, MeshTransport {
             // radio comes back in range, even in the background.
             central.connect(target, options: nil)
         }
+        updateReconnectScan()
     }
 
     func disconnect(id: UUID) {
         wanted.remove(id)
+        defer { updateReconnectScan() }
         guard let link = links.removeValue(forKey: id) else { return }
         central?.cancelPeripheralConnection(link.peripheral)
         emit(.disconnected(id: id, reason: nil, willReconnect: false))
@@ -223,7 +246,9 @@ extension MeshBLETransport: @preconcurrency CBCentralManagerDelegate {
             }
             return
         }
+        reconnectScanning = false
         if wantsScan { startScan() }
+        defer { updateReconnectScan() }
         for id in wanted.sorted(by: { $0.uuidString < $1.uuidString }) {
             if let restored = links[id]?.peripheral {
                 emit(.connecting(id: id, name: restored.name ?? "Mesh radio"))
@@ -242,6 +267,13 @@ extension MeshBLETransport: @preconcurrency CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
         seen[peripheral.identifier] = peripheral
+        if wanted.contains(peripheral.identifier), peripheral.state == .disconnected {
+            links[peripheral.identifier]?.peripheral = peripheral
+            if links[peripheral.identifier] == nil { links[peripheral.identifier] = Link(peripheral: peripheral) }
+            peripheral.delegate = self
+            central.connect(peripheral, options: nil)
+        }
+        if reconnectScanning { return } // not a user scan: don't fill the device list
         let services = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
         let firmware: MeshFirmware = services.contains(MeshBLEUUID.meshCoreService) ? .meshcore : .meshtastic
         let name = (advertisementData[CBAdvertisementDataLocalNameKey] as? String)
@@ -264,6 +296,7 @@ extension MeshBLETransport: @preconcurrency CBCentralManagerDelegate {
         links[id] = link
         peripheral.delegate = self
         peripheral.discoverServices(MeshBLEUUID.allServices)
+        updateReconnectScan()
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
@@ -285,6 +318,7 @@ extension MeshBLETransport: @preconcurrency CBCentralManagerDelegate {
         if reconnect {
             central.connect(peripheral, options: nil)
         }
+        updateReconnectScan()
     }
 
     /// Why a link went down, in words for the drive log and notices.

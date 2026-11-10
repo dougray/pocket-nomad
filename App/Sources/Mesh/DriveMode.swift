@@ -15,6 +15,34 @@ import CoreLocation
 import Foundation
 import Observation
 import UIKit
+import UserNotifications
+
+/// Notices when drive mode has had no radio for a while, so a drive that is
+/// recording nothing doesn't go unnoticed (a real drive lost 3 hours this way).
+struct NoRadioWatch: Equatable {
+    static let alertAfter: TimeInterval = 300
+
+    enum Event: Equatable { case alert, back }
+
+    private(set) var since: Date?
+    private(set) var alerted = false
+
+    /// `expected`: radios the user hasn't set aside today. Returns `.alert` once
+    /// per outage, after five minutes with none connected, and `.back` when a
+    /// radio connects after an alert.
+    mutating func update(expected: Int, connected: Bool, now: Date) -> Event? {
+        guard expected > 0, !connected else {
+            let back = alerted && connected
+            self = NoRadioWatch()
+            return back ? .back : nil
+        }
+        let start = since ?? now
+        since = start
+        guard !alerted, now.timeIntervalSince(start) >= Self.alertAfter else { return nil }
+        alerted = true
+        return .alert
+    }
+}
 
 @MainActor @Observable
 final class DriveMode {
@@ -82,6 +110,9 @@ final class DriveMode {
     private var lastHeartbeat: Date?
     private var samplesAtHeartbeat = 0
     private var briefDropsAtHeartbeat: [MeshFirmware: Int] = [:]
+    private var noRadio = NoRadioWatch()
+    /// Shows the "not recording radios" alert; tests replace it.
+    @ObservationIgnored var notify: @MainActor (_ title: String, _ body: String) -> Void = DriveMode.postNotification
 
     private enum Keys {
         static let pinging = "drive.pinging"
@@ -128,6 +159,7 @@ final class DriveMode {
         coverageWasOn = coverage.recording
         begin(at: now())
         log?.note("drive mode on")
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
     /// Picks a drive back up after iOS closed the app mid-drive (it relaunches
@@ -153,6 +185,7 @@ final class DriveMode {
         lastHeartbeat = nil
         samplesAtHeartbeat = coverage.samples.count
         briefDropsAtHeartbeat = Dictionary(uniqueKeysWithValues: mesh.links.map { ($0.firmware, $0.briefDrops) })
+        noRadio = NoRadioWatch()
         coverage.recording = true
         log?.watchApp { [weak self] in self?.active == true }
         LocationService.shared.beginBackground()
@@ -206,6 +239,7 @@ final class DriveMode {
     func tick() {
         mesh.updateLinks()
         logState()
+        watchForNoRadio()
         guard pinging else { notes = [:]; return }
         var newNotes: [MeshFirmware: String] = [:]
         defer { notes = newNotes; logNotes(newNotes) }
@@ -258,6 +292,36 @@ final class DriveMode {
                 lastPing[network] = (now(), fix)
             }
         }
+    }
+
+    // MARK: No radio
+
+    private func watchForNoRadio() {
+        let expected = mesh.links.filter { l in
+            guard l.isRemembered else { return false }
+            if case .notWithMeToday = l.connection { return false }
+            return true
+        }
+        let connected = mesh.links.contains { $0.connection.isConnected }
+        switch noRadio.update(expected: expected.count, connected: connected, now: now()) {
+        case .alert?:
+            log?.note("alert: no radio connected for 5 minutes, so this drive isn't recording radios")
+            notify("Drive mode isn't recording radios",
+                   "No radio has connected for 5 minutes. Check that your radio is on and near the phone.")
+        case .back?:
+            log?.note("a radio is connected again, recording radios")
+        case nil:
+            break
+        }
+    }
+
+    private static func postNotification(title: String, body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: "drive.noRadio", content: content, trigger: nil))
     }
 
     // MARK: Drive log

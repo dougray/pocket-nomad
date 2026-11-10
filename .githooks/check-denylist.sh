@@ -3,9 +3,10 @@
 # gitignored private/denylist.txt (one string per line, # comments allowed).
 # Usage: check-denylist.sh staged   -> scan lines being added in this commit
 #        check-denylist.sh tree     -> scan every tracked file (used before push)
-# Contributors without the file get a warning; gitleaks still runs.
+# Contributors without the file get a warning; gitleaks still runs. DENYLIST=<path>
+# points at a list elsewhere (the public export commits with the private one).
 root=$(git rev-parse --show-toplevel)
-list="$root/private/denylist.txt"
+list=${DENYLIST:-"$root/private/denylist.txt"}
 if [ ! -f "$list" ]; then
   echo "denylist: $list not found, skipping personal-string check" >&2
   exit 0

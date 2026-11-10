@@ -39,6 +39,12 @@ data class DriveState(
     val pingNote: String? = null,
     /** The same, per radio. */
     val radios: Map<Firmware, RadioDriveState> = emptyMap(),
+    /**
+     * A radio is remembered but none has been connected for RADIO_OUTAGE_MILLIS:
+     * nothing from the radios is being recorded. Set once per outage (the
+     * service posts one alert then) and cleared when a radio connects.
+     */
+    val radioOutage: Boolean = false,
 )
 
 /** One radio's share of a drive. */
@@ -79,6 +85,12 @@ class DriveMode(
         const val TICK_MILLIS = 5_000L
         /** The status line when every radio in use is away (not nearby or not with the user). */
         const val AWAY_NOTE = "Radio not nearby · pings resume when it's back"
+        /** No radio connected this long (with one remembered) raises the outage alert. */
+        const val RADIO_OUTAGE_MILLIS = 5 * 60_000L
+        /** The notification line during an outage. */
+        const val OUTAGE_NOTE = "No radio connected for 5 min · not recording radios"
+        const val OUTAGE_ALERT_TITLE = "Drive mode isn't recording radios"
+        const val OUTAGE_ALERT_TEXT = "No radio has connected for 5 minutes. Check that it's on and near the phone."
 
         private const val LEGACY_TARGET = "drive.target"
         private fun targetKey(fw: Firmware) = "drive.target.${fw.rawValue}"
@@ -138,6 +150,8 @@ class DriveMode(
     private var samplesAtHeartbeat = 0
     /** Each radio's MeshService.briefDrops at the last heartbeat. */
     private val dropsAtHeartbeat = mutableMapOf<Firmware, Int>()
+    /** Since when no remembered radio has been connected; null while one is (or none is remembered). */
+    private var noRadioSince: Long? = null
 
     private object Keys {
         const val PINGING = "drive.pinging"
@@ -174,6 +188,7 @@ class DriveMode(
         lastHeartbeatMillis = null
         samplesAtHeartbeat = coverage.samples.size
         dropsAtHeartbeat.clear()
+        noRadioSince = null
         radios().forEach { (fw, mesh) -> dropsAtHeartbeat[fw] = mesh.briefDrops }
         coverage.recording = true
         onActiveChanged(true)
@@ -189,7 +204,8 @@ class DriveMode(
         if (!state.active) return
         log("drive mode off: $reason · ${state.sent} pings, ${state.reached} reached, ${state.relayed} relayed, ${state.unanswered} unanswered")
         prefs.remove(Keys.ACTIVE_SINCE)
-        _state.value = state.copy(active = false, pingNote = null, waiting = false,
+        noRadioSince = null
+        _state.value = state.copy(active = false, pingNote = null, waiting = false, radioOutage = false,
             radios = state.radios.mapValues { it.value.copy(waiting = false, note = null) })
         loop?.cancel()
         loop = null
@@ -203,6 +219,7 @@ class DriveMode(
         // The link timers (brief drop, Not nearby) also run here, in case Android delayed their own wake-up.
         inUse.forEach { it.second.checkLink() }
         logState(inUse)
+        checkRadioOutage(inUse)
         // A radio that is not nearby, or not with the user today, is left out as if it weren't there.
         val radios = inUse.filterNot { it.second.connection.isAway }
         inUse.filter { it.second.connection.isAway }.forEach { (fw, _) -> radioNote(fw, null) }
@@ -297,6 +314,36 @@ class DriveMode(
         }
         log((listOf("still running", gps, "${points - samplesAtHeartbeat} new coverage points") + drops).joinToString(" · "))
         samplesAtHeartbeat = points
+    }
+
+    /**
+     * The outage alert: with at least one radio remembered (and not set to "Not
+     * with me today", which the user chose), no radio connected for
+     * RADIO_OUTAGE_MILLIS in a row means the drive records nothing from the
+     * radios. Raised once per outage, cleared when a radio connects.
+     */
+    private fun checkRadioOutage(inUse: List<Pair<Firmware, MeshService>>) {
+        val remembered = inUse.filter { it.second.lastDeviceID != null && !it.second.notWithMe }
+        val anyConnected = inUse.any { it.second.connection.isConnected }
+        if (remembered.isEmpty() || anyConnected) {
+            val since = noRadioSince
+            noRadioSince = null
+            if (state.radioOutage) {
+                _state.value = state.copy(radioOutage = false)
+                if (anyConnected) {
+                    val minutes = since?.let { (now() - it) / 60_000 }
+                    log("radio back" + (minutes?.let { " after $it min without one" } ?: "") + " · recording radios again")
+                } else {
+                    log("no radio remembered any more · outage alert cleared")
+                }
+            }
+            return
+        }
+        val since = noRadioSince ?: now().also { noRadioSince = it }
+        if (!state.radioOutage && now() - since >= RADIO_OUTAGE_MILLIS) {
+            _state.value = state.copy(radioOutage = true)
+            log("alert: no radio connected for 5 min · not recording radios")
+        }
     }
 
     private fun radio(fw: Firmware): RadioDriveState = state.radios[fw] ?: RadioDriveState()

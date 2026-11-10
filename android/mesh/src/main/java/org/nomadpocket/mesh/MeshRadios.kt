@@ -46,12 +46,31 @@ class MeshRadios(
     val isScanning get() = _isScanning.value
 
     private var started = false
+    /** The ids last handed to the scanner's reconnect scan. */
+    private var reconnectScanIDs: Set<String> = emptySet()
 
     init {
         scanner.onEvent = { handleScan(it) }
         for ((slot, link) in links) {
             link.onReady = { id, name, firmware -> if (firmware == slot) true else { move(link, id, name, firmware); false } }
+            link.onLinkChanged = { updateReconnectScan() }
         }
+    }
+
+    /**
+     * Remembered radios that should be connected and aren't (MeshService.wantsReconnect).
+     * The scanner keeps a low-power background scan going for exactly these.
+     */
+    val reconnectWanted: Set<String>
+        get() = links.values.filter { it.wantsReconnect }.mapNotNull { it.lastDeviceID }.toSet()
+
+    /** Starts, retargets or stops the reconnect scan; stopped once every wanted radio is connected. */
+    private fun updateReconnectScan() {
+        if (!started) return
+        val ids = reconnectWanted
+        if (ids == reconnectScanIDs) return
+        reconnectScanIDs = ids
+        scanner.setReconnectScan(ids)
     }
 
     fun link(firmware: Firmware): MeshService = links.getValue(firmware)
@@ -65,6 +84,7 @@ class MeshRadios(
         started = true
         scanner.start()
         links.values.forEach { it.start() }
+        updateReconnectScan()
     }
 
     fun startScan() {
@@ -120,6 +140,8 @@ class MeshRadios(
                 if (i >= 0) list[i] = d else list.add(d)
                 _discovered.value = list.sortedByDescending { if (it.rssi == 0) -999 else it.rssi }
             }
+            // A wanted radio advertising: the link that remembers it connects now.
+            is MeshTransportEvent.Sighted -> links.values.forEach { it.radioSighted(event.id) }
             else -> {}
         }
     }

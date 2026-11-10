@@ -21,6 +21,8 @@ die() { echo "export-public: $*" >&2; exit 1; }
 [ -f private/denylist.txt ] || die "private/denylist.txt is missing; refusing to export without the personal-string check"
 command -v gitleaks >/dev/null || die "gitleaks not installed (brew install gitleaks)"
 
+# The public copy's own commit hook checks against this list too.
+export DENYLIST="$SRC/private/denylist.txt"
 echo "Scanning tracked files..."
 .githooks/check-denylist.sh tree || die "denylist matched; fix before exporting"
 TMP=$(mktemp -d)

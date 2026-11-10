@@ -132,6 +132,17 @@ class MeshService(
      */
     var onReady: ((id: String, name: String, firmware: Firmware) -> Boolean)? = null
 
+    /** Called whenever `wantsReconnect` may have changed (MeshRadios runs the reconnect scan from it). */
+    var onLinkChanged: (() -> Unit)? = null
+
+    /**
+     * The remembered radio should be connected but isn't: auto-reconnect on, not
+     * "Not with me today", not disconnected by the user, and no link up. While
+     * true, MeshRadios keeps a low-power scan looking for it (`radioSighted`).
+     */
+    val wantsReconnect: Boolean
+        get() = started && autoReconnect && !notWithMeToday && lastDeviceID != null && !connection.isLinkUp
+
     // MARK: Internals
 
     private var started = false
@@ -149,6 +160,8 @@ class MeshService(
     /** When the current drop started, while the displayed state still says Connected. */
     private var dropSince: Long? = null
     private var notWithMeToday = false
+    /** When the reconnect scan last made us connect; repeat sightings wait SIGHTED_RETRY_MILLIS. */
+    private var sightedConnectAt: Long? = null
 
     // MeshCore: one command in flight at a time, each waiting for its reply.
     private class CoreCommand(
@@ -281,7 +294,24 @@ class MeshService(
             else -> unseenSince = null
         }
         if (old is MeshConnectionState.NotNearby && new !is MeshConnectionState.NotNearby) transport.setLowPower(false)
+        if (new.isLinkUp) sightedConnectAt = null
         updateDisplay()
+        onLinkChanged?.invoke()
+    }
+
+    /**
+     * The reconnect scan saw `id` advertising: if it is the radio this link
+     * wants, connect to it now (a direct connect, since the transport has just
+     * seen it) instead of waiting on the slow background attempt. A connect
+     * already started by an earlier sighting gets SIGHTED_RETRY_MILLIS (longer
+     * than Android's direct-connect timeout) before it is restarted.
+     */
+    fun radioSighted(id: String) {
+        if (id != lastDeviceID || !wantsReconnect) return
+        val last = sightedConnectAt
+        if (last != null && now() - last < SIGHTED_RETRY_MILLIS) return
+        sightedConnectAt = now()
+        transport.connect(id)
     }
 
     /** Debounces the displayed state: drops shorter than FLICKER_MILLIS keep showing Connected. */
@@ -314,6 +344,7 @@ class MeshService(
         _lastDevice.value = null
         prefs.remove(Keys.LAST_DEVICE_ID)
         prefs.remove(Keys.LAST_DEVICE_NAME)
+        onLinkChanged?.invoke()
     }
 
     val myNodeNum: Long get() = radio.myNodeNum
@@ -605,6 +636,8 @@ class MeshService(
                 if (i >= 0) list[i] = d else list.add(d)
                 _discovered.value = list.sortedByDescending { if (it.rssi == 0) -999 else it.rssi }
             }
+
+            is MeshTransportEvent.Sighted -> radioSighted(event.id)
 
             is MeshTransportEvent.Connecting -> {
                 currentDeviceName = event.name
@@ -1408,6 +1441,8 @@ class MeshService(
         const val RESTART_RECONNECT_DELAY = 4_000L
         /** A remembered radio unseen this long is Not nearby (left at home, or in the car while you're in a store). */
         const val NOT_NEARBY_MILLIS = 2 * 60_000L
+        /** Between connects started by the reconnect scan seeing the same radio. */
+        const val SIGHTED_RETRY_MILLIS = 35_000L
         /** Drops that recover within this long don't change what the user sees, notes or the drive log. */
         const val FLICKER_MILLIS = 20_000L
 

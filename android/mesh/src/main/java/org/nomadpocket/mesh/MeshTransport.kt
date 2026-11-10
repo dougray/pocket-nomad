@@ -18,6 +18,11 @@ package org.nomadpocket.mesh
 sealed class MeshTransportEvent {
     data class Availability(val availability: MeshBluetoothAvailability) : MeshTransportEvent()
     data class Discovered(val device: MeshDiscoveredDevice) : MeshTransportEvent()
+    /**
+     * The reconnect scan (setReconnectScan) saw a wanted radio advertising. Never
+     * shown in the device picker; the link that wants it connects right away.
+     */
+    data class Sighted(val id: String) : MeshTransportEvent()
     data class Connecting(val id: String, val name: String) : MeshTransportEvent()
     /** Characteristics found and notifications on: ready for the handshake. */
     data class Ready(val id: String, val name: String, val firmware: Firmware = Firmware.MESHTASTIC) : MeshTransportEvent()
@@ -55,4 +60,11 @@ interface MeshTransport {
      * going but as cheaply as possible (slow retries). Off when it comes back.
      */
     fun setLowPower(on: Boolean) {}
+    /**
+     * Keeps a low-power background scan running for these remembered radios
+     * (by id) while any of them is not connected; empty stops it. Separate from
+     * startScan/stopScan (the device picker), which it never starts or stops.
+     * A wanted radio seen advertising arrives as `Sighted(id)`, never `Discovered`.
+     */
+    fun setReconnectScan(ids: Set<String>) {}
 }

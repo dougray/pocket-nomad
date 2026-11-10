@@ -7,7 +7,10 @@
 // the radios' Bluetooth links kept up (both, with a Meshtastic and a MeshCore
 // radio connected: the links live in Mesh, this service keeps the process in
 // the foreground so neither is dropped). DriveMode starts and stops it;
-// Drive mode runs until the user turns it off.
+// Drive mode runs until the user turns it off. When no radio has been
+// connected for 5 minutes (DriveState.radioOutage) the ongoing notification
+// says so and one alert notification goes out per outage; it is withdrawn
+// when a radio connects or drive mode stops.
 
 package org.nomadpocket.mesh
 
@@ -38,6 +41,8 @@ class DriveModeService : Service() {
     private var scope: CoroutineScope? = null
     private var holdingLocation = false
     private var wakeLock: PowerManager.WakeLock? = null
+    /** The outage alert is showing (posted once per outage). */
+    private var alertShown = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -81,6 +86,7 @@ class DriveModeService : Service() {
                             getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, notification(st, n, line))
                             wakeLock?.acquire(WAKE_LOCK_MILLIS) // renew: drive mode has no time limit
                         }
+                        showOutageAlert(st.active && st.radioOutage)
                     }
             }
         }
@@ -90,6 +96,7 @@ class DriveModeService : Service() {
     override fun onDestroy() {
         scope?.cancel()
         scope = null
+        showOutageAlert(false)
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
         if (holdingLocation) {
@@ -97,6 +104,30 @@ class DriveModeService : Service() {
             if (Mesh.isInitialized) Mesh.location.end()
         }
         super.onDestroy()
+    }
+
+    /** Posts the outage alert once when an outage starts; withdraws it when it ends. */
+    private fun showOutageAlert(show: Boolean) {
+        if (show == alertShown) return
+        alertShown = show
+        val nm = getSystemService(NotificationManager::class.java) ?: return
+        if (!show) { nm.cancel(ALERT_ID); return }
+        val open = packageManager.getLaunchIntentForPackage(packageName)?.let {
+            PendingIntent.getActivity(this, 3, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        }
+        val alert = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
+            .setSmallIcon(R.drawable.mesh_ic_drive)
+            .setContentTitle(DriveMode.OUTAGE_ALERT_TITLE)
+            .setContentText(DriveMode.OUTAGE_ALERT_TEXT)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(DriveMode.OUTAGE_ALERT_TEXT))
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setOnlyAlertOnce(true)
+            .setAutoCancel(true)
+            .setContentIntent(open)
+            .build()
+        // Without notification permission (Android 13+) this is dropped; the ongoing notification still says it.
+        try { nm.notify(ALERT_ID, alert) } catch (_: SecurityException) {}
     }
 
     /** "Meshtastic connected · MeshCore waiting", for the radios in use. */
@@ -117,6 +148,7 @@ class DriveModeService : Service() {
             PendingIntent.getActivity(this, 2, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         }
         val text = buildString {
+            if (st.radioOutage) append("${DriveMode.OUTAGE_NOTE} · ")
             append("Recording coverage: $points points")
             if (st.sent > 0) append(" · ${st.sent} pings (${st.reached} answered, ${st.relayed} repeated, ${st.unanswered} nothing)")
             st.pingNote?.let { append(" · $it") }
@@ -142,13 +174,21 @@ class DriveModeService : Service() {
         const val ACTION_STOP = "org.nomadpocket.mesh.action.STOP_DRIVE"
         private const val CHANNEL_ID = "mesh.drive"
         private const val NOTIFICATION_ID = 4107
+        private const val ALERT_CHANNEL_ID = "mesh.drive.alert"
+        private const val ALERT_ID = 4108
 
         private fun ensureChannel(context: Context) {
             val nm = context.getSystemService(NotificationManager::class.java) ?: return
-            if (nm.getNotificationChannel(CHANNEL_ID) != null) return
-            nm.createNotificationChannel(NotificationChannel(CHANNEL_ID, "Drive mode", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "Shown while drive mode records coverage."
-            })
+            if (nm.getNotificationChannel(CHANNEL_ID) == null) {
+                nm.createNotificationChannel(NotificationChannel(CHANNEL_ID, "Drive mode", NotificationManager.IMPORTANCE_LOW).apply {
+                    description = "Shown while drive mode records coverage."
+                })
+            }
+            if (nm.getNotificationChannel(ALERT_CHANNEL_ID) == null) {
+                nm.createNotificationChannel(NotificationChannel(ALERT_CHANNEL_ID, "Drive mode alerts", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "When drive mode is running but no radio has connected for 5 minutes."
+                })
+            }
         }
 
         /** location always; connectedDevice only when Bluetooth permission is granted (Android 14 checks). */

@@ -1,0 +1,1 @@
+Drive mode now reconnects a radio that dropped out: the phone keeps looking for it in the background and reconnects as soon as it is back in range. If no radio has been connected for 5 minutes during a drive, you get an alert so a drive is never silently lost.

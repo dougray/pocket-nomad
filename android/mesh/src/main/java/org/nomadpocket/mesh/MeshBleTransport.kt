@@ -13,6 +13,15 @@
 // its own queue, MTU request and connection priority. Every callback is moved
 // to the main thread before it touches state or emits an event.
 //
+// Reconnect scan: while a remembered radio is wanted but not connected,
+// MeshRadios asks the scanning instance (setReconnectScan) for a second,
+// low-power scan filtered to the two service UUIDs, with its own callback, so
+// it never touches the device picker's scan or list. Filtered scans keep
+// running with the screen off (drive mode's foreground service keeps the
+// process alive). A wanted address seen advertising is reported as Sighted
+// and its link connects directly. Android allows about five scan starts per
+// 30 s per app, so starts are spaced out (scanStartWait).
+//
 // NOT YET TESTED ON A REAL RADIO: the logic mirrors the iOS transport, which
 // has been, but Android BLE stacks differ by phone. Watch for status 133 on
 // connect, pairing prompts and MTU negotiation when testing.
@@ -74,6 +83,23 @@ object MeshBleUuid {
     }
 }
 
+/**
+ * Android quietly ignores an app's scans after its 5th scan start within 30 s,
+ * so the reconnect scan spaces its starts to stay at four.
+ */
+internal object BleScanLimit {
+    const val WINDOW_MILLIS = 30_000L
+    const val MAX_STARTS = 4
+
+    /** How long to wait before another scan start stays within the limit; 0 = now. */
+    fun wait(starts: List<Long>, now: Long): Long {
+        val recent = starts.filter { now - it < WINDOW_MILLIS }.sorted()
+        if (recent.size < MAX_STARTS) return 0
+        // Once this one is out of the window, only MAX_STARTS - 1 remain.
+        return recent[recent.size - MAX_STARTS] + WINDOW_MILLIS - now + 500
+    }
+}
+
 @SuppressLint("MissingPermission") // every entry point checks hasConnect()/hasScan() first
 class MeshBleTransport(context: Context) : MeshTransport {
     private val context = context.applicationContext
@@ -101,6 +127,10 @@ class MeshBleTransport(context: Context) : MeshTransport {
     private var wantedID: String? = null
     private var wantsScan = false
     private var scanning = false
+    /** Radios the reconnect scan looks for (setReconnectScan); empty when it is off. */
+    private var reconnectIDs: Set<String> = emptySet()
+    private var reconnectScanning = false
+    private val reconnectRetry = Runnable { updateReconnectScan() }
     private var readyAnnounced = false
     private var servicesRequested = false
     /** The radio is probably not nearby: retry failed background connects slowly (MeshService's Not nearby). */
@@ -128,6 +158,10 @@ class MeshBleTransport(context: Context) : MeshTransport {
     private companion object {
         val seenDevices = mutableMapOf<String, BluetoothDevice>()
         const val LOW_POWER_RETRY_MILLIS = 60_000L
+        /** Retry a reconnect scan that failed to start. */
+        const val RECONNECT_SCAN_RETRY_MILLIS = 30_000L
+        /** Recent scan starts by any instance (elapsedRealtime), for BleScanLimit. */
+        val scanStarts = ArrayDeque<Long>()
 
         /** A disconnect status in plain words, for notices and the drive log. */
         fun linkReason(status: Int): String = when (status) {
@@ -222,13 +256,12 @@ class MeshBleTransport(context: Context) : MeshTransport {
         if (availability != MeshBluetoothAvailability.POWERED_ON || !hasScan()) return
         val scanner = adapter?.bluetoothLeScanner ?: return
         if (scanning) return
-        val filters = listOf(MeshBleUuid.SERVICE, MeshBleUuid.MESHCORE_SERVICE).map {
-            ScanFilter.Builder().setServiceUuid(ParcelUuid(it)).build()
-        }
+        val filters = serviceFilters()
         val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
         try {
             scanner.startScan(filters, settings, scanCallback)
             scanning = true
+            noteScanStart()
         } catch (_: SecurityException) {
             updateAvailability()
         }
@@ -249,6 +282,57 @@ class MeshBleTransport(context: Context) : MeshTransport {
         if (!scanning) return
         scanning = false
         try { adapter?.bluetoothLeScanner?.stopScan(scanCallback) } catch (_: Exception) {}
+    }
+
+    override fun setReconnectScan(ids: Set<String>) {
+        start()
+        reconnectIDs = ids
+        updateReconnectScan()
+    }
+
+    /** Starts the reconnect scan when it is wanted and possible, stops it when not. */
+    private fun updateReconnectScan() {
+        main.removeCallbacks(reconnectRetry)
+        if (reconnectIDs.isEmpty() || availability != MeshBluetoothAvailability.POWERED_ON || !hasScan()) {
+            stopReconnectScan()
+            return
+        }
+        if (reconnectScanning) return
+        val wait = BleScanLimit.wait(scanStarts.toList(), android.os.SystemClock.elapsedRealtime())
+        if (wait > 0) { main.postDelayed(reconnectRetry, wait); return }
+        val scanner = adapter?.bluetoothLeScanner ?: return
+        // Low power, filtered: allowed with the screen off, and cheap enough to leave on for a whole drive.
+        val settings = ScanSettings.Builder()
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_POWER)
+            .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
+            .setReportDelay(0)
+            .build()
+        try {
+            scanner.startScan(serviceFilters(), settings, reconnectCallback)
+            reconnectScanning = true
+            noteScanStart()
+        } catch (_: SecurityException) {
+            updateAvailability()
+        } catch (_: IllegalStateException) {
+            // Bluetooth turning off under us; started again when it is back on.
+        }
+    }
+
+    private fun stopReconnectScan() {
+        main.removeCallbacks(reconnectRetry)
+        if (!reconnectScanning) return
+        reconnectScanning = false
+        try { adapter?.bluetoothLeScanner?.stopScan(reconnectCallback) } catch (_: Exception) {}
+    }
+
+    private fun noteScanStart() {
+        val t = android.os.SystemClock.elapsedRealtime()
+        scanStarts.addLast(t)
+        while (scanStarts.isNotEmpty() && t - scanStarts.first() >= BleScanLimit.WINDOW_MILLIS) scanStarts.removeFirst()
+    }
+
+    private fun serviceFilters(): List<ScanFilter> = listOf(MeshBleUuid.SERVICE, MeshBleUuid.MESHCORE_SERVICE).map {
+        ScanFilter.Builder().setServiceUuid(ParcelUuid(it)).build()
     }
 
     override fun connect(id: String) {
@@ -351,12 +435,16 @@ class MeshBleTransport(context: Context) : MeshTransport {
         val changed = new != availability
         availability = new
         emit(MeshTransportEvent.Availability(new))
-        if (!changed) return
+        if (!changed) { updateReconnectScan(); return } // scan permission may have just been granted
         if (new == MeshBluetoothAvailability.POWERED_ON) {
             if (wantsScan) startScan()
+            updateReconnectScan()
             wantedID?.let { if (gatt == null) connect(it) }
         } else {
             scanning = false
+            // Android ends every scan when Bluetooth goes off; restarted when it is back on.
+            reconnectScanning = false
+            main.removeCallbacks(reconnectRetry)
             if (new == MeshBluetoothAvailability.POWERED_OFF || new == MeshBluetoothAvailability.RESETTING) {
                 val id = device?.address
                 val hadLink = gatt != null
@@ -384,9 +472,38 @@ class MeshBleTransport(context: Context) : MeshTransport {
         }
     }
 
+    private val reconnectCallback = object : ScanCallback() {
+        override fun onScanResult(callbackType: Int, result: ScanResult) {
+            main.post { onSighted(result) }
+        }
+
+        override fun onBatchScanResults(results: MutableList<ScanResult>) {
+            main.post { results.forEach { onSighted(it) } }
+        }
+
+        override fun onScanFailed(errorCode: Int) {
+            main.post {
+                // SCAN_FAILED_ALREADY_STARTED means it is in fact running.
+                if (errorCode == ScanCallback.SCAN_FAILED_ALREADY_STARTED) return@post
+                reconnectScanning = false
+                if (reconnectIDs.isNotEmpty()) main.postDelayed(reconnectRetry, RECONNECT_SCAN_RETRY_MILLIS)
+            }
+        }
+    }
+
+    /** Reconnect scan: only wanted radios matter, and they never go to the device picker. */
+    private fun onSighted(result: ScanResult) {
+        val d = result.device
+        if (d.address !in reconnectIDs) return
+        seen[d.address] = d
+        emit(MeshTransportEvent.Sighted(d.address))
+    }
+
     private fun onScan(result: ScanResult) {
         val d = result.device
         seen[d.address] = d
+        // The picker's scan finding a wanted radio counts as a sighting too.
+        if (d.address in reconnectIDs) emit(MeshTransportEvent.Sighted(d.address))
         val services = result.scanRecord?.serviceUuids.orEmpty().map { it.uuid }
         val fw = MeshBleUuid.firmwareFor(services) ?: Firmware.MESHTASTIC
         val name = result.scanRecord?.deviceName ?: nameOf(d, "${fw.displayName} radio")

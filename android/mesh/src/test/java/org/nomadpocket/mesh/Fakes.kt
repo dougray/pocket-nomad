@@ -24,11 +24,17 @@ class FakeMeshTransport : MeshTransport {
     var scanning = false
     /** MeshTransport.setLowPower: on while the radio is Not nearby. */
     var inLowPower = false
+    /** MeshTransport.setReconnectScan: the radios the background scan looks for (empty = off). */
+    var reconnectTargets: Set<String> = emptySet()
+    var reconnectScanChanges = 0
+    /** Every connect call, in order. */
+    val connects = mutableListOf<String>()
 
     override fun start() { onEvent?.invoke(MeshTransportEvent.Availability(MeshBluetoothAvailability.POWERED_ON)) }
     override fun startScan() { scanning = true }
     override fun stopScan() { scanning = false }
     override fun connect(id: String) {
+        connects.add(id)
         connectedID = id
         onEvent?.invoke(MeshTransportEvent.Connecting(id, "Test Radio"))
     }
@@ -39,6 +45,7 @@ class FakeMeshTransport : MeshTransport {
     override fun write(toRadio: ByteArray) { writes.add(toRadio) }
     override fun readFromRadio() { pendingReads += 1 }
     override fun setLowPower(on: Boolean) { inLowPower = on }
+    override fun setReconnectScan(ids: Set<String>) { reconnectTargets = ids; reconnectScanChanges += 1 }
 
     fun emit(e: MeshTransportEvent) { onEvent?.invoke(e) }
 

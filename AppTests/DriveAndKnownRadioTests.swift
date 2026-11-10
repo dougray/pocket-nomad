@@ -127,3 +127,32 @@ final class DriveAndKnownRadioTests: XCTestCase {
         XCTAssertEqual(KnownRadioStore.nearby(radios, center: denver, radiusKm: 400).map(\.id), ["a", "b"])
     }
 }
+
+final class NoRadioWatchTests: XCTestCase {
+    private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+
+    func testAlertsOnceAfterFiveMinutesWithNoRadio() {
+        var w = NoRadioWatch()
+        XCTAssertNil(w.update(expected: 1, connected: false, now: t0))
+        XCTAssertNil(w.update(expected: 1, connected: false, now: t0 + 299))
+        XCTAssertEqual(w.update(expected: 1, connected: false, now: t0 + 300), .alert)
+        XCTAssertNil(w.update(expected: 1, connected: false, now: t0 + 3_600), "one alert per outage")
+    }
+
+    func testConnectingResetsAndReportsBackOnlyAfterAnAlert() {
+        var w = NoRadioWatch()
+        _ = w.update(expected: 1, connected: false, now: t0)
+        XCTAssertNil(w.update(expected: 1, connected: true, now: t0 + 60), "back before any alert is silent")
+        XCTAssertNil(w.update(expected: 1, connected: false, now: t0 + 120))
+        XCTAssertEqual(w.update(expected: 1, connected: false, now: t0 + 420), .alert)
+        XCTAssertEqual(w.update(expected: 1, connected: true, now: t0 + 500), .back)
+        XCTAssertNil(w.update(expected: 1, connected: false, now: t0 + 600), "a new outage starts a new clock")
+        XCTAssertEqual(w.update(expected: 1, connected: false, now: t0 + 900), .alert)
+    }
+
+    func testNoAlertWithoutAnExpectedRadio() {
+        var w = NoRadioWatch()
+        XCTAssertNil(w.update(expected: 0, connected: false, now: t0))
+        XCTAssertNil(w.update(expected: 0, connected: false, now: t0 + 3_600))
+    }
+}
