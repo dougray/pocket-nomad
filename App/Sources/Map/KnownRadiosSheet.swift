@@ -84,6 +84,7 @@ struct KnownRadiosSheet: View {
 
 struct KnownRadioDetail: View {
     let radio: KnownRadio
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -99,6 +100,9 @@ struct KnownRadioDetail: View {
             LabeledContent("Position", value: CoordinateFormat.decimal(CLLocationCoordinate2D(latitude: radio.latitude, longitude: radio.longitude)))
             Text("From \(radio.firmware == .meshcore ? "map.meshcore.io" : "meshmap.net"). Your radio may not hear it.")
                 .font(.caption).foregroundStyle(.secondary)
+            if let mine = HiddenRadio(radio) {
+                HideMineButton(radio: mine) { dismiss() }
+            }
         }
         .font(.subheadline)
         .padding()

@@ -24,6 +24,7 @@ struct CoverageSettingsView: View {
     @State private var pickingFolder = false
     @State private var restoring = false
     @State private var restoreMessage: String?
+    @State private var hidden = HiddenRadioStore.shared
 
     var body: some View {
         NavigationStack {
@@ -52,8 +53,10 @@ struct CoverageSettingsView: View {
                     Button("Delete all coverage data", role: .destructive) { confirmDelete = true }
                         .disabled(store.samples.isEmpty)
                 } header: { Text("Coverage scanner") } footer: {
-                    Text("While Pocket Nomad is open (or in drive mode) and connected to a radio, it notes where your phone was each time the radio hears another node, and how strong the signal was. With a Meshtastic and a MeshCore radio connected, both record at once and each point is tagged with its network. The map shows the radios heard where they say they are (Layers › Radios heard); your recordings show only as hexagons (Layers › Coverage hexagons), never as a trail of your route. It stays on this phone.")
+                    Text("While Pocket Nomad is open (or in drive mode) and connected to a radio, it notes where your phone was each time the radio hears another node, and how strong the signal was. With a Meshtastic and a MeshCore radio connected, both record at once and each point is tagged with its network. The map shows the radios heard where they say they are (Layers › Radios heard). Your recordings can also be drawn as hexagons along where you drove (Layers › Coverage hexagons › Where I drove), which is off unless you turn it on. It all stays on this phone.")
                 }
+
+                hiddenSection
 
                 Section {
                     ForEach(store.zones) { zone in
@@ -277,6 +280,29 @@ struct FolderPicker: UIViewControllerRepresentable {
 
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
             if let url = urls.first { onPick(url) }
+        }
+    }
+}
+
+extension CoverageSettingsView {
+    /// The user's own phones and repeaters, kept off the map.
+    var hiddenSection: some View {
+        Section {
+            if hidden.radios.isEmpty {
+                Text("None yet. Tap one of your own radios on the map, or long-press it in Nodes, and choose \u{201C}This is mine\u{201D}.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
+            ForEach(hidden.radios) { radio in
+                HStack {
+                    MeshNetworkBadge(network: radio.firmware)
+                    Text(radio.name.isEmpty ? "Radio \(radio.num)" : radio.name).lineLimit(1)
+                    Spacer()
+                    Button("Show") { hidden.unhide(radio.id) }
+                        .frame(minHeight: MeshUI.minTap)
+                }
+            }
+        } header: { Text("Hidden from the map") } footer: {
+            Text("Your own phones and repeaters. They are never mapped, never credited with coverage and never shared. The radios connected to this phone are always left out.")
         }
     }
 }

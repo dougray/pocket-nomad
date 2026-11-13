@@ -3,11 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Radios the connected node has heard, most recent first, and the blocked list.
-// Port of MeshNodeListView.swift. Long-press a radio to block it.
+// Port of MeshNodeListView.swift. Long-press a radio to block it, or to hide
+// it from the map when it is one of your own.
 
 package org.nomadpocket.mesh.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,7 +22,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -60,6 +67,8 @@ fun MeshNodeListScreen(onMessage: (Firmware, Long) -> Unit) {
     val blockedNodes = radios.links.flatMap { (fw, link) -> link.blockedNodes.map { fw to it } }
     val anyConnected = inUse.any { it.second.connection.isConnected }
     var blocking by remember { mutableStateOf<Pair<Firmware, MeshNode>?>(null) }
+    var menuFor by remember { mutableStateOf<Pair<Firmware, Long>?>(null) }
+    val hidden by radios.hidden.flow.collectAsStateWithLifecycle()
 
     LazyColumn(contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (sorted.isEmpty()) item {
@@ -68,12 +77,28 @@ fun MeshNodeListScreen(onMessage: (Firmware, Long) -> Unit) {
                 else "Connect your radio to see who is around.")
         }
         items(sorted, key = { "${it.first.rawValue}${it.second.num}" }) { (fw, node) ->
-            MeshCard(onClick = { onMessage(fw, node.num) }, onLongClick = { blocking = fw to node }) {
-                MeshNodeRow(node, if (two) fw else null)
+            val isHidden = hidden.any { it.firmware == fw && it.num == node.num }
+            Box {
+                MeshCard(onClick = { onMessage(fw, node.num) }, onLongClick = { menuFor = fw to node.num }) {
+                    MeshNodeRow(node, if (two) fw else null)
+                }
+                DropdownMenu(expanded = menuFor == fw to node.num, onDismissRequest = { menuFor = null }) {
+                    DropdownMenuItem(
+                        text = { Text(if (isHidden) "Show on map" else "Mine: hide from map") },
+                        leadingIcon = { Icon(if (isHidden) Icons.Filled.Visibility else Icons.Filled.VisibilityOff, null) },
+                        onClick = {
+                            menuFor = null
+                            if (isHidden) radios.unhide(node.num, fw) else radios.hide(node.num, fw, node.displayName)
+                        })
+                    DropdownMenuItem(
+                        text = { Text("Block", color = MeshColors.danger) },
+                        leadingIcon = { Icon(Icons.Filled.Block, null, tint = MeshColors.danger) },
+                        onClick = { menuFor = null; blocking = fw to node })
+                }
             }
         }
         if (sorted.isNotEmpty()) item {
-            Text("Touch and hold a radio to block it.", fontSize = 13.sp, color = MeshColors.secondary)
+            Text("Touch and hold a radio to block it, or to hide it from the map if it is yours.", fontSize = 13.sp, color = MeshColors.secondary)
         }
         if (blockedNodes.isNotEmpty()) {
             item { Text("Blocked", fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.padding(top = 12.dp)) }

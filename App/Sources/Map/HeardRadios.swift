@@ -128,6 +128,7 @@ struct HeardRadioDetail: View {
     let node: MeshNode
     /// Heard directly (true) or only known from the mesh (false).
     var direct = true
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -148,6 +149,7 @@ struct HeardRadioDetail: View {
             Text(direct ? "Where the radio says it is. Heard directly by your radio."
                         : "Where the radio says it is. Known from adverts passed along the mesh; not heard directly, so it may be out of range.")
                 .font(.caption).foregroundStyle(.secondary)
+            HideMineButton(radio: HiddenRadio(node)) { dismiss() }
         }
         .font(.subheadline)
         .padding()

@@ -119,6 +119,18 @@ def search_ids(query, first, last):
     return search_ids(query, first, mid) + search_ids(query, mid + 1, last)
 
 
+def parse_xml(data):
+    """Parse NCBI's XML with the standard library only (this tool runs under plain
+    `python3 -I`, so no defusedxml). Entity declarations are refused, as defusedxml
+    does: they are how entity-expansion ("billion laughs") attacks start, older
+    system expat has no cap on them, and PubMed XML never declares any. Strict
+    UTF-8 decoding keeps the check from being sidestepped with another encoding."""
+    xml = data.decode("utf-8")
+    if "<!ENTITY" in xml:
+        raise ET.ParseError("XML declares entities; refusing it")
+    return ET.fromstring(xml)
+
+
 def text(el):
     return " ".join("".join(el.itertext()).split()) if el is not None else ""
 
@@ -210,16 +222,17 @@ def main():
         path = os.path.join(cache, f"{key}-{start:06d}.xml")
         if os.path.exists(path):
             try:
-                ET.parse(path)
+                with open(path, "rb") as f:
+                    parse_xml(f.read())
                 continue
-            except ET.ParseError:
+            except (ET.ParseError, UnicodeDecodeError):
                 print(f"  refetching damaged {os.path.basename(path)}")
         for attempt in range(4):
             data = get("efetch.fcgi", db="pubmed", id=",".join(ids[start:start + BATCH]), retmode="xml")
             try:
-                ET.fromstring(data)  # NCBI sometimes ends a response early
+                parse_xml(data)  # NCBI sometimes ends a response early
                 break
-            except ET.ParseError:
+            except (ET.ParseError, UnicodeDecodeError):
                 print(f"  incomplete response, retrying ({attempt + 1})", file=sys.stderr)
                 time.sleep(2 ** attempt)
         else:
@@ -232,7 +245,9 @@ def main():
     papers = {}
     for name in sorted(os.listdir(cache)):
         if name.startswith(key + "-0") and name.endswith(".xml"):
-            for article in ET.parse(os.path.join(cache, name)).getroot().findall("PubmedArticle"):
+            with open(os.path.join(cache, name), "rb") as f:
+                root = parse_xml(f.read())
+            for article in root.findall("PubmedArticle"):
                 p = parse(article)
                 p["topics"] = sorted(topics_of.get(p["pmid"], []))
                 if p["sections"] and not p["withdrawn"]:

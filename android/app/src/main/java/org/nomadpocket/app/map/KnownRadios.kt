@@ -18,9 +18,12 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import org.nomadpocket.mesh.Firmware
+import org.nomadpocket.mesh.HiddenRadio
 import org.nomadpocket.mesh.MeshCoreRadioParams
 import org.nomadpocket.mesh.OptOut
 import org.nomadpocket.mesh.OwnRadios
+import org.nomadpocket.mesh.proto.Bytes
+import org.nomadpocket.mesh.proto.MeshCoreContact
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -160,6 +163,25 @@ object KnownRadioParser {
             when (r.firmware) {
                 Firmware.MESHTASTIC -> r.id in tastic
                 Firmware.MESHCORE -> core.any { r.id.lowercase().startsWith(it) }
+            }
+        }
+    }
+
+    /**
+     * The hidden-radio entry for "This is mine: hide it from the map" on a
+     * community radio: "t<num>" is a Meshtastic node number; "c<key hex>" is
+     * a MeshCore public-key prefix, whose first four bytes give the node number.
+     * Null when the id cannot be read.
+     */
+    fun hiddenRadio(radio: KnownRadio): HiddenRadio? {
+        val body = radio.id.drop(1)
+        return when (radio.firmware) {
+            Firmware.MESHTASTIC -> radio.id.takeIf { it.startsWith("t") }?.let { body.toLongOrNull() }
+                ?.takeIf { it != 0L }?.let { HiddenRadio(Firmware.MESHTASTIC, it, radio.name) }
+            Firmware.MESHCORE -> {
+                if (!radio.id.startsWith("c")) return null
+                val key = Bytes.fromHex(body.lowercase())?.takeIf { it.size >= 4 } ?: return null
+                HiddenRadio(Firmware.MESHCORE, MeshCoreContact.nodeNum(key.array), radio.name, key.hex())
             }
         }
     }

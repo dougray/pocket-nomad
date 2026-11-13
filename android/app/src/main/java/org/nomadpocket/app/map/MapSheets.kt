@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -56,6 +57,7 @@ import org.maplibre.android.geometry.LatLngBounds
 import org.nomadpocket.app.location.rememberLocation
 import org.nomadpocket.core.CoordinateFormat
 import org.nomadpocket.app.ui.Brand
+import org.nomadpocket.mesh.Mesh
 import org.nomadpocket.app.ui.Footnote
 import org.nomadpocket.app.ui.LabeledRow
 import org.nomadpocket.mesh.Firmware
@@ -414,10 +416,34 @@ fun TapDetailSheet(tap: MapTap, onDismiss: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(CoordinateFormat.decimal(n.latitude, n.longitude), fontFamily = FontFamily.Monospace,
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                HideMineButton(enabled = Mesh.isInitialized) {
+                    Mesh.radios.hide(n.num, n.firmware, n.name)
+                    onDismiss()
+                }
             }
-            is MapTap.Radio -> KnownRadioDetail(tap.radio)
+            is MapTap.Radio -> {
+                KnownRadioDetail(tap.radio)
+                val entry = KnownRadioParser.hiddenRadio(tap.radio)
+                HideMineButton(enabled = Mesh.isInitialized && entry != null) {
+                    entry?.let { Mesh.radios.hidden.hide(it) }
+                    onDismiss()
+                }
+            }
         }
         Spacer(Modifier.height(8.dp))
+    }
+}
+
+/**
+ * "This is mine: hide it from the map": the user's own phone or repeater. It is
+ * then never mapped, credited with coverage or shared (Coverage settings lists it).
+ */
+@Composable
+private fun HideMineButton(enabled: Boolean, onHide: () -> Unit) {
+    TextButton(onClick = onHide, enabled = enabled, modifier = Modifier.padding(top = 8.dp)) {
+        Icon(Icons.Filled.VisibilityOff, null)
+        Spacer(Modifier.width(6.dp))
+        Text("This is mine: hide it from the map")
     }
 }
 

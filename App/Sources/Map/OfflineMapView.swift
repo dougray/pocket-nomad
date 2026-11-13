@@ -51,10 +51,25 @@ struct MapPin: Codable, Identifiable, Hashable {
 enum CoverageLayer: String, CaseIterable, Identifiable {
     case off, recorded, shared
     var id: Self { self }
+
+    static let key = "map.coverage"
+    static let migratedKey = "map.trailOffMigrated"
+
+    /// The saved choice. The recorded layer draws where you drove, which read as
+    /// your own radios on the map, so it is turned off once after this update;
+    /// after that the user's choice stands.
+    static func saved(_ defaults: UserDefaults = .standard) -> CoverageLayer {
+        if !defaults.bool(forKey: migratedKey) {
+            defaults.set(true, forKey: migratedKey)
+            defaults.set(CoverageLayer.off.rawValue, forKey: key)
+            return .off
+        }
+        return CoverageLayer(rawValue: defaults.string(forKey: key) ?? "") ?? .off
+    }
     var label: String {
         switch self {
         case .off: "Off"
-        case .recorded: "My recordings (private)"
+        case .recorded: "Where I drove (private)"
         case .shared: "What sharing would publish"
         }
     }
@@ -106,7 +121,7 @@ final class MapController {
     var showStreets = UserDefaults.standard.object(forKey: "map.streets") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showStreets, forKey: "map.streets") }
     }
-    var coverage = CoverageLayer(rawValue: UserDefaults.standard.string(forKey: "map.coverage") ?? "") ?? .off {
+    var coverage = CoverageLayer.saved() {
         didSet { UserDefaults.standard.set(coverage.rawValue, forKey: "map.coverage") }
     }
     var coverageNetwork = CoverageNetworkFilter(rawValue: UserDefaults.standard.string(forKey: "map.coverageNetwork") ?? "") ?? .both {
@@ -173,7 +188,9 @@ struct OfflineMapView: View {
         guard controller.showKnown else { return [] }
         let ownTastic = mesh.link(.meshtastic).radio.myNodeNum
         let ownCore = mesh.ownMeshCoreKeyHex.map { "c" + $0 }
+        let hidden = HiddenRadioStore.shared
         return known.radios.filter { r in
+            if hidden.hides(known: r) { return false }
             if r.firmware == .meshtastic { return ownTastic == 0 || r.id != "t\(ownTastic)" }
             guard let ownCore else { return true }
             return !r.id.lowercased().hasPrefix(ownCore)
@@ -290,10 +307,10 @@ struct OfflineMapView: View {
                 StreetMapsSheet(mapCenter: controller.mapView?.centerCoordinate)
             }
             .sheet(item: $tappedRadio) { radio in
-                KnownRadioDetail(radio: radio).presentationDetents([.height(260)])
+                KnownRadioDetail(radio: radio).presentationDetents([.height(330)])
             }
             .sheet(item: $tappedNode) { node in
-                HeardRadioDetail(node: node, direct: tappedNodeDirect).presentationDetents([.height(300)])
+                HeardRadioDetail(node: node, direct: tappedNodeDirect).presentationDetents([.height(370)])
             }
         }
     }

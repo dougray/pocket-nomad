@@ -1,6 +1,7 @@
 package org.nomadpocket.app.map
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.compose.ui.graphics.Color
 import org.json.JSONArray
 import org.json.JSONObject
@@ -66,12 +67,38 @@ data class MapPin(
     }
 }
 
-/** What the coverage layer shows. */
+/**
+ * What the coverage layer shows. "Recorded" draws hexagons where you drove
+ * (where this phone was when your radios heard someone), so it is off by
+ * default: the map is for other people's radios, not your route.
+ */
 enum class CoverageLayer(val id: String, val label: String) {
-    OFF("off", "Off"), RECORDED("recorded", "My recordings (private)"), SHARED("shared", "What sharing would publish");
+    OFF("off", "Off"), RECORDED("recorded", "Where I drove (private)"), SHARED("shared", "What sharing would publish");
 
     companion object {
+        /** The persisted choice, in the "map" prefs (iOS `map.coverage`). */
+        const val PREF_KEY = "coverage"
+        /** Set once the one-time "drive trail off" migration has run. */
+        const val MIGRATED_KEY = "map.trailOffMigrated"
+
         fun from(id: String?) = entries.firstOrNull { it.id == id } ?: OFF
+
+        /**
+         * The saved layer. The first read after the update that relabelled the
+         * private layer turns it off once (people read the hexagons along their
+         * drive as their radios being mapped); after that the user's choice stands.
+         */
+        fun load(prefs: SharedPreferences): CoverageLayer {
+            if (!prefs.getBoolean(MIGRATED_KEY, false)) {
+                prefs.edit().putString(PREF_KEY, OFF.id).putBoolean(MIGRATED_KEY, true).apply()
+                return OFF
+            }
+            return from(prefs.getString(PREF_KEY, null))
+        }
+
+        fun save(prefs: SharedPreferences, layer: CoverageLayer) {
+            prefs.edit().putString(PREF_KEY, layer.id).putBoolean(MIGRATED_KEY, true).apply()
+        }
     }
 }
 

@@ -347,6 +347,8 @@ final class MeshService {
     /// coverage point or a dot on the map (your own radio "hearing" itself says
     /// nothing about coverage, and its position is usually where you live).
     func isOwnRadio(_ num: UInt32, on network: MeshFirmware) -> Bool {
+        // Radios the user marked as theirs count as their own.
+        if HiddenRadioStore.shared.hides(num, on: network) { return true }
         let core = link(.meshcore)
         return Self.isOwnRadio(num, on: network,
                                ownNums: links.map(\.radio.myNodeNum),

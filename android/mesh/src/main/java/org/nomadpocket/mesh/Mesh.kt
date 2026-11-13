@@ -109,7 +109,8 @@ object Mesh {
             // Never draw the user's own radios, including one radio as heard by the other (MeshRadios.isOwnRadio).
             // Re-derived from the recordings each time, so older recordings follow today's rules.
             val perLink = radios.links.values.map { link -> combine(link.nodesFlow, link.blockedFlow, link.radioFlow) { _, _, _ -> } }
-            combine(combine(perLink) { }, coverage.samplesFlow) { _, samples ->
+            // Hiding or showing a radio re-derives both layers.
+            combine(combine(perLink) { }, coverage.samplesFlow, radios.hidden.flow) { _, samples, _ ->
                 radios.heard(samples.filterNot { coverage.hidden(it) }, location.fix)
             }.collect {
                 repository.heardState.value = it
@@ -118,10 +119,11 @@ object Mesh {
         }
         scope.launch {
             val perLink = radios.links.values.map { link -> combine(link.radioFlow, link.nodesFlow) { _, _ -> } }
-            combine(perLink) { radios.ownRadios }.collect { repository.ownState.value = it }
+            combine(combine(perLink) { }, radios.hidden.flow) { _, _ -> radios.ownRadios }.collect { repository.ownState.value = it }
         }
         scope.launch {
-            combine(coverage.samplesFlow, coverage.pingsFlow) { samples, pings ->
+            // Samples credited to own or hidden radios are left out of the cells, so hiding one redraws them.
+            combine(coverage.samplesFlow, coverage.pingsFlow, radios.hidden.flow) { samples, pings, _ ->
                 CoverageData(
                     samples.filterNot { coverage.hidden(it) }
                         .map { CoverageSample(it.latitude, it.longitude, it.snr, it.firmware) },
@@ -199,7 +201,7 @@ class MeshRepository internal constructor() {
     val heard: StateFlow<HeardRadios> = heardState.asStateFlow()
     /** This phone's coverage recordings and drive-test pings from both radios, each tagged with its firmware (opted-out radios left out). */
     val coverage: StateFlow<CoverageData> = coverageState.asStateFlow()
-    /** The user's own radios, so the map can leave them off the community-map layer too. */
+    /** The user's own radios and the ones they hid, so the map can leave them off the community-map layer too. */
     val own: StateFlow<OwnRadios> = ownState.asStateFlow()
 }
 

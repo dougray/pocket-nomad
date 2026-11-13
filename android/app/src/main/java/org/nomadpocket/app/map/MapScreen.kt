@@ -127,7 +127,7 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
     var showNodes by remember { mutableStateOf(prefs.getBoolean("showNodes", true)) }
     var showKnown by remember { mutableStateOf(prefs.getBoolean("showKnown", true)) }
     var showMeshKnown by remember { mutableStateOf(prefs.getBoolean("showMeshKnown", false)) }
-    var coverageMode by remember { mutableStateOf(CoverageLayer.from(prefs.getString("coverage", null))) }
+    var coverageMode by remember { mutableStateOf(CoverageLayer.load(prefs)) }
     var coverageNetwork by remember { mutableStateOf(CoverageNetwork.from(prefs.getString("coverageNetwork", null))) }
     var pins by remember { mutableStateOf(MapPin.load(context)) }
     fun savePins(new: List<MapPin>) {
@@ -152,7 +152,7 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
     val nodes = directNodes + meshKnownNodes
     val allCoverage: CoverageData = demoCoverage ?: meshCoverage
     val coverage = coverageNetwork.filter(allCoverage)
-    // The private layer is hexagons too: one dot per recording or ping would draw the trip, not the mesh.
+    // The private layer ("Where I drove") is hexagons: one dot per recording or ping would draw the exact trip.
     val myCells = remember(allCoverage, coverageNetwork, coverageMode) {
         if (coverageMode == CoverageLayer.RECORDED) CoverageShare.mapCells(allCoverage, coverageNetwork.firmware) else emptyList()
     }
@@ -290,7 +290,7 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
                         DropdownMenuItem(
                             text = { Text(mode.label) },
                             leadingIcon = { Icon(if (coverageMode == mode) Icons.Filled.RadioButtonChecked else Icons.Filled.RadioButtonUnchecked, null) },
-                            onClick = { coverageMode = mode; prefs.edit().putString("coverage", mode.id).apply(); showLayers = false },
+                            onClick = { coverageMode = mode; CoverageLayer.save(prefs, mode); showLayers = false },
                         )
                     }
                     if (coverageMode != CoverageLayer.OFF) {
@@ -456,7 +456,9 @@ private fun rememberSharedCells(enabled: Boolean, network: CoverageNetwork): Lis
     val samples by store.samplesFlow.collectAsState()
     val pings by store.pingsFlow.collectAsState()
     val zones by store.zonesFlow.collectAsState()
-    return remember(samples, pings, zones, network) { store.sharedCells(network.firmware) }
+    // Hiding a radio leaves its samples out of the cells, so redraw.
+    val hidden by Mesh.radios.hidden.flow.collectAsState()
+    return remember(samples, pings, zones, network, hidden) { store.sharedCells(network.firmware) }
 }
 
 private fun hex(c: Color): String = String.format("#%06X", c.toArgb() and 0xFFFFFF)
@@ -603,7 +605,7 @@ private fun CoverageLegend(all: CoverageData, coverage: CoverageData, mode: Cove
     val bothNetworks = counts.values.count { it > 0 } > 1
     Panel {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(if (shared) "Would be shared" else "Coverage (private)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            Text(if (shared) "Would be shared" else "Where I drove (private)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 CoverageColors.stops.forEach { (_, c) -> Box(Modifier.size(10.dp).background(c, CircleShape)) }
                 Text("weak → strong", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -622,7 +624,7 @@ private fun CoverageLegend(all: CoverageData, coverage: CoverageData, mode: Cove
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (!shared && cellCount > 0) {
-                Text("$cellCount hexagons, about 300 m across. Exact spots are never drawn.",
+                Text("$cellCount hexagons along where you drove, about 300 m across. Only you see this. Exact spots are never drawn.",
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (!shared && coverage.pings.isNotEmpty()) {

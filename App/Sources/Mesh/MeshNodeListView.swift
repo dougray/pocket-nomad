@@ -11,6 +11,7 @@ struct MeshNodeListView: View {
     var onMessage: (MeshNode) -> Void
     @State private var mesh = MeshService.shared
     @State private var blocking: MeshNode?
+    @State private var hidden = HiddenRadioStore.shared
 
     var body: some View {
         let nodes = mesh.sortedNodes
@@ -27,6 +28,11 @@ struct MeshNodeListView: View {
                     Button { onMessage(node) } label: { MeshNodeRow(node: node, showNetwork: labelled) }
                         .buttonStyle(.plain)
                         .contextMenu {
+                            if hidden.isHidden(node.listID) {
+                                Button("Show on Map", systemImage: "eye") { hidden.unhide(node.listID) }
+                            } else {
+                                Button("Mine: Hide From Map", systemImage: "eye.slash") { hidden.hide(HiddenRadio(node)) }
+                            }
                             Button("Block This Radio", systemImage: "hand.raised", role: .destructive) { blocking = node }
                         }
                 }

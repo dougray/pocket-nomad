@@ -112,6 +112,7 @@ private fun CoverageContent() {
     val targets by drive.targetsFlow.collectAsStateWithLifecycle()
     val keepScreenOn by drive.keepScreenOnFlow.collectAsStateWithLifecycle()
     val meshCore = radios.any { it.first == Firmware.MESHCORE }
+    val hiddenRadios by Mesh.radios.hidden.flow.collectAsStateWithLifecycle()
     var confirmDelete by remember { mutableStateOf(false) }
     var addingZone by remember { mutableStateOf(false) }
     var permissionNote by remember { mutableStateOf<String?>(null) }
@@ -257,6 +258,23 @@ private fun CoverageContent() {
                 filled = false, enabled = hasGPS)
         }
 
+        // Hidden from the map: the user's own phones and repeaters
+        FormSection("Hidden from the map",
+            footer = "Your own phones and repeaters. They are never mapped, never credited with coverage and never shared. " +
+                "To hide one, tap it on the map or long-press it in the node list.") {
+            if (hiddenRadios.isEmpty()) {
+                Text("None hidden yet.", fontSize = 15.sp, color = MeshColors.secondary, modifier = Modifier.padding(vertical = 10.dp))
+            }
+            for (h in hiddenRadios) {
+                Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FirmwareBadge(h.firmware, compact = true)
+                    Spacer(Modifier.width(8.dp))
+                    Text(h.name.ifBlank { MeshNode.hexID(h.num) }, fontSize = 17.sp, modifier = Modifier.weight(1f), maxLines = 1)
+                    TextButton(onClick = { Mesh.radios.unhide(h.num, h.firmware) }) { Text("Show") }
+                }
+            }
+        }
+
         // Backup
         FormSection("Backup",
             footer = "Backups stay on this phone, in a folder you choose outside the app, so they survive uninstalling and reinstalling Pocket Nomad. " +
@@ -302,7 +320,7 @@ private fun CoverageContent() {
             else "Sharing never happens on its own: you export a file and choose where it goes. Preview it on the map's coverage layer.") {
             SwitchRow("Share coverage", sharing, enabled = zones.isNotEmpty()) { store.sharing = it }
             if (sharing) {
-                val cells = remember(samples, pings, zones) { store.sharedCells }
+                val cells = remember(samples, pings, zones, hiddenRadios) { store.sharedCells }
                 val hidden = samples.count { s -> zones.any { it.contains(s.latitude, s.longitude) } }
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("What a file would contain", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)

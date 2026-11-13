@@ -33,6 +33,8 @@ class MeshRadios(
     val links: Map<Firmware, MeshService>,
     private val location: suspend () -> Fix? = { null },
     private val now: () -> Long = System::currentTimeMillis,
+    /** Radios the user marked as theirs ("This is mine: hide it from the map"); they count as own. */
+    val hidden: HiddenRadios = HiddenRadios(MemoryMeshPrefs()),
 ) {
     private val _availability = MutableStateFlow(MeshBluetoothAvailability.UNKNOWN)
     private val _discovered = MutableStateFlow<List<MeshDiscoveredDevice>>(emptyList())
@@ -166,11 +168,14 @@ class MeshRadios(
      * The user's own radios, on either network: a node number that is either
      * link's own (so your Meshtastic radio heard by your MeshCore one counts
      * too), or on MeshCore a repeater path hash that matches the start of your
-     * radio's public key. Coverage never records these and the map never draws them.
+     * radio's public key. Radios the user hid from the map count too (by number,
+     * or on MeshCore by the same path-hash rule against their key).
+     * Coverage never records these and the map never draws them.
      */
     fun isOwnRadio(node: Long, firmware: Firmware): Boolean {
         if (node == 0L) return false
         if (links.values.any { it.myNodeNum != 0L && it.myNodeNum == node }) return true
+        if (hidden.matches(node, firmware)) return true
         if (firmware != Firmware.MESHCORE) return false
         val core = links[Firmware.MESHCORE] ?: return false
         val key = core.myNode?.publicKeyPrefix ?: return false
@@ -208,12 +213,27 @@ class MeshRadios(
         return HeardResolver.derive(samples + live, contacts, ::isOwnRadio, zeroHop)
     }
 
-    /** What identifies the user's radios on the community maps (and the map's own radio layer). */
+    /** What identifies the user's radios on the community maps (and the map's own radio layer), hidden ones included. */
     val ownRadios: OwnRadios
         get() = OwnRadios(
             nodeNums = links.values.map { it.myNodeNum }.filter { it != 0L }.toSet(),
             meshCoreKeyPrefixes = setOfNotNull(links[Firmware.MESHCORE]?.myNode?.publicKeyPrefix?.takeIf { !it.isEmpty() }?.hex()),
-        )
+        ) + hidden.own
+
+    /**
+     * "This is mine: hide it from the map". On MeshCore the radio's public-key
+     * prefix is looked up from the contact list when not given, so a hidden
+     * repeater known only by its path hash is caught too.
+     */
+    fun hide(num: Long, firmware: Firmware, name: String, keyHex: String? = null) {
+        val key = keyHex ?: if (firmware == Firmware.MESHCORE)
+            links[Firmware.MESHCORE]?.nodes?.get(num)?.publicKeyPrefix?.takeIf { !it.isEmpty() }?.hex() else null
+        hidden.hide(HiddenRadio(firmware, num, name, key))
+    }
+
+    fun unhide(num: Long, firmware: Firmware) = hidden.unhide(firmware, num)
+
+    fun isHidden(num: Long, firmware: Firmware): Boolean = hidden.contains(firmware, num)
 
     /** A node's name on either network, for the coverage opt-out check. */
     fun nodeName(num: Long): String =
@@ -313,7 +333,7 @@ class MeshRadios(
                 MeshService(transport(fw), MeshStore(File(dir, fw.rawValue)), ScopedMeshPrefs(prefs, prefix(fw)), scope,
                     location = location, locationDenied = locationDenied, now = now)
             }
-            return MeshRadios(scanner, links, location, now)
+            return MeshRadios(scanner, links, location, now, HiddenRadios(prefs))
         }
     }
 }

@@ -273,7 +273,7 @@ final class CoverageStore {
 
     /// The same, for one network only (nil: both).
     func sharedCells(for network: MeshFirmware?) -> [CoverageShare.Cell] {
-        CoverageShare.cells(from: samples.filter { !optedOut($0.node, $0.firmware) && (network == nil || $0.firmware == network) },
+        CoverageShare.cells(from: samples.filter { !optedOut($0.node, $0.firmware) && !isOwnRadio($0.node, $0.firmware) && (network == nil || $0.firmware == network) },
                             pings: pings.filter { network == nil || $0.firmware == network }, zones: zones)
     }
 
@@ -282,7 +282,7 @@ final class CoverageStore {
     /// in `pingCells(for:)`. Hexagons, never points, so the map shows where the
     /// mesh reaches rather than the route you drove.
     func privateCells(for network: MeshFirmware?) -> [CoverageShare.Cell] {
-        CoverageShare.cells(from: samples.filter { !optedOut($0.node, $0.firmware) && (network == nil || $0.firmware == network) },
+        CoverageShare.cells(from: samples.filter { !optedOut($0.node, $0.firmware) && !isOwnRadio($0.node, $0.firmware) && (network == nil || $0.firmware == network) },
                             zones: [])
     }
 

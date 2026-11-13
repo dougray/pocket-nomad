@@ -1,0 +1,1 @@
+The map now shows other radios and repeaters, not your drive: the hexagons along where you drove are off unless you turn them on (Layers, "Where I drove"). New: tap any radio and choose "This is mine: hide it from the map" for your own phones and repeaters. They are never mapped, credited or shared. Undo in Coverage settings, "Hidden from the map".

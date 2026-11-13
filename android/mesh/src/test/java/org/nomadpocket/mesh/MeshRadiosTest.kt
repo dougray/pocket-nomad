@@ -327,6 +327,34 @@ class MeshRadiosTest {
         assertEquals(setOf("112233445566"), r.ownRadios.meshCoreKeyPrefixes)
     }
 
+    @Test fun hiddenRadiosCountAsOwnOnBothNetworks() {
+        val r = both()
+        val anaKey = r.link(Firmware.MESHCORE).nodes.getValue(shared).publicKeyPrefix!!
+        assertFalse(r.isOwnRadio(shared, Firmware.MESHTASTIC))
+        assertFalse(r.isOwnRadio(shared, Firmware.MESHCORE))
+        assertTrue(r.radiosHeard.any { it.num == shared })
+
+        // A Meshtastic phone of ours, and a MeshCore radio whose key is looked up from the contact list.
+        r.hide(shared, Firmware.MESHTASTIC, "Peak")
+        r.hide(shared, Firmware.MESHCORE, "Ana")
+        assertTrue(r.isHidden(shared, Firmware.MESHCORE))
+        assertEquals(anaKey.hex(), r.hidden.list.last().keyHex)
+        assertTrue(r.isOwnRadio(shared, Firmware.MESHTASTIC))
+        assertTrue(r.isOwnRadio(shared, Firmware.MESHCORE))
+        // Its 1-byte path hash stand-in counts too, on MeshCore only.
+        val hash1 = MeshCoreContact.nodeNumForHash(anaKey.prefix(1).array)
+        assertTrue(r.isOwnRadio(hash1, Firmware.MESHCORE))
+        assertFalse(r.isOwnRadio(hash1, Firmware.MESHTASTIC))
+        assertFalse(r.radiosHeard.any { it.num == shared })
+        // The community-map filter gets them too.
+        assertTrue(shared in r.ownRadios.nodeNums)
+        assertTrue(anaKey.hex() in r.ownRadios.meshCoreKeyPrefixes)
+
+        r.unhide(shared, Firmware.MESHTASTIC)
+        assertFalse(r.isOwnRadio(shared, Firmware.MESHTASTIC))
+        assertTrue(r.isOwnRadio(shared, Firmware.MESHCORE))
+    }
+
     @Test fun radiosHeardLeavesOutOwnRadiosAndOnesWithNoPosition() {
         val r = both()
         val meCore = r.link(Firmware.MESHCORE).myNodeNum
