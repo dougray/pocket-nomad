@@ -42,6 +42,9 @@ struct SurviveView: View {
         case "guide": if let guide = GuideStore.guide(file: arg) { path.append(guide) }
         case "category": if let c = GuideStore.categories.first(where: { $0.id == arg }) { path.append(c) }
         case "query": query = arg
+        case "conditions":
+            if arg == "demo" { ConditionsStore.shared.loadDemo() }
+            path.append(ConditionsRoute())
         default: break
         }
     }
@@ -57,6 +60,7 @@ struct SurviveHome: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
+            ConditionsCard()
             if !GuideStore.urgent.isEmpty {
                 section("Emergency") {
                     TileGrid(columns: 2, spacing: 10) {
@@ -116,6 +120,7 @@ struct SurviveHome: View {
         }
         .padding()
         .buttonStyle(.plain)
+        .task { await ConditionsStore.shared.refreshIfStale() }
     }
 
     private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
@@ -133,6 +138,7 @@ extension View {
             .navigationDestination(for: GuideCategory.self) { GuideListView(category: $0) }
             .navigationDestination(for: SourceRef.self) { SourceView(ref: $0) }
             .navigationDestination(for: ToolKind.self) { $0.destination }
+            .navigationDestination(for: ConditionsRoute.self) { _ in ConditionsView() }
     }
 
     /// Searches the guides and every book as `query` changes, after a short pause for typing.

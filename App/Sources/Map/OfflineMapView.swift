@@ -117,6 +117,10 @@ final class MapController {
     var showKnown = UserDefaults.standard.object(forKey: "map.showKnown") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showKnown, forKey: "map.showKnown") }
     }
+    /// Earthquakes from the Conditions snapshot.
+    var showQuakes = UserDefaults.standard.object(forKey: "map.showQuakes") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showQuakes, forKey: "map.showQuakes") }
+    }
     /// APRS stations and objects heard by the Ham tab's TNC.
     var showAPRS = UserDefaults.standard.object(forKey: "map.showAPRS") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showAPRS, forKey: "map.showAPRS") }
@@ -231,6 +235,7 @@ struct OfflineMapView: View {
                          base: baseMap, streetsKey: streets.pinnedTiles ?? "",
                          nodes: mappedNodes, meshNodes: meshKnownNodes, known: shownKnown,
                          aprs: controller.showAPRS ? HamService.shared.stations.filter(\.hasPosition) : [],
+                         quakes: controller.showQuakes ? ConditionsStore.shared.nearbyQuakes : [],
                          coverage: controller.coverage,
                          colorMode: controller.coverageColor,
                          networkKey: controller.coverageNetwork.rawValue,
@@ -326,6 +331,7 @@ struct OfflineMapView: View {
             Toggle(isOn: $controller.showMeshKnown) { Label("Known on the mesh (relayed)", systemImage: "point.3.connected.trianglepath.dotted") }
             Toggle(isOn: $controller.showKnown) { Label("Known radios (community maps)", systemImage: "dot.radiowaves.up.forward") }
             Toggle(isOn: $controller.showAPRS) { Label("Ham APRS stations heard", systemImage: "mappin.and.ellipse") }
+            Toggle(isOn: $controller.showQuakes) { Label("Earthquakes (Conditions)", systemImage: "waveform.path.ecg") }
             Button { showKnownSheet = true } label: { Label("Download known radios…", systemImage: "arrow.down.circle") }
             Toggle(isOn: $controller.showStreets) { Label("Street map (OpenFreeMap)", systemImage: "road.lanes") }
             Button { showStreetsSheet = true } label: { Label("Download streets around me…", systemImage: "map") }
@@ -583,6 +589,8 @@ struct MapLibreView: UIViewRepresentable {
     var known: [KnownRadio] = []
     /// APRS stations heard by the Ham TNC.
     var aprs: [HamStation] = []
+    /// Recent earthquakes near the user (from Conditions).
+    var quakes: [Quake] = []
     var coverage: CoverageLayer = .off
     var colorMode: CoverageColorMode = .signal
     /// Changes when the network filter does, so the layer is rebuilt.
@@ -622,6 +630,7 @@ struct MapLibreView: UIViewRepresentable {
         context.coordinator.syncCoverage(on: view)
         context.coordinator.syncKnown(on: view)
         context.coordinator.syncAPRS(on: view)
+        context.coordinator.syncQuakes(on: view)
     }
 
     @MainActor
@@ -633,6 +642,7 @@ struct MapLibreView: UIViewRepresentable {
         private var coverageKey = ""
         private var knownKey = ""
         private var aprsKey = ""
+        private var quakesKey = ""
         private var regionsFitted = false
         /// Set once the map has centred on the first good GPS fix, so the region
         /// fit doesn't pull it away and later fixes don't fight the user's panning.
@@ -722,6 +732,45 @@ struct MapLibreView: UIViewRepresentable {
             labels.textAnchor = NSExpression(forConstantValue: "top")
             labels.textOffset = NSExpression(forConstantValue: NSValue(cgVector: CGVector(dx: 0, dy: 0.9)))
             labels.textColor = RadioColors.expression
+            labels.textHaloColor = NSExpression(forConstantValue: parent.dark ? UIColor.black : UIColor.white)
+            labels.textHaloWidth = NSExpression(forConstantValue: 1.5)
+            labels.textOptional = NSExpression(forConstantValue: true)
+            style.addLayer(labels)
+        }
+
+        /// Earthquakes as rings sized and coloured by magnitude, under everything else.
+        func syncQuakes(on view: MLNMapView) {
+            guard let style = view.style else { return }
+            let key = parent.quakes.map { "\($0.id)|\($0.magnitude)" }.joined(separator: ";")
+            guard key != quakesKey else { return }
+            quakesKey = key
+            let features: [MLNPointFeature] = parent.quakes.map { q in
+                let f = MLNPointFeature()
+                f.coordinate = CLLocationCoordinate2D(latitude: q.latitude, longitude: q.longitude)
+                f.attributes = ["r": 4 + q.magnitude * 2.2, "big": q.magnitude >= 5 ? 2 : (q.magnitude >= 4 ? 1 : 0),
+                                "label": String(format: "M%.1f", q.magnitude)]
+                return f
+            }
+            if let source = style.source(withIdentifier: "quakes") as? MLNShapeSource {
+                source.shape = MLNShapeCollectionFeature(shapes: features)
+                return
+            }
+            let source = MLNShapeSource(identifier: "quakes", features: features, options: nil)
+            style.addSource(source)
+            let rings = MLNCircleStyleLayer(identifier: "quakes", source: source)
+            rings.circleRadius = NSExpression(forKeyPath: "r")
+            rings.circleColor = NSExpression(format: "TERNARY(big == 2, %@, TERNARY(big == 1, %@, %@))",
+                                             UIColor.systemRed, UIColor.systemOrange, UIColor.systemYellow)
+            rings.circleOpacity = NSExpression(forConstantValue: 0.35)
+            rings.circleStrokeColor = NSExpression(format: "TERNARY(big == 2, %@, TERNARY(big == 1, %@, %@))",
+                                                   UIColor.systemRed, UIColor.systemOrange, UIColor.systemYellow)
+            rings.circleStrokeWidth = NSExpression(forConstantValue: 1.5)
+            style.insertLayer(rings, at: 0)
+            let labels = MLNSymbolStyleLayer(identifier: "quake-labels", source: source)
+            labels.text = NSExpression(forKeyPath: "label")
+            labels.textFontNames = NSExpression(forConstantValue: ["Noto Sans Regular"])
+            labels.textFontSize = NSExpression(forConstantValue: 11)
+            labels.textColor = NSExpression(forConstantValue: UIColor.systemOrange)
             labels.textHaloColor = NSExpression(forConstantValue: parent.dark ? UIColor.black : UIColor.white)
             labels.textHaloWidth = NSExpression(forConstantValue: 1.5)
             labels.textOptional = NSExpression(forConstantValue: true)
@@ -908,10 +957,12 @@ struct MapLibreView: UIViewRepresentable {
                 coverageKey = ""
                 knownKey = ""
                 aprsKey = ""
+                quakesKey = ""
                 syncNodes(on: mapView)
                 syncCoverage(on: mapView)
                 syncKnown(on: mapView)
                 syncAPRS(on: mapView)
+                syncQuakes(on: mapView)
             }
         }
     }

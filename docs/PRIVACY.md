@@ -26,6 +26,7 @@ turned on, and it is deleted when you delete the app.
 | **Drive-test pings** (only in drive mode with the ping test on) | Where your phone was when it sent a ping, and whether a radio answered, repeated it or nothing heard it | Kept and deleted with coverage recordings |
 | **Private zones** | Places never to share coverage from | Mesh › Coverage map |
 | **Known radios** (only if you download them) | Names, types and reported positions of radios listed on the public community maps near you | Map › Layers › Download known radios › Delete |
+| **Conditions** (only if you tap Update) | The last earthquakes, weather alerts, forecast, space weather and Weather Radio transmitter list, so they can be read with no signal | Survive › Conditions › ⋯ › Delete saved conditions |
 | **Books, maps and AI models you add** | Offline reading, maps and answers | Swipe to delete: books in Library, maps and models in Library › Get Content |
 | **Book reading data** | Some books (such as the zimgit collections) keep their own document list in the app's built-in browser storage so they open quickly. Only offline book data, nothing about you. | Removed when you delete the app |
 | **Settings** | Your choices | Settings |
@@ -36,6 +37,13 @@ phone, using Apple's on-device model or a model file you downloaded.
 ## Location
 
 Pocket Nomad asks for location "while using the app". It uses it to:
+
+Conditions asks free public services (USGS, the US National Weather Service, Open-Meteo,
+NOAA) for data only when you tap Update, or when the app opens if you turn that on. The
+weather alert and forecast requests include your position rounded to 0.1 degree (about
+7 miles), never your exact location. Earthquake, space weather and Weather Radio data are
+whole-region downloads filtered on the phone, so no location is sent for them. These
+services see your IP address and what you request, like any website.
 
 - show where you are on the offline map and compass;
 - add your coordinates to an SOS message, only when you send an SOS with

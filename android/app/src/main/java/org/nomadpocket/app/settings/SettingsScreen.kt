@@ -132,6 +132,8 @@ private val points: List<Triple<ImageVector, String, String>> = listOf(
         "What you send through your radio reaches other people's radios. Default public channels use a well-known key, so anyone nearby can read them. Use a private channel for anything sensitive."),
     Triple(Icons.Filled.Hexagon, "Coverage sharing is opt-in",
         "Off by default, and it needs a private zone first. Before a file exists, the phone removes your private zones, exact positions, node names and IDs, and dates finer than a month. Nothing is sent: you export the file and choose where it goes."),
+    Triple(Icons.Filled.CloudDownload, "Weather, earthquakes and space weather",
+        "When you tap Update in Conditions, the app asks free public services (USGS, National Weather Service, Open-Meteo, NOAA) for data and keeps it on the phone. Alerts and the forecast are asked for your position rounded to about 7 miles, never your exact location. Earthquakes, space weather and radio transmitters are whole-region downloads filtered on the phone. Updates happen only when you ask, unless you turn on updating when the app opens."),
     Triple(Icons.Filled.CloudDownload, "Downloads you start",
         "The map loads tiles from OpenFreeMap while you're online, and saving an offline area downloads them once. Getting known radios connects to meshmap.net and map.meshcore.io. They see your IP address and the files you request, not your location. Web links open in your browser."),
 )

@@ -166,6 +166,7 @@ private fun NavGraph(nav: NavHostController, forceDark: Boolean, onForceDark: (B
                     onTool = { nav.navigate("tool/${it.id}") },
                     onSettings = { nav.navigate("settings") },
                     onHit = openHit,
+                    onConditions = { nav.navigate("conditions") },
                 )
             }
             composable("category/{id}") { entry ->
@@ -266,6 +267,7 @@ private fun NavGraph(nav: NavHostController, forceDark: Boolean, onForceDark: (B
             composable("mesh/home") { RadioScreen(launchScreen) }
         }
         composable("coverage") { CoverageScreen(onDone = back) }
+        composable("conditions") { org.nomadpocket.app.conditions.ConditionsScreen(onBack = back) }
     }
 }
 
@@ -284,6 +286,11 @@ private fun openLaunchScreen(nav: NavHostController, screen: String, context: an
             if (!arg.startsWith("models") && arg.isNotBlank()) AskLaunch.question = arg
             nav.navigate(kind) { popUpTo(nav.graph.findStartDestination().id) { saveState = true } }
             if (arg.startsWith("models")) nav.navigate("ask/models")
+        }
+        "conditions" -> {
+            org.nomadpocket.app.conditions.ConditionsStore.init(context)
+            if (arg == "demo") org.nomadpocket.app.conditions.ConditionsStore.loadDemo()
+            nav.navigate("conditions")
         }
         "library", "map", "mesh", "ham" -> nav.navigate(if (kind == "ham") "mesh" else kind) { popUpTo(nav.graph.findStartDestination().id) { saveState = true } }
         "settings" -> nav.navigate("settings")

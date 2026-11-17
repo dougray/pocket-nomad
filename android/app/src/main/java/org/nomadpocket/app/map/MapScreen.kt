@@ -119,6 +119,7 @@ private const val SRC_NODES = "mesh-nodes"
 private const val SRC_PINS = "pins"
 private const val SRC_CELLS = "coverage-cells"
 private const val SRC_APRS = "aprs-stations"
+private const val SRC_QUAKES = "quakes"
 private val LABEL_FONT = arrayOf("Noto Sans Regular")
 
 @Composable
@@ -128,6 +129,7 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
     var showNodes by remember { mutableStateOf(prefs.getBoolean("showNodes", true)) }
     var showKnown by remember { mutableStateOf(prefs.getBoolean("showKnown", true)) }
     var showAprs by remember { mutableStateOf(prefs.getBoolean("showAprs", true)) }
+    var showQuakes by remember { mutableStateOf(prefs.getBoolean("showQuakes", true)) }
     var showMeshKnown by remember { mutableStateOf(prefs.getBoolean("showMeshKnown", false)) }
     var coverageMode by remember { mutableStateOf(CoverageLayer.load(prefs)) }
     var coverageNetwork by remember { mutableStateOf(CoverageNetwork.from(prefs.getString("coverageNetwork", null))) }
@@ -252,6 +254,10 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
     LaunchedEffect(style, pins) { style?.source(SRC_PINS)?.setGeoJson(pinFeatures(pins)) }
     LaunchedEffect(style, directNodes, meshKnownNodes) { style?.source(SRC_NODES)?.setGeoJson(nodeFeatures(directNodes, meshKnownNodes)) }
     LaunchedEffect(style, shownKnown) { style?.source(SRC_KNOWN)?.setGeoJson(knownFeatures(shownKnown)) }
+    // Recent earthquakes near the user (from Conditions).
+    val conditions by org.nomadpocket.app.conditions.ConditionsStore.state.collectAsState()
+    val quakes = if (showQuakes) org.nomadpocket.app.conditions.ConditionsStore.nearbyQuakes(conditions) else emptyList()
+    LaunchedEffect(style, quakes) { style?.source(SRC_QUAKES)?.setGeoJson(quakeFeatures(quakes)) }
     // Ham APRS stations heard by the TNC.
     val aprs = if (showAprs && org.nomadpocket.ham.Ham.isInitialized) org.nomadpocket.ham.Ham.service.stations.filter { it.hasPosition } else emptyList()
     LaunchedEffect(style, aprs) { style?.source(SRC_APRS)?.setGeoJson(aprsFeatures(aprs)) }
@@ -283,6 +289,9 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
                     }
                     CheckItem("Known radios (community maps)", Icons.Filled.Contactless, showKnown) {
                         showKnown = !showKnown; prefs.edit().putBoolean("showKnown", showKnown).apply()
+                    }
+                    CheckItem("Earthquakes (Conditions)", Icons.Filled.Contactless, showQuakes) {
+                        showQuakes = !showQuakes; prefs.edit().putBoolean("showQuakes", showQuakes).apply()
                     }
                     CheckItem("Ham APRS stations heard", Icons.Filled.Contactless, showAprs) {
                         showAprs = !showAprs; prefs.edit().putBoolean("showAprs", showAprs).apply()
@@ -412,6 +421,14 @@ private fun nodeFeatures(direct: List<MapNode>, meshKnown: List<MapNode>) =
     }
 })
 
+private fun quakeFeatures(quakes: List<org.nomadpocket.app.conditions.Quake>) = FeatureCollection.fromFeatures(quakes.map { q ->
+    Feature.fromGeometry(Point.fromLngLat(q.longitude, q.latitude)).apply {
+        addNumberProperty("r", 4 + q.magnitude * 2.2)
+        addNumberProperty("big", if (q.magnitude >= 5) 2 else if (q.magnitude >= 4) 1 else 0)
+        addStringProperty("label", "M%.1f".format(java.util.Locale.US, q.magnitude))
+    }
+})
+
 private fun aprsFeatures(stations: List<org.nomadpocket.ham.HamStation>) = FeatureCollection.fromFeatures(stations.map { s ->
     Feature.fromGeometry(Point.fromLngLat(s.longitude!!, s.latitude!!)).apply {
         addStringProperty("name", s.id)
@@ -489,9 +506,28 @@ private fun cellOutlineColor(): Expression =
 
 /** Known radios under coverage, under live nodes, under pins. */
 private fun addLayers(style: Style) {
-    listOf(SRC_KNOWN, SRC_CELLS, SRC_APRS, SRC_NODES, SRC_PINS).forEach {
+    listOf(SRC_QUAKES, SRC_KNOWN, SRC_CELLS, SRC_APRS, SRC_NODES, SRC_PINS).forEach {
         style.addSource(GeoJsonSource(it, FeatureCollection.fromFeatures(emptyList())))
     }
+    // Earthquakes: rings sized and coloured by magnitude, under everything else.
+    val quakeColor = Expression.switchCase(eq(get("big"), literal(2)), color(android.graphics.Color.rgb(229, 72, 77)),
+        eq(get("big"), literal(1)), color(android.graphics.Color.rgb(255, 149, 0)), color(android.graphics.Color.rgb(255, 214, 10)))
+    style.addLayer(CircleLayer(SRC_QUAKES, SRC_QUAKES).withProperties(
+        PropertyFactory.circleRadius(Expression.toNumber(get("r"))),
+        PropertyFactory.circleColor(quakeColor),
+        PropertyFactory.circleOpacity(0.35f),
+        PropertyFactory.circleStrokeColor(quakeColor),
+        PropertyFactory.circleStrokeWidth(1.5f),
+    ))
+    style.addLayer(SymbolLayer("quake-labels", SRC_QUAKES).withProperties(
+        PropertyFactory.textField(get("label")),
+        PropertyFactory.textFont(LABEL_FONT),
+        PropertyFactory.textSize(11f),
+        PropertyFactory.textColor(android.graphics.Color.rgb(255, 149, 0)),
+        PropertyFactory.textHaloColor(android.graphics.Color.BLACK),
+        PropertyFactory.textHaloWidth(1.5f),
+        PropertyFactory.textOptional(true),
+    ))
     style.addLayer(CircleLayer(SRC_KNOWN, SRC_KNOWN).withProperties(
         PropertyFactory.circleColor(firmwareColor()),
         PropertyFactory.circleRadius(Expression.switchCase(eq(get("big"), literal(1)), literal(6.5f), literal(4f))),

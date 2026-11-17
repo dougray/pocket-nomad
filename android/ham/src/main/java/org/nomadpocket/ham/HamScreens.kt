@@ -735,6 +735,10 @@ private fun ReferenceScreen(back: () -> Unit) {
             Section("Frequencies", "Local repeaters, nets and Winlink gateways vary: write yours down before an emergency. Band plans differ by country.") {
                 for ((f, d) in freqs) Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) { Text(f, fontWeight = FontWeight.Bold); Text(d, color = MeshColors.secondary, fontSize = 14.sp) }
             }
+            Section("NOAA Weather Radio", "Receive only; most handhelds hear this band. The Conditions screen (Survive tab) lists the nearest transmitters once you've updated it.") {
+                for ((f, ch) in listOf("162.400" to "WX2", "162.425" to "WX4", "162.450" to "WX5", "162.475" to "WX3", "162.500" to "WX6", "162.525" to "WX7", "162.550" to "WX1"))
+                    Row("$f MHz", "Channel $ch")
+            }
             Section("Getting on the air (US)") {
                 Text("The entry-level Technician licence covers every amateur band above 50 MHz, which includes 2 m and 70 cm where APRS and packet live. The exam is 35 multiple-choice questions, no Morse code, run by volunteer examiners; the FCC charges a small fee.\n\nIdentify with your callsign at least every 10 minutes during a contact and at the end. No encryption, no business traffic, no music.",
                     modifier = Modifier.padding(16.dp))

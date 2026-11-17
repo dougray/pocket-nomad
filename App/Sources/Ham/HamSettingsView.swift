@@ -143,6 +143,16 @@ struct HamReferenceView: View {
             } header: { Text("Frequencies") } footer: {
                 Text("Local repeaters, nets and Winlink gateways vary: write yours down before an emergency. Band plans differ by country.")
             }
+            Section {
+                ForEach(ConditionsParsers.radioChannels, id: \.0) { f in
+                    VStack(alignment: .leading) {
+                        Text("\(f.0) MHz").font(.headline.monospacedDigit())
+                        Text("Channel \(f.1)").font(.subheadline).foregroundStyle(.secondary)
+                    }
+                }
+            } header: { Text("NOAA Weather Radio") } footer: {
+                Text("Receive only; most handhelds hear this band. The Conditions screen (Survive tab) lists the nearest transmitters once you've updated it.")
+            }
             Section("Getting on the air (US)") {
                 Text("The entry-level Technician licence covers every amateur band above 50 MHz, which includes 2 m and 70 cm where APRS and packet live. The exam is 35 multiple-choice questions, no Morse code, run by volunteer examiners; the FCC charges a small fee.")
                 Text("Identify with your callsign at least every 10 minutes during a contact and at the end. No encryption, no business traffic, no music.")

@@ -40,6 +40,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import org.nomadpocket.app.conditions.ConditionsCard
+import org.nomadpocket.app.conditions.ConditionsStore
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -73,6 +76,7 @@ fun SurviveScreen(
     onTool: (ToolKind) -> Unit,
     onSettings: () -> Unit,
     onHit: (SourceRef) -> Unit,
+    onConditions: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val library = remember { GuideLibrary.get(context) }
@@ -124,15 +128,18 @@ fun SurviveScreen(
                 }
             }
         } else {
-            SurviveHome(library, onGuide, onCategory, onTool)
+            SurviveHome(library, onGuide, onCategory, onTool, onConditions)
         }
     }
 }
 
 /** The Survive home: emergency guides, tools and guide categories. */
 @Composable
-private fun SurviveHome(library: GuideLibrary, onGuide: (Guide) -> Unit, onCategory: (String) -> Unit, onTool: (ToolKind) -> Unit) {
+private fun SurviveHome(library: GuideLibrary, onGuide: (Guide) -> Unit, onCategory: (String) -> Unit, onTool: (ToolKind) -> Unit, onConditions: () -> Unit) {
+    val context = LocalContext.current
+    LaunchedEffect(Unit) { ConditionsStore.init(context); ConditionsStore.refreshIfStale() }
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+        ConditionsCard(onConditions)
         if (library.urgent.isNotEmpty()) {
             Section("Emergency") {
                 library.emergencies.chunked(2).forEach { row ->

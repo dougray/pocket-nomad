@@ -26,6 +26,7 @@ class NomadApp : Application() {
         MapLibre.getInstance(this)
         Mesh.init(this)
         org.nomadpocket.ham.Ham.init(this)
+        org.nomadpocket.app.conditions.ConditionsStore.init(this)
         KnownRadioStore.init(this)
         connectNearbyRadios()
         // Off the main thread: build the guides' full-text index (once per app version),

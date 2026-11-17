@@ -69,7 +69,7 @@ enum AppTab: Hashable { case survive, ask, library, map, mesh, ham }
 /// Debug builds accept `-screen <name>` to open straight to a screen, for
 /// screenshots and quick checks: survive, ask, library, map, mesh, settings,
 /// packs, book, tool:<compass|sos|morse|water|medicalID|checklists|sun>, guide:<file>,
-/// category:<id>, query:<text> (Survive search), ask:<question>, coverage (scanner
+/// category:<id>, query:<text> (Survive search), conditions / conditions:demo (alerts, forecast, quakes, space weather), ask:<question>, coverage (scanner
 /// settings), mesh:demo (demo nodes and two connected demo radios), map:demo / map:shared (demo nodes and
 /// coverage around Denver) and map:known (downloads known radios around Denver).
 enum LaunchScreen {
