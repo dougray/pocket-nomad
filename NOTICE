@@ -30,3 +30,11 @@ Linked at build time:
 - MapLibre Native (BSD-2-Clause).
 - llama.cpp / ggml (MIT), device builds only.
 - Zstandard (BSD-3-Clause).
+
+Ham radio (App/Sources/Ham, android/ham):
+- The Winlink B2F protocol, secure-login salt and LZHUF port follow wl2k-go
+  (https://github.com/la5nta/wl2k-go), MIT License, Copyright (c) 2014-2017
+  Martin Hebnes Pedersen (LA5NTA). Its LZHUF code is a port of JNOS 2's lzhuf.c
+  (Okumura, Yoshizaki, Rikitake), licensed "use, distribute, and modify this
+  program freely". Test fixtures gettysburg.txt / e.txt and their .lzh forms are
+  from wl2k-go's test data.

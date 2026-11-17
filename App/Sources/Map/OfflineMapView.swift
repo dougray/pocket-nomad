@@ -117,6 +117,10 @@ final class MapController {
     var showKnown = UserDefaults.standard.object(forKey: "map.showKnown") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showKnown, forKey: "map.showKnown") }
     }
+    /// APRS stations and objects heard by the Ham tab's TNC.
+    var showAPRS = UserDefaults.standard.object(forKey: "map.showAPRS") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showAPRS, forKey: "map.showAPRS") }
+    }
     /// OpenFreeMap streets as the base map (downloaded, or live when online) when no region map is installed.
     var showStreets = UserDefaults.standard.object(forKey: "map.streets") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showStreets, forKey: "map.streets") }
@@ -226,6 +230,7 @@ struct OfflineMapView: View {
             MapLibreView(controller: controller, dark: scheme == .dark, regions: content.maps.map(\.url),
                          base: baseMap, streetsKey: streets.pinnedTiles ?? "",
                          nodes: mappedNodes, meshNodes: meshKnownNodes, known: shownKnown,
+                         aprs: controller.showAPRS ? HamService.shared.stations.filter(\.hasPosition) : [],
                          coverage: controller.coverage,
                          colorMode: controller.coverageColor,
                          networkKey: controller.coverageNetwork.rawValue,
@@ -320,6 +325,7 @@ struct OfflineMapView: View {
             Toggle(isOn: $controller.showNodes) { Label("Radios heard directly", systemImage: "antenna.radiowaves.left.and.right") }
             Toggle(isOn: $controller.showMeshKnown) { Label("Known on the mesh (relayed)", systemImage: "point.3.connected.trianglepath.dotted") }
             Toggle(isOn: $controller.showKnown) { Label("Known radios (community maps)", systemImage: "dot.radiowaves.up.forward") }
+            Toggle(isOn: $controller.showAPRS) { Label("Ham APRS stations heard", systemImage: "mappin.and.ellipse") }
             Button { showKnownSheet = true } label: { Label("Download known radios…", systemImage: "arrow.down.circle") }
             Toggle(isOn: $controller.showStreets) { Label("Street map (OpenFreeMap)", systemImage: "road.lanes") }
             Button { showStreetsSheet = true } label: { Label("Download streets around me…", systemImage: "map") }
@@ -575,6 +581,8 @@ struct MapLibreView: UIViewRepresentable {
     /// Radios only known from relayed adverts: drawn faint and small, no names.
     var meshNodes: [MeshNode] = []
     var known: [KnownRadio] = []
+    /// APRS stations heard by the Ham TNC.
+    var aprs: [HamStation] = []
     var coverage: CoverageLayer = .off
     var colorMode: CoverageColorMode = .signal
     /// Changes when the network filter does, so the layer is rebuilt.
@@ -613,6 +621,7 @@ struct MapLibreView: UIViewRepresentable {
         context.coordinator.syncNodes(on: view)
         context.coordinator.syncCoverage(on: view)
         context.coordinator.syncKnown(on: view)
+        context.coordinator.syncAPRS(on: view)
     }
 
     @MainActor
@@ -623,6 +632,7 @@ struct MapLibreView: UIViewRepresentable {
         private var nodesKey = ""
         private var coverageKey = ""
         private var knownKey = ""
+        private var aprsKey = ""
         private var regionsFitted = false
         /// Set once the map has centred on the first good GPS fix, so the region
         /// fit doesn't pull it away and later fixes don't fight the user's panning.
@@ -712,6 +722,45 @@ struct MapLibreView: UIViewRepresentable {
             labels.textAnchor = NSExpression(forConstantValue: "top")
             labels.textOffset = NSExpression(forConstantValue: NSValue(cgVector: CGVector(dx: 0, dy: 0.9)))
             labels.textColor = RadioColors.expression
+            labels.textHaloColor = NSExpression(forConstantValue: parent.dark ? UIColor.black : UIColor.white)
+            labels.textHaloWidth = NSExpression(forConstantValue: 1.5)
+            labels.textOptional = NSExpression(forConstantValue: true)
+            style.addLayer(labels)
+        }
+
+        /// APRS stations as purple dots (teal for weather, red in an emergency) with their callsigns.
+        func syncAPRS(on view: MLNMapView) {
+            guard let style = view.style else { return }
+            let key = parent.aprs.map { "\($0.id)|\($0.latitude ?? 0)|\($0.longitude ?? 0)|\($0.emergency)" }.joined(separator: ";")
+            guard key != aprsKey else { return }
+            aprsKey = key
+            let features: [MLNPointFeature] = parent.aprs.compactMap { s in
+                guard let lat = s.latitude, let lon = s.longitude else { return nil }
+                let f = MLNPointFeature()
+                f.coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                f.attributes = ["name": s.id, "sos": s.emergency ? 1 : 0, "wx": s.weather != nil ? 1 : 0]
+                return f
+            }
+            if let source = style.source(withIdentifier: "aprs-stations") as? MLNShapeSource {
+                source.shape = MLNShapeCollectionFeature(shapes: features)
+                return
+            }
+            let source = MLNShapeSource(identifier: "aprs-stations", features: features, options: nil)
+            style.addSource(source)
+            let dots = MLNCircleStyleLayer(identifier: "aprs-stations", source: source)
+            dots.circleColor = NSExpression(format: "TERNARY(sos == 1, %@, TERNARY(wx == 1, %@, %@))",
+                                            UIColor.systemRed, UIColor.systemTeal, UIColor.systemPurple)
+            dots.circleRadius = NSExpression(forConstantValue: 6)
+            dots.circleStrokeColor = NSExpression(forConstantValue: UIColor.white)
+            dots.circleStrokeWidth = NSExpression(forConstantValue: 2)
+            style.addLayer(dots)
+            let labels = MLNSymbolStyleLayer(identifier: "aprs-station-names", source: source)
+            labels.text = NSExpression(forKeyPath: "name")
+            labels.textFontNames = NSExpression(forConstantValue: ["Noto Sans Regular"])
+            labels.textFontSize = NSExpression(forConstantValue: 11)
+            labels.textAnchor = NSExpression(forConstantValue: "top")
+            labels.textOffset = NSExpression(forConstantValue: NSValue(cgVector: CGVector(dx: 0, dy: 0.8)))
+            labels.textColor = NSExpression(forConstantValue: UIColor.systemPurple)
             labels.textHaloColor = NSExpression(forConstantValue: parent.dark ? UIColor.black : UIColor.white)
             labels.textHaloWidth = NSExpression(forConstantValue: 1.5)
             labels.textOptional = NSExpression(forConstantValue: true)
@@ -858,9 +907,11 @@ struct MapLibreView: UIViewRepresentable {
                 nodesKey = "" // a new style has no heard-radio, coverage or known-radio layer yet
                 coverageKey = ""
                 knownKey = ""
+                aprsKey = ""
                 syncNodes(on: mapView)
                 syncCoverage(on: mapView)
                 syncKnown(on: mapView)
+                syncAPRS(on: mapView)
             }
         }
     }

@@ -64,7 +64,7 @@ enum AppStartup {
     }
 }
 
-enum AppTab: Hashable { case survive, ask, library, map, mesh }
+enum AppTab: Hashable { case survive, ask, library, map, mesh, ham }
 
 /// Debug builds accept `-screen <name>` to open straight to a screen, for
 /// screenshots and quick checks: survive, ask, library, map, mesh, settings,
@@ -93,6 +93,8 @@ enum LaunchScreen {
         case "library", "packs", "book": .library
         case "map": .map
         case "mesh", "coverage": .mesh
+        // The phone shows Ham inside the Radio tab; the iPad sidebar has it as a section.
+        case "ham": UIDevice.current.userInterfaceIdiom == .pad ? .ham : .mesh
         default: .survive
         }
     }
@@ -158,8 +160,9 @@ struct RootView: View {
             OfflineMapView()
                 .tabItem { Label(AppTab.map.title, systemImage: AppTab.map.symbol) }
                 .tag(AppTab.map)
-            MeshView()
-                .tabItem { Label(AppTab.mesh.title, systemImage: AppTab.mesh.symbol) }
+            // Mesh and Ham share the Radio tab: a phone shows five tabs at most.
+            RadioTabView()
+                .tabItem { Label("Radio", systemImage: AppTab.mesh.symbol) }
                 .tag(AppTab.mesh)
         }
     }

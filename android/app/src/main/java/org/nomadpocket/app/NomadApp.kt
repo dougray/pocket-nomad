@@ -25,6 +25,7 @@ class NomadApp : Application() {
         // No API key: the map style and tiles come from OpenFreeMap.
         MapLibre.getInstance(this)
         Mesh.init(this)
+        org.nomadpocket.ham.Ham.init(this)
         KnownRadioStore.init(this)
         connectNearbyRadios()
         // Off the main thread: build the guides' full-text index (once per app version),

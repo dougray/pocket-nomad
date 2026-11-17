@@ -1,9 +1,12 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package org.nomadpocket.app.map
 
 import android.text.format.DateUtils
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -184,10 +187,10 @@ fun KnownRadiosSheet(mapCenter: LatLng?, onDismiss: () -> Unit) {
             Modifier.padding(top = 6.dp))
 
         Header("Download")
-        Text("Area", style = MaterialTheme.typography.bodyMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Keep radios within", style = MaterialTheme.typography.bodyMedium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             KnownRadioStore.radiusChoices.forEach { km ->
-                FilterChip(selected = radiusKm == km, onClick = { radiusKm = km }, label = { Text("Within $km km") })
+                FilterChip(selected = radiusKm == km, onClick = { radiusKm = km }, label = { Text("$km km") })
             }
         }
         Button(
@@ -220,7 +223,7 @@ fun KnownRadiosSheet(mapCenter: LatLng?, onDismiss: () -> Unit) {
         Footnote(
             if (center == null) "Waiting for GPS. Radios are kept around where you are."
             else (if (usingGPS) "Keeps radios around where you are. " else "No GPS fix yet, so this keeps radios around the middle of the map: move the map to your area first. ") +
-                "Gets the public lists from meshmap.net (Meshtastic radios heard by the official MQTT server) and map.meshcore.io (MeshCore radios that uploaded their adverts), about 5 to 20 MB, and keeps only radios near you. Needs internet once. Your location isn't sent. Radios with ⛔, 🛑 or 🚫 in their name are left out.",
+                "Gets the public lists from meshmap.net (Meshtastic radios heard by the official MQTT server) and map.meshcore.io (MeshCore radios that uploaded their adverts), about 5 to 60 MB, and keeps only radios near you. Needs internet once. Your location isn't sent. Radios with ⛔, 🛑 or 🚫 in their name are left out.",
             Modifier.padding(top = 6.dp),
         )
         if (store.updated != null) {
@@ -263,13 +266,13 @@ fun StreetsAroundMeSheet(mapCenter: LatLng?, onDismiss: () -> Unit) {
         SheetTitle("Streets around me", onDismiss)
         Text("Saves the map around you for use with no signal, in two parts.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         Header("Highways, main roads, cities and towns")
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             StreetsArea.wideChoicesKm.forEach { km ->
                 FilterChip(selected = wideKm == km, onClick = { wideKm = km }, label = { Text("$km km") })
             }
         }
         Header("Every street")
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             StreetsArea.detailChoicesKm.forEach { km ->
                 FilterChip(selected = detailKm == km, onClick = { detailKm = km }, label = { Text("$km km") })
             }

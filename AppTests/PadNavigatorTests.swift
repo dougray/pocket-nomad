@@ -9,8 +9,8 @@ final class PadNavigatorTests: XCTestCase {
     }
 
     func testShortcutKeysFollowSidebarOrder() {
-        XCTAssertEqual(AppTab.allCases.map(\.shortcutKey), ["1", "2", "3", "4", "5"])
-        XCTAssertEqual(AppTab.allCases.map(\.title), ["Survive", "Ask", "Library", "Map", "Mesh"])
+        XCTAssertEqual(AppTab.allCases.map(\.shortcutKey), ["1", "2", "3", "4", "5", "6"])
+        XCTAssertEqual(AppTab.allCases.map(\.title), ["Survive", "Ask", "Library", "Map", "Mesh", "Ham"])
     }
 
     func testSearchGoesToASectionWithASearchField() {

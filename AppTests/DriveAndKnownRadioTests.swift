@@ -116,6 +116,32 @@ final class DriveAndKnownRadioTests: XCTestCase {
         XCTAssertEqual(radios[1].role, .room)
     }
 
+    /// The MeshCore list is read in chunks; objects may split anywhere, and strings may hold braces and quotes.
+    func testMeshCoreStreamsFromAFileAndFiltersWhileReading() throws {
+        var json = "[\n"
+        for i in 0..<500 {
+            let lat = 39.0 + Double(i) * 0.01
+            json += #"{"public_key": "k\#(i)", "type": 2, "adv_name": "R{\#(i)} \"q\" ]", "adv_lat": \#(lat), "adv_lon": -104.99, "params": {"freq": 910.525, "bw": 62.5, "sf": 7, "cr": 5}},"#
+            json += "\n"
+        }
+        json += #"{"public_key": "last", "adv_lat": 39.74, "adv_lon": -104.99}]"#
+        let file = FileManager.default.temporaryDirectory.appending(path: "meshcore-\(UUID().uuidString).json")
+        try Data(json.utf8).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let all = try KnownRadioStore.parseMeshCore(file: file)
+        XCTAssertEqual(all.count, 501)
+        XCTAssertEqual(all[3].name, #"R{3} "q" ]"#)
+        XCTAssertEqual(all[3].params?.spreadingFactor, 7)
+        let near = try KnownRadioStore.parseMeshCore(file: file) { lat, _ in lat < 39.5 }
+        XCTAssertEqual(near.count, 50)
+        // Byte-at-a-time feeding gives the same result as one big feed.
+        var splitter = JSONArrayObjectSplitter()
+        var count = 0
+        for b in Data(json.utf8) { [b].withUnsafeBytes { splitter.feed($0) { _ in count += 1 } } }
+        XCTAssertEqual(count, 501)
+        XCTAssertThrowsError(try KnownRadioStore.parseMeshCore(Data("{\"not\": \"an array\"}".utf8)))
+    }
+
     func testNearbyKeepsTheRadiusAndDropsOptOuts() {
         let denver = CLLocationCoordinate2D(latitude: 39.7392, longitude: -104.9903)
         let radios = [

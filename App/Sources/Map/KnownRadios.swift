@@ -90,7 +90,12 @@ final class KnownRadioStore {
         defer { downloading = false }
         let session = session
         async let tastic = Self.fetch(Self.meshtasticURL, session: session, parse: Self.parseMeshtastic)
-        async let core = Self.fetch(Self.meshcoreURL, session: session, parse: Self.parseMeshCore)
+        // The MeshCore list is tens of MB (56 MB in Nov 2026): it goes to a file and is
+        // read one radio at a time, keeping those near the centre (10% slack; nearby() cuts exactly).
+        let lat = center.latitude, lon = center.longitude, limit = Double(radiusKm) * 1100
+        async let core = Self.fetchToFile(Self.meshcoreURL, session: session) { file in
+            try Self.parseMeshCore(file: file) { la, lo in CoverageShare.distance(lat, lon, la, lo) <= limit }
+        }
         let results = [("meshmap.net", await tastic), ("map.meshcore.io", await core)]
         var all: [KnownRadio] = []
         var failed: [String] = []
@@ -137,6 +142,21 @@ final class KnownRadioStore {
         }
     }
 
+    /// Downloads to a temporary file (never the whole body in memory) and parses from it.
+    nonisolated private static func fetchToFile(_ url: URL, session: URLSession,
+                                                parse: @Sendable (URL) throws -> [KnownRadio]) async -> Result<[KnownRadio], Error> {
+        do {
+            var request = URLRequest(url: url, timeoutInterval: 120)
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            let (file, response) = try await session.download(for: request)
+            defer { try? FileManager.default.removeItem(at: file) }
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+            return .success(try parse(file))
+        } catch {
+            return .failure(error)
+        }
+    }
+
     /// Radios within the radius, minus any whose owner opted out of mapping.
     nonisolated static func nearby(_ radios: [KnownRadio], center: CLLocationCoordinate2D, radiusKm: Double) -> [KnownRadio] {
         radios.filter {
@@ -176,47 +196,120 @@ final class KnownRadioStore {
     /// map.meshcore.io: `[ { public_key, type (1 client, 2 repeater, 3 room, 4 sensor), adv_name, adv_lat, adv_lon,
     /// last_advert, updated_date, params: { freq (MHz), bw (kHz), sf, cr } } ]`.
     nonisolated static func parseMeshCore(_ data: Data) throws -> [KnownRadio] {
-        /// Never fails: a missing or odd `params` just means no settings.
-        struct Params: Decodable {
-            var value: MeshCoreRadioParams?
-            enum Keys: String, CodingKey { case freq, bw, sf, cr }
-            init(from decoder: Decoder) throws {
-                guard let c = try? decoder.container(keyedBy: Keys.self),
-                      let freq = try? c.decode(Double.self, forKey: .freq),
-                      let bw = try? c.decode(Double.self, forKey: .bw),
-                      let sf = try? c.decode(Int.self, forKey: .sf),
-                      let cr = try? c.decode(Int.self, forKey: .cr),
-                      freq.isFinite, bw.isFinite, freq > 0, freq < 10_000, bw > 0, bw < 10_000,
-                      let sf8 = UInt8(exactly: sf), let cr8 = UInt8(exactly: cr) else { return }
-                value = MeshCoreRadioParams(frequencyMHz: freq, bandwidthKHz: bw, spreadingFactor: sf8, codingRate: cr8)
-            }
+        var out: [KnownRadio] = []
+        let reader = MeshCoreMapReader()
+        var splitter = JSONArrayObjectSplitter()
+        data.withUnsafeBytes { splitter.feed($0) { obj in if let r = reader.radio(obj) { out.append(r) } } }
+        guard splitter.sawArray else { throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "Not a JSON array")) }
+        return out
+    }
+
+    /// The same, read from a file 64 KB at a time, keeping only radios `keep` accepts by position.
+    /// Only one radio's JSON is in memory at once: the whole list built a 56 MB tree.
+    nonisolated static func parseMeshCore(file: URL, keep: @escaping (Double, Double) -> Bool = { _, _ in true }) throws -> [KnownRadio] {
+        let handle = try FileHandle(forReadingFrom: file)
+        defer { try? handle.close() }
+        var out: [KnownRadio] = []
+        let reader = MeshCoreMapReader(keep: keep)
+        var splitter = JSONArrayObjectSplitter()
+        while let chunk = try handle.read(upToCount: 64 * 1024), !chunk.isEmpty {
+            chunk.withUnsafeBytes { splitter.feed($0) { obj in if let r = reader.radio(obj) { out.append(r) } } }
         }
-        struct Node: Decodable {
-            var params: Params?
-            var public_key: String?
-            var type: Int?
-            var adv_name: String?
-            var adv_lat: Double?
-            var adv_lon: Double?
-            var last_advert: String?
-            var updated_date: String?
+        guard splitter.sawArray else { throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "Not a JSON array")) }
+        return out
+    }
+}
+
+/// Decodes one map.meshcore.io radio object.
+struct MeshCoreMapReader {
+    var keep: (Double, Double) -> Bool = { _, _ in true }
+    private let decoder = JSONDecoder()
+    private let iso: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    init(keep: @escaping (Double, Double) -> Bool = { _, _ in true }) { self.keep = keep }
+
+    /// Never fails: a missing or odd `params` just means no settings.
+    struct Params: Decodable {
+        var value: MeshCoreRadioParams?
+        enum Keys: String, CodingKey { case freq, bw, sf, cr }
+        init(from decoder: Decoder) throws {
+            guard let c = try? decoder.container(keyedBy: Keys.self),
+                  let freq = try? c.decode(Double.self, forKey: .freq),
+                  let bw = try? c.decode(Double.self, forKey: .bw),
+                  let sf = try? c.decode(Int.self, forKey: .sf),
+                  let cr = try? c.decode(Int.self, forKey: .cr),
+                  freq.isFinite, bw.isFinite, freq > 0, freq < 10_000, bw > 0, bw < 10_000,
+                  let sf8 = UInt8(exactly: sf), let cr8 = UInt8(exactly: cr) else { return }
+            value = MeshCoreRadioParams(frequencyMHz: freq, bandwidthKHz: bw, spreadingFactor: sf8, codingRate: cr8)
         }
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return try JSONDecoder().decode([Node].self, from: data).compactMap { n in
-            guard let key = n.public_key, let lat = n.adv_lat, let lon = n.adv_lon, lat != 0 || lon != 0,
-                  abs(lat) <= 90, abs(lon) <= 180 else { return nil }
-            let role: KnownRadio.Role = switch n.type {
-            case 2: .repeater
-            case 3: .room
-            case 4: .sensor
-            default: .client
+    }
+
+    struct Node: Decodable {
+        var params: Params?
+        var public_key: String?
+        var type: Int?
+        var adv_name: String?
+        var adv_lat: Double?
+        var adv_lon: Double?
+        var last_advert: String?
+        var updated_date: String?
+    }
+
+    func radio(_ object: Data) -> KnownRadio? {
+        guard let n = try? decoder.decode(Node.self, from: object),
+              let key = n.public_key, let lat = n.adv_lat, let lon = n.adv_lon, lat != 0 || lon != 0,
+              abs(lat) <= 90, abs(lon) <= 180, keep(lat, lon) else { return nil }
+        let role: KnownRadio.Role = switch n.type {
+        case 2: .repeater
+        case 3: .room
+        case 4: .sensor
+        default: .client
+        }
+        return KnownRadio(id: "c" + key.prefix(16), firmware: .meshcore, name: n.adv_name ?? String(key.prefix(8)),
+                          role: role, latitude: lat, longitude: lon,
+                          // The server's update time; a radio's own advert clock is often wrong.
+                          lastSeen: (n.updated_date ?? n.last_advert).flatMap { iso.date(from: $0) },
+                          params: n.params?.value)
+    }
+}
+
+/// Hands out the bytes of each object in a top-level JSON array, fed in chunks
+/// of any size, so a huge array never has to be in memory at once.
+struct JSONArrayObjectSplitter {
+    private var buffer = Data()
+    private var started = false
+    private var depth = 0
+    private var inString = false
+    private var escaped = false
+    private(set) var sawArray = false
+
+    mutating func feed(_ bytes: UnsafeRawBufferPointer, each: (Data) -> Void) {
+        for c in bytes {
+            if !started {
+                if c == UInt8(ascii: "[") { started = true; sawArray = true }
+                continue
             }
-            return KnownRadio(id: "c" + key.prefix(16), firmware: .meshcore, name: n.adv_name ?? String(key.prefix(8)),
-                              role: role, latitude: lat, longitude: lon,
-                              // The server's update time; a radio's own advert clock is often wrong.
-                              lastSeen: (n.updated_date ?? n.last_advert).flatMap { iso.date(from: $0) },
-                              params: n.params?.value)
+            if depth == 0 {
+                if c == UInt8(ascii: "{") { depth = 1; buffer.removeAll(keepingCapacity: true); buffer.append(c) }
+                continue
+            }
+            buffer.append(c)
+            if inString {
+                if escaped { escaped = false } else if c == UInt8(ascii: "\\") { escaped = true } else if c == UInt8(ascii: "\"") { inString = false }
+                continue
+            }
+            switch c {
+            case UInt8(ascii: "\""): inString = true
+            case UInt8(ascii: "{"), UInt8(ascii: "["): depth += 1
+            case UInt8(ascii: "}"), UInt8(ascii: "]"):
+                depth -= 1
+                if depth == 0 { each(buffer) }
+            default: break
+            }
         }
     }
 }

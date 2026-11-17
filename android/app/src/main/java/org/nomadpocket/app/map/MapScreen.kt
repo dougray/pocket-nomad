@@ -118,6 +118,7 @@ private const val SRC_KNOWN = "known-radios"
 private const val SRC_NODES = "mesh-nodes"
 private const val SRC_PINS = "pins"
 private const val SRC_CELLS = "coverage-cells"
+private const val SRC_APRS = "aprs-stations"
 private val LABEL_FONT = arrayOf("Noto Sans Regular")
 
 @Composable
@@ -126,6 +127,7 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
     val prefs = remember { context.getSharedPreferences("map", Context.MODE_PRIVATE) }
     var showNodes by remember { mutableStateOf(prefs.getBoolean("showNodes", true)) }
     var showKnown by remember { mutableStateOf(prefs.getBoolean("showKnown", true)) }
+    var showAprs by remember { mutableStateOf(prefs.getBoolean("showAprs", true)) }
     var showMeshKnown by remember { mutableStateOf(prefs.getBoolean("showMeshKnown", false)) }
     var coverageMode by remember { mutableStateOf(CoverageLayer.load(prefs)) }
     var coverageNetwork by remember { mutableStateOf(CoverageNetwork.from(prefs.getString("coverageNetwork", null))) }
@@ -250,6 +252,9 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
     LaunchedEffect(style, pins) { style?.source(SRC_PINS)?.setGeoJson(pinFeatures(pins)) }
     LaunchedEffect(style, directNodes, meshKnownNodes) { style?.source(SRC_NODES)?.setGeoJson(nodeFeatures(directNodes, meshKnownNodes)) }
     LaunchedEffect(style, shownKnown) { style?.source(SRC_KNOWN)?.setGeoJson(knownFeatures(shownKnown)) }
+    // Ham APRS stations heard by the TNC.
+    val aprs = if (showAprs && org.nomadpocket.ham.Ham.isInitialized) org.nomadpocket.ham.Ham.service.stations.filter { it.hasPosition } else emptyList()
+    LaunchedEffect(style, aprs) { style?.source(SRC_APRS)?.setGeoJson(aprsFeatures(aprs)) }
     LaunchedEffect(style, cells, myCells, coverageNetwork, coverageMode) {
         style?.source(SRC_CELLS)?.setGeoJson(if (coverageMode == CoverageLayer.RECORDED) myCellFeatures(myCells, coverageNetwork.firmware) else cellFeatures(cells))
     }
@@ -278,6 +283,9 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
                     }
                     CheckItem("Known radios (community maps)", Icons.Filled.Contactless, showKnown) {
                         showKnown = !showKnown; prefs.edit().putBoolean("showKnown", showKnown).apply()
+                    }
+                    CheckItem("Ham APRS stations heard", Icons.Filled.Contactless, showAprs) {
+                        showAprs = !showAprs; prefs.edit().putBoolean("showAprs", showAprs).apply()
                     }
                     DropdownMenuItem(text = { Text("Download known radios…") }, leadingIcon = { Icon(Icons.Filled.Download, null) },
                         onClick = { showLayers = false; showKnownSheet = true })
@@ -404,6 +412,14 @@ private fun nodeFeatures(direct: List<MapNode>, meshKnown: List<MapNode>) =
     }
 })
 
+private fun aprsFeatures(stations: List<org.nomadpocket.ham.HamStation>) = FeatureCollection.fromFeatures(stations.map { s ->
+    Feature.fromGeometry(Point.fromLngLat(s.longitude!!, s.latitude!!)).apply {
+        addStringProperty("name", s.id)
+        addNumberProperty("sos", if (s.emergency) 1 else 0)
+        addNumberProperty("wx", if (s.weather != null) 1 else 0)
+    }
+})
+
 private fun knownFeatures(radios: List<KnownRadio>) = FeatureCollection.fromFeatures(radios.map { r ->
     Feature.fromGeometry(Point.fromLngLat(r.longitude, r.latitude)).apply {
         addStringProperty("rid", r.id)
@@ -473,7 +489,7 @@ private fun cellOutlineColor(): Expression =
 
 /** Known radios under coverage, under live nodes, under pins. */
 private fun addLayers(style: Style) {
-    listOf(SRC_KNOWN, SRC_CELLS, SRC_NODES, SRC_PINS).forEach {
+    listOf(SRC_KNOWN, SRC_CELLS, SRC_APRS, SRC_NODES, SRC_PINS).forEach {
         style.addSource(GeoJsonSource(it, FeatureCollection.fromFeatures(emptyList())))
     }
     style.addLayer(CircleLayer(SRC_KNOWN, SRC_KNOWN).withProperties(
@@ -496,6 +512,25 @@ private fun addLayers(style: Style) {
     style.addLayer(LineLayer("coverage-outline", SRC_CELLS).withProperties(
         PropertyFactory.lineColor(cellOutlineColor()),
         PropertyFactory.lineWidth(1.6f),
+    ))
+    // APRS stations: purple (teal for weather, red in an emergency), callsign beside them.
+    style.addLayer(CircleLayer(SRC_APRS, SRC_APRS).withProperties(
+        PropertyFactory.circleRadius(7f),
+        PropertyFactory.circleColor(Expression.switchCase(eq(get("sos"), literal(1)), color(android.graphics.Color.rgb(229, 72, 77)),
+            eq(get("wx"), literal(1)), color(android.graphics.Color.rgb(48, 176, 199)), color(android.graphics.Color.rgb(175, 82, 222)))),
+        PropertyFactory.circleStrokeColor(color(android.graphics.Color.WHITE)),
+        PropertyFactory.circleStrokeWidth(2f),
+    ))
+    style.addLayer(SymbolLayer("aprs-labels", SRC_APRS).withProperties(
+        PropertyFactory.textField(get("name")),
+        PropertyFactory.textFont(LABEL_FONT),
+        PropertyFactory.textSize(11f),
+        PropertyFactory.textOffset(arrayOf(0f, 1.3f)),
+        PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
+        PropertyFactory.textColor(android.graphics.Color.rgb(200, 150, 240)),
+        PropertyFactory.textHaloColor(android.graphics.Color.BLACK),
+        PropertyFactory.textHaloWidth(1.5f),
+        PropertyFactory.textOptional(true),
     ))
     // Radios heard directly: the main layer. Network colour, repeaters ringed in white.
     // Radios known only through the mesh are smaller and faded.

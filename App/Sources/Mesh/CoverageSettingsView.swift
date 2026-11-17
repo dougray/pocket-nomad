@@ -22,6 +22,7 @@ struct CoverageSettingsView: View {
     @State private var mesh = MeshService.shared
     @State private var backup = CoverageBackupService.shared
     @State private var pickingFolder = false
+    @State private var creatingFolder = false
     @State private var restoring = false
     @State private var restoreMessage: String?
     @State private var hidden = HiddenRadioStore.shared
@@ -110,6 +111,15 @@ struct CoverageSettingsView: View {
             }
             .sheet(isPresented: $addingZone) { zoneEditor }
             .sheet(item: $exportFile) { ActivityView(items: [$0.url]) }
+            .sheet(isPresented: $creatingFolder) {
+                FolderPicker(mode: .create) { url in
+                    Task {
+                        await backup.chooseFolder(url)
+                        restoreMessage = backup.folderRestoreMessage
+                    }
+                }
+                .ignoresSafeArea()
+            }
             .sheet(isPresented: $pickingFolder) {
                 FolderPicker { url in
                     Task {
@@ -149,8 +159,13 @@ struct CoverageSettingsView: View {
             if let error = backup.lastError {
                 Text(error).font(.footnote).foregroundStyle(.red)
             }
+            if !backup.isOn {
+                Button { creatingFolder = true } label: {
+                    Label("Create backup folder…", systemImage: "folder.badge.plus")
+                }
+            }
             Button { pickingFolder = true } label: {
-                Label(backup.isOn ? "Change backup folder…" : "Choose backup folder…", systemImage: "folder")
+                Label(backup.isOn ? "Change backup folder…" : "Choose an existing folder…", systemImage: "folder")
             }
             if backup.isOn {
                 Button { Task { await backup.backUpNow() } } label: { Label("Back up now", systemImage: "arrow.clockwise") }
@@ -162,7 +177,7 @@ struct CoverageSettingsView: View {
             } label: { Label("Export a copy…", systemImage: "square.and.arrow.up") }
             Button { restoring = true } label: { Label("Restore from backup…", systemImage: "arrow.counterclockwise") }
         } header: { Text("Backup") } footer: {
-            Text("Backups stay on this iPhone, in a folder you choose outside the app, so they survive deleting and reinstalling Pocket Nomad. They contain your location history; nothing is uploaded. Make a folder such as On My iPhone › Pocket Nomad Backups in the Files app and choose it here; it is updated after each drive and when you leave the app, and a backup already in it is merged in first. Export a copy only if you want one elsewhere: where it goes is your choice. Restoring adds to what is here and never deletes anything.")
+            Text("Backups stay on this iPhone, in a folder you choose outside the app, so they survive deleting and reinstalling Pocket Nomad. They contain your location history; nothing is uploaded. Create backup folder makes a \u{201C}Pocket Nomad Backups\u{201D} folder where you choose (pick On My iPhone) and starts using it. The folder is updated after each drive and when you leave the app, and a backup already in it is merged in first. Export a copy only if you want one elsewhere: where it goes is your choice. Restoring adds to what is here and never deletes anything.")
         }
     }
 
@@ -260,18 +275,39 @@ struct ActivityView: UIViewControllerRepresentable {
 
 /// The system folder picker, for choosing where backups go.
 struct FolderPicker: UIViewControllerRepresentable {
+    enum Mode { case choose, create }
+    /// The name of the folder `create` makes.
+    static let newFolderName = "Pocket Nomad Backups"
+
+    var mode: Mode = .choose
     let onPick: (URL) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
+        let picker: UIDocumentPickerViewController
+        switch mode {
+        case .choose:
+            picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
+        case .create:
+            // An empty folder made in temp and moved (not copied) to where the
+            // user picks; the picker hands back the moved folder, ready to use.
+            picker = UIDocumentPickerViewController(forExporting: [Self.makeEmptyFolder()], asCopy: false)
+        }
         picker.allowsMultipleSelection = false
         picker.delegate = context.coordinator
         return picker
     }
 
     func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+
+    /// A new, empty "Pocket Nomad Backups" folder in a fresh temp directory.
+    static func makeEmptyFolder() -> URL {
+        let parent = FileManager.default.temporaryDirectory.appending(path: "new-backup-folder-\(UUID().uuidString)")
+        let folder = parent.appending(path: newFolderName, directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }
 
     @MainActor
     final class Coordinator: NSObject, UIDocumentPickerDelegate {

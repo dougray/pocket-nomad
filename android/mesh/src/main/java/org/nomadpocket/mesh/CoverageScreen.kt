@@ -7,7 +7,7 @@
 // of the raw data to a place the user picks. Private by default. Port of
 // CoverageSettingsView.swift.
 
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 
 package org.nomadpocket.mesh
 
@@ -17,6 +17,7 @@ import android.text.format.DateUtils
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -230,7 +231,7 @@ private fun CoverageContent() {
             }
             if (pings.isNotEmpty()) ValueRow("Drive-test pings", "${pings.size}")
             Text("Keep for", fontSize = 17.sp, modifier = Modifier.padding(top = 8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 for (days in RETENTION_CHOICES) {
                     FilterChip(selected = retention == days, onClick = { store.retentionDays = days }, label = { Text("$days days") })
                 }
@@ -375,7 +376,7 @@ private fun ZoneEditor(defaultName: String, onCancel: () -> Unit, onAdd: (String
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true)
                 Text("Radius")
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     for (r in listOf(300.0, 500.0, 1000.0, 2000.0)) {
                         FilterChip(selected = radius == r, onClick = { radius = r }, label = { Text("${r.toInt()} m") })
                     }

@@ -70,8 +70,8 @@ android {
         applicationId = "org.nomadpocket.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 7
-        versionName = "0.5.2-beta"
+        versionCode = 8
+        versionName = "0.6.0-beta"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -141,6 +141,7 @@ androidComponents {
 
 dependencies {
     implementation(project(":mesh"))
+    implementation(project(":ham"))
     implementation(project(":library"))
     implementation(project(":llm"))
     implementation(project(":core"))

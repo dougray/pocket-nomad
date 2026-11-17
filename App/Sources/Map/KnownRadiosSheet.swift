@@ -61,7 +61,7 @@ struct KnownRadiosSheet: View {
                 } header: { Text("Download") } footer: {
                     Text(center == nil
                          ? "Waiting for GPS. Radios are kept around where you are."
-                         : (usingGPS ? "Keeps radios around where you are. " : "No GPS fix yet, so this keeps radios around the middle of the map: move the map to your area first. ") + "Gets the public lists from meshmap.net (Meshtastic radios heard by the official MQTT server) and map.meshcore.io (MeshCore radios that uploaded their adverts), about 5 to 20 MB, and keeps only radios near you. Needs internet once. Your location isn't sent. Radios with ⛔, 🛑 or 🚫 in their name are left out.")
+                         : (usingGPS ? "Keeps radios around where you are. " : "No GPS fix yet, so this keeps radios around the middle of the map: move the map to your area first. ") + "Gets the public lists from meshmap.net (Meshtastic radios heard by the official MQTT server) and map.meshcore.io (MeshCore radios that uploaded their adverts), about 5 to 60 MB, and keeps only radios near you. Needs internet once. Your location isn't sent. Radios with ⛔, 🛑 or 🚫 in their name are left out.")
                 }
 
                 if store.updated != nil {

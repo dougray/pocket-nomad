@@ -132,4 +132,41 @@ class KnownRadioTest {
         // A MeshCore number never hides a Meshtastic radio with a different id, and vice versa.
         assertEquals(4, KnownRadioParser.withoutOwn(radios, OwnRadios(nodeNums = setOf(0x4433_2211L))).size)
     }
+
+    @Test
+    fun meshCoreListIsStreamedOneRadioAtATimeAndFilteredWhileReading() {
+        // Names with braces, brackets, quotes and escapes must not confuse the object splitter.
+        val json = """
+            [
+              {"public_key":"aa11","type":2,"adv_name":"Denver {North} \"Hill\" [1]","adv_lat":39.74,"adv_lon":-104.99,
+               "params":{"freq":910.525,"bw":62.5,"sf":7,"cr":5}},
+              null,
+              {"public_key":"bb22","type":1,"adv_name":"Far away","adv_lat":40.71,"adv_lon":-74.0},
+              {"public_key":"cc33","type":2,"adv_name":"No position"},
+              {"public_key":"dd44","type":3,"adv_name":"Room \\ end","adv_lat":39.70,"adv_lon":-105.0}
+            ]
+        """.trimIndent()
+        val all = KnownRadioParser.parseMeshCore(java.io.StringReader(json))
+        assertEquals(listOf("caa11", "cbb22", "cdd44"), all.map { it.id })
+        assertEquals("Denver {North} \"Hill\" [1]", all[0].name)
+        assertEquals("Room \\ end", all[2].name)
+
+        val near = KnownRadioParser.parseMeshCore(java.io.StringReader(json)) { lat, lon ->
+            KnownRadioParser.distance(39.74, -104.99, lat, lon) <= 50_000.0
+        }
+        assertEquals(listOf("caa11", "cdd44"), near.map { it.id })
+        // The String overload still parses the same way.
+        assertEquals(all, KnownRadioParser.parseMeshCore(json))
+    }
+
+    @Test
+    fun arraySplitterHandlesChunkBoundariesAndEmptyArrays() {
+        val big = (1..5000).joinToString(",", "[", "]") { """{"k":"v$it","s":"}{]["}""" }
+        var count = 0
+        KnownRadioParser.forEachArrayObject(java.io.StringReader(big)) { count++ }
+        assertEquals(5000, count)
+        var none = 0
+        KnownRadioParser.forEachArrayObject(java.io.StringReader("[]")) { none++ }
+        assertEquals(0, none)
+    }
 }

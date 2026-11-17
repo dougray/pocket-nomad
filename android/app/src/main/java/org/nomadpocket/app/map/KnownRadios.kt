@@ -97,22 +97,37 @@ object KnownRadioParser {
      * map.meshcore.io: `[ { public_key, type (1 client, 2 repeater, 3 room, 4 sensor), adv_name, adv_lat, adv_lon,
      * last_advert, updated_date, params: { freq (MHz), bw (kHz), sf, cr } } ]`. `params` may be missing or empty.
      */
-    fun parseMeshCore(json: String): List<KnownRadio> {
-        val arr = JSONArray(json)
-        return (0 until arr.length()).mapNotNull { i ->
-            val n = arr.optJSONObject(i) ?: return@mapNotNull null
-            val key = n.optStringOrNull("public_key") ?: return@mapNotNull null
-            if (!n.has("adv_lat") || !n.has("adv_lon") || n.isNull("adv_lat") || n.isNull("adv_lon")) return@mapNotNull null
-            val lat = n.getDouble("adv_lat")
-            val lon = n.getDouble("adv_lon")
-            if ((lat == 0.0 && lon == 0.0) || abs(lat) > 90 || abs(lon) > 180) return@mapNotNull null
+    fun parseMeshCore(json: String): List<KnownRadio> = parseMeshCore(java.io.StringReader(json))
+
+    /**
+     * The same, read as a stream one radio at a time, keeping only those [keep]
+     * accepts (by position). The full list is tens of MB (56 MB in Nov 2026):
+     * reading it whole and building a JSON tree ran a Moto G Play out of memory.
+     */
+    fun parseMeshCore(reader: java.io.Reader, keep: (Double, Double) -> Boolean = { _, _ -> true }): List<KnownRadio> {
+        val out = ArrayList<KnownRadio>()
+        forEachArrayObject(reader) { text ->
+            val n = runCatching { JSONObject(text) }.getOrNull() ?: return@forEachArrayObject
+            meshCoreRadio(n, keep)?.let(out::add)
+        }
+        return out
+    }
+
+    private fun meshCoreRadio(n: JSONObject, keep: (Double, Double) -> Boolean): KnownRadio? {
+        run {
+            val key = n.optStringOrNull("public_key") ?: return null
+            if (!n.has("adv_lat") || !n.has("adv_lon") || n.isNull("adv_lat") || n.isNull("adv_lon")) return null
+            val lat = n.optDouble("adv_lat")
+            val lon = n.optDouble("adv_lon")
+            if (lat.isNaN() || lon.isNaN() || (lat == 0.0 && lon == 0.0) || abs(lat) > 90 || abs(lon) > 180) return null
+            if (!keep(lat, lon)) return null
             val role = when (if (n.has("type") && !n.isNull("type")) n.optInt("type") else null) {
                 2 -> KnownRadio.Role.REPEATER
                 3 -> KnownRadio.Role.ROOM
                 4 -> KnownRadio.Role.SENSOR
                 else -> KnownRadio.Role.CLIENT
             }
-            KnownRadio(
+            return KnownRadio(
                 id = "c" + key.take(16), firmware = Firmware.MESHCORE,
                 name = n.optStringOrNull("adv_name") ?: key.take(8),
                 role = role, latitude = lat, longitude = lon,
@@ -121,6 +136,41 @@ object KnownRadioParser {
                     ?.let { runCatching { Instant.parse(it) }.getOrNull() },
                 params = n.optJSONObject("params")?.let { parseParams(it) },
             )
+        }
+    }
+
+    /**
+     * Calls [each] with the text of every object in a top-level JSON array,
+     * one at a time, so only one object is ever in memory.
+     */
+    fun forEachArrayObject(reader: java.io.Reader, each: (String) -> Unit) {
+        val sb = StringBuilder()
+        val buf = CharArray(64 * 1024)
+        var started = false
+        var depth = 0
+        var inString = false
+        var escaped = false
+        while (true) {
+            val n = reader.read(buf)
+            if (n < 0) break
+            for (i in 0 until n) {
+                val c = buf[i]
+                if (!started) { if (c == '[') started = true; continue }
+                if (depth == 0) {
+                    if (c == '{') { depth = 1; sb.setLength(0); sb.append(c) }
+                    continue
+                }
+                sb.append(c)
+                if (inString) {
+                    if (escaped) escaped = false else if (c == '\\') escaped = true else if (c == '"') inString = false
+                    continue
+                }
+                when (c) {
+                    '"' -> inString = true
+                    '{', '[' -> depth++
+                    '}', ']' -> { depth--; if (depth == 0) each(sb.toString()) }
+                }
+            }
         }
     }
 
@@ -255,8 +305,13 @@ object KnownRadioStore {
         _state.value = _state.value.copy(downloading = true, lastError = null)
         try {
             val results = coroutineScope {
-                val tastic = async { fetch(MESHTASTIC_URL, KnownRadioParser::parseMeshtastic) }
-                val core = async { fetch(MESHCORE_URL, KnownRadioParser::parseMeshCore) }
+                val tastic = async { fetch(MESHTASTIC_URL) { KnownRadioParser.parseMeshtastic(it.readText()) } }
+                // Streamed and filtered while reading (with 10% slack; nearby() below does the exact cut).
+                val core = async {
+                    fetch(MESHCORE_URL) { r ->
+                        KnownRadioParser.parseMeshCore(r) { la, lo -> KnownRadioParser.distance(lat, lon, la, lo) <= radiusKm * 1100.0 }
+                    }
+                }
                 listOf("meshmap.net" to tastic.await(), "map.meshcore.io" to core.await())
             }
             val all = results.mapNotNull { it.second.getOrNull() }.flatten()
@@ -289,7 +344,7 @@ object KnownRadioStore {
         tmp.renameTo(f)
     }
 
-    private suspend fun fetch(url: String, parse: (String) -> List<KnownRadio>): Result<List<KnownRadio>> = withContext(Dispatchers.IO) {
+    private suspend fun fetch(url: String, parse: (java.io.Reader) -> List<KnownRadio>): Result<List<KnownRadio>> = withContext(Dispatchers.IO) {
         runCatching {
             val conn = URL(url).openConnection() as HttpURLConnection
             conn.connectTimeout = 60_000
@@ -297,7 +352,7 @@ object KnownRadioStore {
             conn.setRequestProperty("Accept", "application/json")
             try {
                 if (conn.responseCode != 200) error("HTTP ${conn.responseCode}")
-                parse(conn.inputStream.bufferedReader().use { it.readText() })
+                conn.inputStream.bufferedReader().use { parse(it) }
             } finally {
                 conn.disconnect()
             }

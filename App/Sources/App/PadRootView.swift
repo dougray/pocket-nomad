@@ -42,7 +42,7 @@ struct PadRootView: View {
             Section {
                 ForEach(AppTab.allCases) { tab in
                     Label(tab.title, systemImage: tab.symbol)
-                        .badge(tab == .mesh ? MeshService.shared.totalUnread : 0)
+                        .badge(tab == .mesh ? MeshService.shared.totalUnread : tab == .ham ? HamService.shared.unreadTotal + HamService.shared.unreadMail : 0)
                         .tag(PadSidebarItem.section(tab))
                 }
             }
@@ -83,6 +83,7 @@ struct PadRootView: View {
             // Its links push within this column; the map keeps the detail column.
             case .map: MeshView().environment(\.detailNavigator, nil)
             case .mesh: MeshView()
+            case .ham: HamView()
             }
         }
         .environment(\.detailNavigator, nav)
@@ -141,6 +142,8 @@ struct PadRootView: View {
             }
         case .mesh:
             MeshChatView(conversation: .channel(0))
+        case .ham:
+            HamMonitorView()
         case .map:
             EmptyView()
         }

@@ -1,7 +1,7 @@
 import SwiftUI
 
 extension AppTab: CaseIterable, Identifiable {
-    static let allCases: [AppTab] = [.survive, .ask, .library, .map, .mesh]
+    static let allCases: [AppTab] = [.survive, .ask, .library, .map, .mesh, .ham]
 
     var id: Self { self }
 
@@ -12,6 +12,7 @@ extension AppTab: CaseIterable, Identifiable {
         case .library: "Library"
         case .map: "Map"
         case .mesh: "Mesh"
+        case .ham: "Ham"
         }
     }
 
@@ -22,6 +23,7 @@ extension AppTab: CaseIterable, Identifiable {
         case .library: "books.vertical.fill"
         case .map: "map.fill"
         case .mesh: "antenna.radiowaves.left.and.right"
+        case .ham: "dot.radiowaves.up.forward"
         }
     }
 
@@ -33,7 +35,7 @@ extension AppTab: CaseIterable, Identifiable {
     var searchSection: AppTab {
         switch self {
         case .survive, .ask, .library: self
-        case .map, .mesh: .survive
+        case .map, .mesh, .ham: .survive
         }
     }
 }
