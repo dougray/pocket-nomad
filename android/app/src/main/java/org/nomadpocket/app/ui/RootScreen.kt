@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -104,6 +105,11 @@ fun RootScreen(forceDark: Boolean, onForceDark: (Boolean) -> Unit, launchScreen:
     val chromeHidden = remember { mutableStateOf(false) }
     val backStack by nav.currentBackStackEntryAsState()
     val current = backStack?.destination
+    // Go to starts from anywhere (a radio, a pin): bring the Map forward.
+    val navActivations by org.nomadpocket.app.map.NavigationState.activations.collectAsState()
+    LaunchedEffect(navActivations) {
+        if (navActivations > 0) nav.navigate(Tab.MAP.route) { popUpTo(nav.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true }
+    }
     CompositionLocalProvider(LocalChromeHidden provides chromeHidden, LocalForceDark provides forceDark) {
         Scaffold(
             contentWindowInsets = WindowInsets(0),
@@ -330,7 +336,7 @@ fun RadioScreen(launchScreen: String? = null) {
         }
         // The switch already sits below the status bar; the screens' top bars must not add it again.
         Box(Modifier.weight(1f).consumeWindowInsets(androidx.compose.foundation.layout.WindowInsets.statusBars)) {
-            if (ham) org.nomadpocket.ham.HamScreen(Modifier.fillMaxSize(), demo = launchScreen == "ham:demo")
+            if (ham) org.nomadpocket.ham.HamScreen(Modifier.fillMaxSize(), demo = launchScreen == "ham:demo", satellites = launchScreen == "ham:satellites")
             else MeshScreen(Modifier.fillMaxSize())
         }
     }

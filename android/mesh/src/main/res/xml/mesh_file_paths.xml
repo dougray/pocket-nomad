@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Only the coverage export folder is shareable. -->
+<!-- Only the coverage and drawings export folders are shareable. -->
 <paths>
     <cache-path name="coverage_export" path="coverage-export/" />
+    <cache-path name="drawings_export" path="drawings-export/" />
 </paths>

@@ -27,6 +27,7 @@ turned on, and it is deleted when you delete the app.
 | **Private zones** | Places never to share coverage from | Mesh › Coverage map |
 | **Known radios** (only if you download them) | Names, types and reported positions of radios listed on the public community maps near you | Map › Layers › Download known radios › Delete |
 | **Conditions** (only if you tap Update) | The last earthquakes, weather alerts, forecast, space weather and Weather Radio transmitter list, so they can be read with no signal | Survive › Conditions › ⋯ › Delete saved conditions |
+| **Satellite orbit data** (only if you tap Update) | Orbit data for the space station and amateur satellites, so passes can be worked out with no signal | Ham › Satellite passes (delete from Settings › Privacy) |
 | **Books, maps and AI models you add** | Offline reading, maps and answers | Swipe to delete: books in Library, maps and models in Library › Get Content |
 | **Book reading data** | Some books (such as the zimgit collections) keep their own document list in the app's built-in browser storage so they open quickly. Only offline book data, nothing about you. | Removed when you delete the app |
 | **Settings** | Your choices | Settings |
@@ -44,6 +45,12 @@ weather alert and forecast requests include your position rounded to 0.1 degree 
 7 miles), never your exact location. Earthquake, space weather and Weather Radio data are
 whole-region downloads filtered on the phone, so no location is sent for them. These
 services see your IP address and what you request, like any website.
+
+Saving elevation (for shaded hills and radio path checks) and roads (for directions) downloads
+map data for an area from free public services (AWS Open Data terrain tiles and the
+OpenStreetMap Overpass service). Only when you tap Download. Those requests reveal roughly which
+area you asked for (about 5 to 100 km wide), nothing else, and no account is used. Routes,
+favorites, drawings, Go to and radio path checks are worked out and kept on the phone.
 
 - show where you are on the offline map and compass;
 - add your coordinates to an SOS message, only when you send an SOS with

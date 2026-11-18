@@ -21,6 +21,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Hub
@@ -29,6 +32,7 @@ import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SettingsInputAntenna
 import androidx.compose.material.icons.filled.Contactless
+import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.RadioButtonChecked
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
@@ -120,6 +124,9 @@ private const val SRC_PINS = "pins"
 private const val SRC_CELLS = "coverage-cells"
 private const val SRC_APRS = "aprs-stations"
 private const val SRC_QUAKES = "quakes"
+private const val SRC_FAVORITES = "favorites"
+private const val SRC_GOTO = "goto-line"
+private const val SRC_ROUTE = "route"
 private val LABEL_FONT = arrayOf("Noto Sans Regular")
 
 @Composable
@@ -130,6 +137,29 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
     var showKnown by remember { mutableStateOf(prefs.getBoolean("showKnown", true)) }
     var showAprs by remember { mutableStateOf(prefs.getBoolean("showAprs", true)) }
     var showQuakes by remember { mutableStateOf(prefs.getBoolean("showQuakes", true)) }
+    var showShapes by remember { mutableStateOf(prefs.getBoolean("showShapes", true)) }
+    var showFavorites by remember { mutableStateOf(prefs.getBoolean("showFavorites", true)) }
+    var showSearch by remember { mutableStateOf(false) }
+    var look by remember { mutableStateOf(runCatching { MapLook.valueOf(prefs.getString("look", "") ?: "") }.getOrDefault(MapLook.STREETS)) }
+    var showTerrain by remember { mutableStateOf(false) }
+    val terrainStore = remember { TerrainStore.get(context) }
+    val terrainState by terrainStore.state.collectAsState()
+    /** Recenter: tap once to follow, again to turn with your heading, again to stop. */
+    var followMode by remember { mutableStateOf(CameraMode.NONE) }
+    val favoriteStore = remember { FavoritesStore.get(context) }
+    val navTarget by NavigationState.target.collectAsState()
+    val navArrived by NavigationState.arrived.collectAsState()
+    val heading = rememberHeading(navTarget != null)
+    val shapeStore = remember { ShapeStore(java.io.File(context.filesDir, "shapes.json")) }
+    var shapes by remember { mutableStateOf(shapeStore.shapes) }
+    val draft = remember { androidx.compose.runtime.mutableStateListOf<LatLng>() }
+    var draftClosed by remember { mutableStateOf(false) }
+    var measuring by remember { mutableStateOf(false) }
+    var showShapesList by remember { mutableStateOf(false) }
+    var namingShape by remember { mutableStateOf(false) }
+    val metric = remember { org.nomadpocket.app.conditions.ConditionsFormat.current().metric }
+    measuringRef.value = measuring
+    draftAddRef.value = { draft.add(it) }
     var showMeshKnown by remember { mutableStateOf(prefs.getBoolean("showMeshKnown", false)) }
     var coverageMode by remember { mutableStateOf(CoverageLayer.load(prefs)) }
     var coverageNetwork by remember { mutableStateOf(CoverageNetwork.from(prefs.getString("coverageNetwork", null))) }
@@ -205,6 +235,7 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
                 true
             }
             m.addOnMapClickListener { point ->
+                if (measuringRef.value) { draftAddRef.value(point); return@addOnMapClickListener true }
                 val p = m.projection.toScreenLocation(point)
                 val box = RectF(p.x - 36, p.y - 36, p.x + 36, p.y + 36)
                 val f = m.queryRenderedFeatures(box, SRC_PINS, SRC_NODES, SRC_KNOWN).firstOrNull()
@@ -251,9 +282,44 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
         }
     }
 
+    // Shaded relief under the roads and labels, from the saved (or live) elevation tiles.
+    LaunchedEffect(style, look, terrainState.tileCount) {
+        val s = style ?: return@LaunchedEffect
+        s.getLayer("terrain-hillshade")?.let { s.removeLayer(it) }
+        s.getSource("terrain-dem")?.let { s.removeSource(it) }
+        if (look.exaggeration <= 0f) return@LaunchedEffect
+        val tiles = org.maplibre.android.style.sources.TileSet("2.2.0", terrainStore.template).apply { encoding = "terrarium"; maxZoom = 11f; minZoom = 0f }
+        s.addSource(org.maplibre.android.style.sources.RasterDemSource("terrain-dem", tiles, 256))
+        val layer = org.maplibre.android.style.layers.HillshadeLayer("terrain-hillshade", "terrain-dem")
+            .withProperties(PropertyFactory.hillshadeExaggeration(look.exaggeration))
+        val firstAbove = s.layers.firstOrNull { it is LineLayer || it is SymbolLayer }
+        if (firstAbove != null) s.addLayerBelow(layer, firstAbove.id) else s.addLayer(layer)
+    }
+    // Go to: keep the position fresh for the arrival check, and draw the dashed line.
+    LaunchedEffect(location) { location?.let { NavigationState.update(ShapePoint(it.latitude, it.longitude)) } }
+    LaunchedEffect(style, showSearch, showFavorites, navTarget, location) {
+        val favs = if (showFavorites) favoriteStore.favorites else emptyList()
+        style?.source(SRC_FAVORITES)?.setGeoJson(FeatureCollection.fromFeatures(favs.map {
+            Feature.fromGeometry(Point.fromLngLat(it.longitude, it.latitude)).also { f -> f.addStringProperty("name", it.name) }
+        }))
+        val t = navTarget
+        val loc = location
+        val line = if (t != null && loc != null) listOf(
+            Feature.fromGeometry(org.maplibre.geojson.LineString.fromLngLats(listOf(Point.fromLngLat(loc.longitude, loc.latitude), Point.fromLngLat(t.current.longitude, t.current.latitude)))),
+            Feature.fromGeometry(Point.fromLngLat(t.current.longitude, t.current.latitude))) else emptyList()
+        style?.source(SRC_GOTO)?.setGeoJson(FeatureCollection.fromFeatures(line))
+        val road = t?.line.orEmpty()
+        style?.source(SRC_ROUTE)?.setGeoJson(FeatureCollection.fromFeatures(
+            if (road.size >= 2) listOf(Feature.fromGeometry(org.maplibre.geojson.LineString.fromLngLats(road.map { Point.fromLngLat(it.longitude, it.latitude) }))) else emptyList()))
+    }
     LaunchedEffect(style, pins) { style?.source(SRC_PINS)?.setGeoJson(pinFeatures(pins)) }
     LaunchedEffect(style, directNodes, meshKnownNodes) { style?.source(SRC_NODES)?.setGeoJson(nodeFeatures(directNodes, meshKnownNodes)) }
     LaunchedEffect(style, shownKnown) { style?.source(SRC_KNOWN)?.setGeoJson(knownFeatures(shownKnown)) }
+    LaunchedEffect(style, shapes, showShapes) {
+        style?.source(SRC_SHAPES)?.setGeoJson(shapeFeatures(if (showShapes) shapes else emptyList()))
+        style?.source(SRC_SHAPE_LABELS)?.setGeoJson(shapeLabelFeatures(if (showShapes) shapes else emptyList()))
+    }
+    LaunchedEffect(style, draft.toList(), draftClosed) { style?.source(SRC_SHAPE_DRAFT)?.setGeoJson(draftFeatures(draft, draftClosed)) }
     // Recent earthquakes near the user (from Conditions).
     val conditions by org.nomadpocket.app.conditions.ConditionsStore.state.collectAsState()
     val quakes = if (showQuakes) org.nomadpocket.app.conditions.ConditionsStore.nearbyQuakes(conditions) else emptyList()
@@ -272,12 +338,17 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
             Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 56.dp, end = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            MapButton(Icons.Filled.MyLocation, "Show my location") {
+            MapButton(if (followMode == CameraMode.TRACKING_COMPASS) Icons.Filled.Explore else Icons.Filled.MyLocation,
+                when (followMode) { CameraMode.TRACKING -> "Following you, tap to turn with your heading"; CameraMode.TRACKING_COMPASS -> "Heading up, tap to stop following"; else -> "Show my location" }) {
                 val m = map ?: return@MapButton
-                location?.let { m.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(it.latitude, it.longitude), max(m.cameraPosition.zoom, 14.0))) }
-                runCatching { if (m.locationComponent.isLocationComponentActivated) m.locationComponent.cameraMode = CameraMode.TRACKING }
+                val next = when (followMode) { CameraMode.NONE -> CameraMode.TRACKING; CameraMode.TRACKING -> CameraMode.TRACKING_COMPASS; else -> CameraMode.NONE }
+                if (next == CameraMode.TRACKING) location?.let { m.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(it.latitude, it.longitude), max(m.cameraPosition.zoom, 14.0))) }
+                runCatching { if (m.locationComponent.isLocationComponentActivated) m.locationComponent.cameraMode = next }
+                followMode = next
             }
+            MapButton(Icons.Filled.Search, "Search and favorites") { showSearch = true }
             MapButton(Icons.AutoMirrored.Filled.List, "Places") { showPlaces = true }
+            MapButton(Icons.Filled.Straighten, if (measuring) "Stop measuring" else "Measure and draw") { measuring = !measuring }
             Box {
                 MapButton(Icons.Filled.Layers, "Map layers") { showLayers = true }
                 DropdownMenu(expanded = showLayers, onDismissRequest = { showLayers = false }) {
@@ -290,6 +361,20 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
                     CheckItem("Known radios (community maps)", Icons.Filled.Contactless, showKnown) {
                         showKnown = !showKnown; prefs.edit().putBoolean("showKnown", showKnown).apply()
                     }
+                    MapLook.entries.forEach { l ->
+                        DropdownMenuItem(text = { Text("Look: ${l.label}") }, leadingIcon = { Icon(if (look == l) Icons.Filled.RadioButtonChecked else Icons.Filled.RadioButtonUnchecked, null) },
+                            onClick = { look = l; prefs.edit().putString("look", l.name).apply(); showLayers = false })
+                    }
+                    DropdownMenuItem(text = { Text("Download elevation (hills, line of sight)…") }, leadingIcon = { Icon(Icons.Filled.Download, null) },
+                        onClick = { showLayers = false; showTerrain = true })
+                    CheckItem("Favorites", Icons.Filled.Star, showFavorites) {
+                        showFavorites = !showFavorites; prefs.edit().putBoolean("showFavorites", showFavorites).apply()
+                    }
+                    CheckItem("My drawings", Icons.Filled.Straighten, showShapes) {
+                        showShapes = !showShapes; prefs.edit().putBoolean("showShapes", showShapes).apply()
+                    }
+                    DropdownMenuItem(text = { Text("Drawings…") }, leadingIcon = { Icon(Icons.Filled.Straighten, null) },
+                        onClick = { showLayers = false; showShapesList = true })
                     CheckItem("Earthquakes (Conditions)", Icons.Filled.Contactless, showQuakes) {
                         showQuakes = !showQuakes; prefs.edit().putBoolean("showQuakes", showQuakes).apply()
                     }
@@ -335,10 +420,14 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
             Modifier.align(Alignment.BottomStart).padding(start = 12.dp, end = 12.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (coverageMode != CoverageLayer.OFF) CoverageLegend(allCoverage, coverage, coverageMode, coverageNetwork,
+            navTarget?.let { if (!measuring) GoToPanel(it, navArrived, location?.let { l -> ShapePoint(l.latitude, l.longitude) }, heading) }
+            if (measuring) MeasurePanel(draft, draftClosed, metric,
+                onUndo = { if (draft.isNotEmpty()) draft.removeAt(draft.lastIndex) }, onClear = { draft.clear(); draftClosed = false },
+                onClosed = { draftClosed = it }, onSave = { namingShape = true }, onDone = { measuring = false }, onList = { showShapesList = true })
+            if (!measuring && coverageMode != CoverageLayer.OFF) CoverageLegend(allCoverage, coverage, coverageMode, coverageNetwork,
                 if (coverageMode == CoverageLayer.SHARED) cells.size else myCells.size)
             val unidentified = if (showNodes) heard.unidentified else emptyList()
-            if (nodes.isNotEmpty() || shownKnown.isNotEmpty() || unidentified.isNotEmpty())
+            if (!measuring && (nodes.isNotEmpty() || shownKnown.isNotEmpty() || unidentified.isNotEmpty()))
                 RadioLegend(RadiosHeard.summary(directNodes), unidentified, meshKnownNodes.isNotEmpty())
             if (showKnown && known.radios.isEmpty()) {
                 Panel(Modifier.clickable { showKnownSheet = true }) {
@@ -357,6 +446,34 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
         }
     }
 
+    if (showTerrain) {
+        TerrainDialog(terrainStore, terrainState, map?.cameraPosition?.target?.let { it.latitude to it.longitude } ?: location?.let { it.latitude to it.longitude }) { showTerrain = false }
+    }
+    if (showSearch) {
+        MapSearchSheet(pins, shapes, location?.let { it.latitude to it.longitude }, map?.cameraPosition?.target?.let { it.latitude to it.longitude },
+            onFly = { lat, lon -> map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), 15.0)) },
+            onDropPin = { lat, lon -> pendingPin = LatLng(lat, lon) }, onDismiss = { showSearch = false })
+    }
+    if (namingShape) {
+        SaveShapeDialog(draftClosed && draft.size >= 3, onCancel = { namingShape = false }) { typed ->
+            val pts = draft.map { ShapePoint(it.latitude, it.longitude) }
+            shapeStore.add(MapShape(name = typed.ifEmpty { "Drawing ${shapes.size + 1}" }, colorIndex = shapes.size % ShapeMath.PALETTE.size, points = pts, closed = draftClosed && pts.size >= 3))
+            shapes = shapeStore.shapes
+            draft.clear(); draftClosed = false; namingShape = false
+        }
+    }
+    if (showShapesList) {
+        ShapesDialog(shapes, metric, context, onDismiss = { showShapesList = false },
+            onShow = { s ->
+                val b = org.maplibre.android.geometry.LatLngBounds.Builder()
+                s.points.forEach { b.include(LatLng(it.latitude, it.longitude)) }
+                if (s.points.size >= 2) map?.animateCamera(CameraUpdateFactory.newLatLngBounds(b.build(), 120))
+                showShapesList = false
+            },
+            onRename = { s, n -> shapeStore.rename(s.id, n); shapes = shapeStore.shapes },
+            onRecolor = { s -> shapeStore.recolor(s.id, (s.colorIndex + 1) % ShapeMath.PALETTE.size); shapes = shapeStore.shapes },
+            onDelete = { s -> shapeStore.delete(s.id); shapes = shapeStore.shapes })
+    }
     pendingPin?.let { point ->
         PinEditorSheet(point, onDismiss = { pendingPin = null }) { name, kind ->
             savePins(pins + MapPin(name = name.ifEmpty { kind.label }, kind = kind, latitude = point.latitude, longitude = point.longitude))
@@ -398,6 +515,8 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
 /** The latest pins and nodes, read by the map's tap listener (registered once). */
 private class Ref<T>(var value: T)
 private val pinsRef = Ref<List<MapPin>>(emptyList())
+private val measuringRef = Ref(false)
+private val draftAddRef = Ref<(LatLng) -> Unit>({})
 private val nodesRef = Ref<List<MapNode>>(emptyList())
 
 private fun Style.source(id: String): GeoJsonSource? = getSourceAs(id)
@@ -506,9 +625,27 @@ private fun cellOutlineColor(): Expression =
 
 /** Known radios under coverage, under live nodes, under pins. */
 private fun addLayers(style: Style) {
-    listOf(SRC_QUAKES, SRC_KNOWN, SRC_CELLS, SRC_APRS, SRC_NODES, SRC_PINS).forEach {
+    listOf(SRC_QUAKES, SRC_KNOWN, SRC_CELLS, SRC_APRS, SRC_NODES, SRC_PINS, SRC_FAVORITES, SRC_GOTO, SRC_ROUTE).forEach {
         style.addSource(GeoJsonSource(it, FeatureCollection.fromFeatures(emptyList())))
     }
+    style.addLayer(LineLayer("route-line", SRC_ROUTE).withProperties(
+        PropertyFactory.lineColor(android.graphics.Color.rgb(10, 132, 255)), PropertyFactory.lineWidth(6f),
+        PropertyFactory.lineCap(org.maplibre.android.style.layers.Property.LINE_CAP_ROUND), PropertyFactory.lineJoin(org.maplibre.android.style.layers.Property.LINE_JOIN_ROUND)))
+    style.addLayer(LineLayer("goto-line", SRC_GOTO).withProperties(
+        PropertyFactory.lineColor(android.graphics.Color.rgb(52, 199, 89)), PropertyFactory.lineWidth(4f),
+        PropertyFactory.lineDasharray(arrayOf(1.5f, 1.5f))).withFilter(Expression.eq(Expression.geometryType(), "LineString")))
+    style.addLayer(CircleLayer("goto-target", SRC_GOTO).withProperties(
+        PropertyFactory.circleRadius(11f), PropertyFactory.circleColor(android.graphics.Color.TRANSPARENT),
+        PropertyFactory.circleStrokeColor(android.graphics.Color.rgb(52, 199, 89)), PropertyFactory.circleStrokeWidth(4f))
+        .withFilter(Expression.eq(Expression.geometryType(), "Point")))
+    style.addLayer(CircleLayer("favorite-dots", SRC_FAVORITES).withProperties(
+        PropertyFactory.circleRadius(8f), PropertyFactory.circleColor(android.graphics.Color.rgb(255, 204, 26)),
+        PropertyFactory.circleStrokeColor(android.graphics.Color.BLACK), PropertyFactory.circleStrokeWidth(2f)))
+    style.addLayer(SymbolLayer("favorite-names", SRC_FAVORITES).withProperties(
+        PropertyFactory.textField(get("name")), PropertyFactory.textFont(LABEL_FONT), PropertyFactory.textSize(12f),
+        PropertyFactory.textAnchor(org.maplibre.android.style.layers.Property.TEXT_ANCHOR_TOP), PropertyFactory.textOffset(arrayOf(0f, 0.9f)),
+        PropertyFactory.textColor(android.graphics.Color.rgb(255, 204, 26)), PropertyFactory.textHaloColor(android.graphics.Color.BLACK),
+        PropertyFactory.textHaloWidth(1.5f), PropertyFactory.textOptional(true)))
     // Earthquakes: rings sized and coloured by magnitude, under everything else.
     val quakeColor = Expression.switchCase(eq(get("big"), literal(2)), color(android.graphics.Color.rgb(229, 72, 77)),
         eq(get("big"), literal(1)), color(android.graphics.Color.rgb(255, 149, 0)), color(android.graphics.Color.rgb(255, 214, 10)))
@@ -591,6 +728,8 @@ private fun addLayers(style: Style) {
         PropertyFactory.textHaloWidth(1.5f),
         PropertyFactory.textOptional(true),
     ))
+    // My drawings: above the radios, below the pins.
+    addShapeLayers(style, LABEL_FONT)
     style.addLayer(CircleLayer(SRC_PINS, SRC_PINS).withProperties(
         PropertyFactory.circleRadius(9f),
         PropertyFactory.circleColor(Expression.toColor(get("color"))),

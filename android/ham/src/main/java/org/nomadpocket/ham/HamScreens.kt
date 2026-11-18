@@ -63,6 +63,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -104,13 +107,14 @@ sealed class HamRoute {
     object Terminal : HamRoute()
     object Settings : HamRoute()
     object Reference : HamRoute()
+    object Satellites : HamRoute()
 }
 
 private fun time(t: Long) = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(t))
 private fun dateTime(t: Long) = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(t))
 
 @Composable
-fun HamScreen(modifier: Modifier = Modifier, demo: Boolean = false) {
+fun HamScreen(modifier: Modifier = Modifier, demo: Boolean = false, satellites: Boolean = false) {
     val context = LocalContext.current
     if (!Ham.isInitialized) Ham.init(context)
     val ham = Ham.service
@@ -120,6 +124,7 @@ fun HamScreen(modifier: Modifier = Modifier, demo: Boolean = false) {
     BackHandler(enabled = stack.isNotEmpty(), onBack = back)
     LaunchedEffect(Unit) {
         if (demo) ham.loadDemo()
+        if (satellites) stack.add(HamRoute.Satellites)
         if (MeshPermissions.granted(context, MeshPermissions.bluetooth)) ham.reconnectLast()
     }
     MeshTheme {
@@ -140,6 +145,7 @@ fun HamScreen(modifier: Modifier = Modifier, demo: Boolean = false) {
             HamRoute.Terminal -> TerminalScreen(back)
             HamRoute.Settings -> SettingsScreen(back)
             HamRoute.Reference -> ReferenceScreen(back)
+            HamRoute.Satellites -> SatellitesScreen(back)
         }
     }
 }
@@ -262,6 +268,7 @@ private fun HamHome(open: (HamRoute) -> Unit, modifier: Modifier) {
             }
             Section {
                 Row("Packet monitor", if (ham.packetsHeard > 0) "${ham.packetsHeard} heard" else null) { open(HamRoute.Monitor) }
+                Row("Satellite passes") { open(HamRoute.Satellites) }
                 Row("Frequencies and reference") { open(HamRoute.Reference) }
                 Row("Station settings") { open(HamRoute.Settings) }
             }
@@ -752,6 +759,95 @@ private fun ReferenceScreen(back: () -> Unit) {
                 Text("Alfa · Bravo · Charlie · Delta · Echo · Foxtrot · Golf · Hotel · India · Juliett · Kilo · Lima · Mike · November · Oscar · Papa · Quebec · Romeo · Sierra · Tango · Uniform · Victor · Whiskey · X-ray · Yankee · Zulu",
                     modifier = Modifier.padding(16.dp))
             }
+            Spacer(Modifier.size(24.dp))
+        }
+    }
+}
+
+
+// MARK: Satellite passes
+
+@Composable
+private fun SatellitesScreen(back: () -> Unit) {
+    val context = LocalContext.current
+    LaunchedEffect(Unit) { SatelliteStore.init(context) }
+    val s by SatelliteStore.state.collectAsState()
+    val scope = rememberCoroutineScope()
+    var search by rememberSaveable { mutableStateOf("") }
+    var showAll by rememberSaveable { mutableStateOf(false) }
+    val askLocation = rememberPermissionRequest { scope.launch { SatelliteStore.updateObserver(); SatelliteStore.computePasses() } }
+    suspend fun update() { SatelliteStore.refresh(); SatelliteStore.updateObserver(); SatelliteStore.computePasses() }
+    LaunchedEffect(Unit) {
+        SatelliteStore.updateObserver()
+        if (SatelliteStore.state.value.satellites.isEmpty()) SatelliteStore.refresh()
+        SatelliteStore.computePasses()
+    }
+    val now = System.currentTimeMillis()
+    val dateFmt = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+
+    @Composable fun passRow(p: SatellitePass) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(p.name, Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                val overhead = p.inProgress || p.startMillis <= now
+                Text(if (overhead) "overhead now" else "in " + SatelliteMath.countdown((p.startMillis - now) / 1000.0), fontWeight = FontWeight.SemiBold,
+                    color = if (overhead) MeshColors.ok else MeshColors.accent)
+            }
+            Text("${dateFmt.format(Date(p.startMillis))} · ${(p.durationSeconds / 60).toInt()} min · peaks ${Math.round(p.maxElevation)}°", fontSize = 14.sp)
+            Text(SatelliteMath.describe(p), fontSize = 12.sp, color = MeshColors.secondary)
+        }
+    }
+
+    HamScaffold("Satellite passes", back) {
+        Column(Modifier.verticalScroll(rememberScrollState())) {
+            Section {
+                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(if (s.updating) "Updating…" else (s.fetchedAtMillis?.let { "Orbit data ${SatelliteMath.age(it, now)}" } ?: "No orbit data yet"), fontWeight = FontWeight.Bold)
+                        val days = SatelliteStore.orbitAgeDays(s)
+                        if (days != null && days > 10) Text("Over ${days.toInt()} days old: passes may be off by minutes. Update when you can.", fontSize = 12.sp, color = MeshColors.warn)
+                        else Text("Needs a connection once; then it works with no signal.", fontSize = 12.sp, color = MeshColors.secondary)
+                    }
+                    Button(onClick = { scope.launch { update() } }, enabled = !s.updating,
+                        colors = ButtonDefaults.buttonColors(containerColor = MeshColors.accent, contentColor = Color.Black)) { Text("Update") }
+                }
+                s.error?.let { Text(it, color = MeshColors.warn, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, bottom = 10.dp)) }
+                if (s.observer == null && s.satellites.isNotEmpty()) {
+                    TextButton(onClick = { askLocation(org.nomadpocket.mesh.ui.MeshPermissions.location) }) { Text("Allow location to work out passes where you are") }
+                }
+            }
+            if (s.iss != null) Section("International Space Station") {
+                val next = s.passes.firstOrNull { it.noradId == SatelliteStore.ISS_ID }
+                if (next != null) passRow(next)
+                else if (SatelliteStore.ISS_ID in s.favorites) Text(if (s.computing) "Working it out…" else "No passes above 10° in the next 48 hours.", color = MeshColors.secondary, modifier = Modifier.padding(16.dp))
+                else TextButton(onClick = { SatelliteStore.toggleFavorite(SatelliteStore.ISS_ID); scope.launch { SatelliteStore.computePasses() } }) { Text("Follow the space station") }
+                Column(Modifier.padding(16.dp)) {
+                    Text("Ham radio on the ISS", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text("Packet and APRS digipeater: 145.825 MHz FM, path ARISS, 1200 baud. Voice contacts and school events: 145.800 MHz FM down. Tune a few kHz higher as it rises and lower as it sets (Doppler). Crew activities often switch the radio off.",
+                        fontSize = 12.sp, color = MeshColors.secondary)
+                }
+            }
+            Section("Next passes") {
+                if (s.favorites.isEmpty()) Text("Star satellites below to follow them.", color = MeshColors.secondary, modifier = Modifier.padding(16.dp))
+                else if (s.passes.isEmpty()) Text(if (s.computing) "Working it out…" else "No passes above 10° in the next 48 hours.", color = MeshColors.secondary, modifier = Modifier.padding(16.dp))
+                s.passes.take(20).forEach { passRow(it); HorizontalDivider(color = MeshColors.card) }
+            }
+            Section(footer = "Satellites in very high orbits (a day or more per orbit) aren't included.") {
+                Row("All satellites (${s.satellites.size})", if (showAll) "hide" else "show") { showAll = !showAll }
+                if (showAll) {
+                    Field(search, { search = it }, "Search")
+                    s.satellites.filter { search.isEmpty() || it.name.contains(search, true) }.forEach { sat ->
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(sat.name, Modifier.weight(1f), fontSize = 14.sp)
+                            TextButton(onClick = { SatelliteStore.toggleFavorite(sat.noradId); scope.launch { SatelliteStore.computePasses() } }) {
+                                Text(if (sat.noradId in s.favorites) "★" else "☆", fontSize = 20.sp, color = MeshColors.accent)
+                            }
+                        }
+                    }
+                }
+            }
+            Text("Orbit data from CelesTrak, free with no account. Passes are worked out on this phone from your location, which never leaves it. Times assume a clear horizon: hills and buildings shorten passes. Passes below about 10° are left out because they're too low to hear well.",
+                color = MeshColors.secondary, fontSize = 12.sp, modifier = Modifier.padding(16.dp))
             Spacer(Modifier.size(24.dp))
         }
     }

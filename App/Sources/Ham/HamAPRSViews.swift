@@ -142,6 +142,9 @@ struct HamStationDetail: View {
                     LabeledContent("Packets", value: "\(s.packets)")
                     LabeledContent("First heard", value: s.firstHeard.formatted(date: .abbreviated, time: .shortened))
                 }
+                if let lat = s.latitude, let lon = s.longitude {
+                    Section { PlaceActions(name: s.id, latitude: lat, longitude: lon) }
+                }
                 if !s.isObject {
                     Section {
                         NavigationLink(value: HamRoute.thread(s.source)) { Label("Message \(s.source)", systemImage: "bubble.left.fill") }

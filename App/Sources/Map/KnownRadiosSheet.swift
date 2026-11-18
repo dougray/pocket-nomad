@@ -100,6 +100,7 @@ struct KnownRadioDetail: View {
             LabeledContent("Position", value: CoordinateFormat.decimal(CLLocationCoordinate2D(latitude: radio.latitude, longitude: radio.longitude)))
             Text("From \(radio.firmware == .meshcore ? "map.meshcore.io" : "meshmap.net"). Your radio may not hear it.")
                 .font(.caption).foregroundStyle(.secondary)
+            PlaceActions(name: radio.name, latitude: radio.latitude, longitude: radio.longitude) { dismiss() }
             if let mine = HiddenRadio(radio) {
                 HideMineButton(radio: mine) { dismiss() }
             }

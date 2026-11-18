@@ -1,0 +1,1 @@
+Map: search any coordinates (UTM, MGRS, grid too), favorites (Home, Camp, Car), compass Go to, topo hillshade, offline directions on roads you download, and a radio line-of-sight check with Fresnel zone. Also draw/measure and satellite passes. Beta: tell us what breaks.

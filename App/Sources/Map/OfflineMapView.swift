@@ -117,6 +117,16 @@ final class MapController {
     var showKnown = UserDefaults.standard.object(forKey: "map.showKnown") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showKnown, forKey: "map.showKnown") }
     }
+    /// Measure / draw mode: taps add points to the draft instead of selecting things.
+    var measuring = false
+    var draft: [CLLocationCoordinate2D] = []
+    var draftClosed = false
+    var showFavorites = UserDefaults.standard.object(forKey: "map.showFavorites") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showFavorites, forKey: "map.showFavorites") }
+    }
+    var showShapes = UserDefaults.standard.object(forKey: "map.showShapes") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showShapes, forKey: "map.showShapes") }
+    }
     /// Earthquakes from the Conditions snapshot.
     var showQuakes = UserDefaults.standard.object(forKey: "map.showQuakes") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showQuakes, forKey: "map.showQuakes") }
@@ -148,9 +158,24 @@ final class MapController {
         mapView?.setVisibleCoordinateBounds(bounds, edgePadding: UIEdgeInsets(top: 40, left: 20, bottom: 40, right: 20), animated: true, completionHandler: nil)
     }
 
-    func followUser() {
-        mapView?.setUserTrackingMode(.follow, animated: true, completionHandler: nil)
+    /// How the map looks (streets, topo, relief).
+    var look = MapLook(rawValue: UserDefaults.standard.string(forKey: "map.look") ?? "") ?? .streets {
+        didSet { UserDefaults.standard.set(look.rawValue, forKey: "map.look") }
     }
+    /// Recenter button: tap once to follow you, again to turn the map with your heading, again to stop.
+    var followMode: MLNUserTrackingMode = .none
+
+    func cycleFollow() {
+        let next: MLNUserTrackingMode = switch followMode {
+        case .none: .follow
+        case .follow: .followWithHeading
+        default: .none
+        }
+        followMode = next
+        mapView?.setUserTrackingMode(next, animated: true, completionHandler: nil)
+    }
+
+    func followUser() { cycleFollow() }
 }
 
 struct OfflineMapView: View {
@@ -167,7 +192,17 @@ struct OfflineMapView: View {
     @State private var coverageStore = CoverageStore.shared
     @State private var known = KnownRadioStore.shared
     @State private var showKnownSheet = false
+    @State private var shapes = ShapeStore.shared
+    @State private var favorites = FavoritesStore.shared
+    @State private var navigation = NavigationState.shared
+    @State private var compass = NavigationCompass.shared
+    @State private var showSearch = LaunchScreen.value == "map:search"
+    @State private var showShapesList = false
+    @State private var namingShape = false
+    @State private var shapeName = ""
     @State private var showStreetsSheet = false
+    @State private var showTerrainSheet = false
+    @State private var terrain = TerrainStore.shared
     @State private var tappedRadio: KnownRadio?
     @State private var tappedNode: MeshNode?
     @State private var tappedNodeDirect = true
@@ -233,9 +268,14 @@ struct OfflineMapView: View {
         NavigationStack {
             MapLibreView(controller: controller, dark: scheme == .dark, regions: content.maps.map(\.url),
                          base: baseMap, streetsKey: streets.pinnedTiles ?? "",
+                         look: controller.look, terrainKey: "\(terrain.tileCount)",
                          nodes: mappedNodes, meshNodes: meshKnownNodes, known: shownKnown,
                          aprs: controller.showAPRS ? HamService.shared.stations.filter(\.hasPosition) : [],
                          quakes: controller.showQuakes ? ConditionsStore.shared.nearbyQuakes : [],
+                         shapes: controller.showShapes ? shapes.shapes : [],
+                         favorites: controller.showFavorites ? favorites.favorites : [],
+                         goToLine: goToLine, routeLine: navigation.target?.line.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) } ?? [],
+                         draft: controller.draft, draftClosed: controller.draftClosed,
                          coverage: controller.coverage,
                          colorMode: controller.coverageColor,
                          networkKey: controller.coverageNetwork.rawValue,
@@ -257,20 +297,35 @@ struct OfflineMapView: View {
             .ignoresSafeArea(edges: .top)
             .overlay(alignment: .topTrailing) {
                 VStack(spacing: 10) {
-                    mapButton("location.fill") { controller.followUser() }
+                    mapButton("magnifyingglass") { showSearch = true }
+                    mapButton(controller.followMode == .followWithHeading ? "location.north.line.fill" : controller.followMode == .follow ? "location.fill" : "location") { controller.cycleFollow() }
                     mapButton("list.bullet") { showList = true }
+                    mapButton(controller.measuring ? "ruler.fill" : "ruler") { controller.measuring.toggle() }
                     layersMenu
                 }
                 .padding(.trailing, 12)
                 .padding(.top, 60)
             }
+            .overlay(alignment: .bottom) {
+                if navigation.target != nil, !controller.measuring {
+                    GoToPanel().padding(.horizontal, 12).padding(.bottom, 96)
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if controller.measuring {
+                    MeasurePanel(controller: controller, onSave: { shapeName = ""; namingShape = true }, onList: { showShapesList = true })
+                        .padding(.horizontal, 12).padding(.bottom, 96)
+                }
+            }
             .overlay(alignment: .bottomLeading) {
                 VStack(alignment: .leading, spacing: 8) {
+                  if !controller.measuring {
                     if controller.coverage != .off { coverageLegend }
                     if (controller.showNodes && (!mappedNodes.isEmpty || !coverageStore.isEmpty))
                         || (controller.showMeshKnown && !meshKnownNodes.isEmpty)
                         || (controller.showKnown && !known.radios.isEmpty) { radioLegend }
                     if controller.showKnown && known.radios.isEmpty { knownPrompt }
+                  }
                 }
                 .padding(.leading, 12)
                 .padding(.bottom, 100)
@@ -307,11 +362,27 @@ struct OfflineMapView: View {
             .sheet(isPresented: $showList) {
                 MapListSheet(controller: controller)
             }
+            .sheet(isPresented: $showSearch) {
+                MapSearchSheet(controller: controller) { coord in pendingPin = coord; pinName = "" }
+            }
+            .sheet(isPresented: $showShapesList) {
+                ShapesListSheet(controller: controller)
+            }
+            .alert("Save drawing", isPresented: $namingShape) {
+                TextField("Name", text: $shapeName)
+                Button("Save") { saveDraft() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(controller.draftClosed && controller.draft.count >= 3 ? "Saved as an area." : "Saved as a line.")
+            }
             .sheet(isPresented: $showCoverageSettings) {
                 CoverageSettingsView()
             }
             .sheet(isPresented: $showKnownSheet) {
                 KnownRadiosSheet(mapCenter: controller.mapView?.centerCoordinate)
+            }
+            .sheet(isPresented: $showTerrainSheet) {
+                TerrainSheet(mapCenter: controller.mapView?.centerCoordinate ?? controller.mapView?.userLocation?.coordinate)
             }
             .sheet(isPresented: $showStreetsSheet) {
                 StreetMapsSheet(mapCenter: controller.mapView?.centerCoordinate)
@@ -325,14 +396,40 @@ struct OfflineMapView: View {
         }
     }
 
+    /// A dashed line from you to the waypoint you're heading for.
+    private var goToLine: [CLLocationCoordinate2D] {
+        guard let t = navigation.target, let loc = compass.location else { return [] }
+        return [loc.coordinate, CLLocationCoordinate2D(latitude: t.current.latitude, longitude: t.current.longitude)]
+    }
+
+    private func saveDraft() {
+        let pts = controller.draft.map { MapShape.Coordinate(latitude: $0.latitude, longitude: $0.longitude) }
+        guard pts.count >= 2 else { return }
+        let name = shapeName.trimmingCharacters(in: .whitespaces)
+        let shape = MapShape(name: name.isEmpty ? "Drawing \(shapes.shapes.count + 1)" : name, colorIndex: shapes.shapes.count % ShapeMath.palette.count,
+                             points: pts, closed: controller.draftClosed && pts.count >= 3)
+        shapes.add(shape)
+        controller.draft = []
+        controller.draftClosed = false
+    }
+
     private var layersMenu: some View {
         Menu {
             Toggle(isOn: $controller.showNodes) { Label("Radios heard directly", systemImage: "antenna.radiowaves.left.and.right") }
             Toggle(isOn: $controller.showMeshKnown) { Label("Known on the mesh (relayed)", systemImage: "point.3.connected.trianglepath.dotted") }
             Toggle(isOn: $controller.showKnown) { Label("Known radios (community maps)", systemImage: "dot.radiowaves.up.forward") }
             Toggle(isOn: $controller.showAPRS) { Label("Ham APRS stations heard", systemImage: "mappin.and.ellipse") }
+            Toggle(isOn: $controller.showFavorites) { Label("Favorites", systemImage: "star.fill") }
+            Button { showSearch = true } label: { Label("Search and favorites…", systemImage: "magnifyingglass") }
+            Toggle(isOn: $controller.showShapes) { Label("My drawings", systemImage: "scribble.variable") }
+            Button { showShapesList = true } label: { Label("Drawings…", systemImage: "list.bullet.rectangle") }
             Toggle(isOn: $controller.showQuakes) { Label("Earthquakes (Conditions)", systemImage: "waveform.path.ecg") }
             Button { showKnownSheet = true } label: { Label("Download known radios…", systemImage: "arrow.down.circle") }
+            Picker(selection: $controller.look) {
+                ForEach(MapLook.allCases) { Label($0.label, systemImage: $0.symbol).tag($0) }
+            } label: { Label("Map look", systemImage: "mountain.2") }
+            .pickerStyle(.menu)
+            Button { showTerrainSheet = true } label: { Label("Download elevation (hills, line of sight)…", systemImage: "arrow.down.circle") }
             Toggle(isOn: $controller.showStreets) { Label("Street map (OpenFreeMap)", systemImage: "road.lanes") }
             Button { showStreetsSheet = true } label: { Label("Download streets around me…", systemImage: "map") }
             Picker(selection: $controller.coverage) {
@@ -520,6 +617,10 @@ private struct MapListSheet: View {
                                 }
                             } icon: { Image(systemName: pin.kind.symbol) }
                         }
+                        .swipeActions {
+                            Button("Go to") { NavigationState.shared.start(name: pin.name, latitude: pin.latitude, longitude: pin.longitude); dismiss() }.tint(.green)
+                            Button("Favorite") { FavoritesStore.shared.toggle(name: pin.name, latitude: pin.latitude, longitude: pin.longitude) }.tint(.yellow)
+                        }
                     }
                     .onDelete { controller.pins.remove(atOffsets: $0) }
                 }
@@ -583,6 +684,9 @@ struct MapLibreView: UIViewRepresentable {
     var base: BaseMap = .protomaps
     /// Changes when the downloaded streets' tile version does, so the style is rebuilt.
     var streetsKey = ""
+    var look: MapLook = .streets
+    /// Changes when saved elevation tiles do, so the hillshade source is rebuilt.
+    var terrainKey = ""
     var nodes: [MeshNode] = []
     /// Radios only known from relayed adverts: drawn faint and small, no names.
     var meshNodes: [MeshNode] = []
@@ -591,6 +695,15 @@ struct MapLibreView: UIViewRepresentable {
     var aprs: [HamStation] = []
     /// Recent earthquakes near the user (from Conditions).
     var quakes: [Quake] = []
+    /// Saved drawings and the one being drawn.
+    var shapes: [MapShape] = []
+    var favorites: [Favorite] = []
+    /// From the user to the current Go to waypoint (empty when not navigating).
+    var goToLine: [CLLocationCoordinate2D] = []
+    /// The planned road route, when one is active.
+    var routeLine: [CLLocationCoordinate2D] = []
+    var draft: [CLLocationCoordinate2D] = []
+    var draftClosed = false
     var coverage: CoverageLayer = .off
     var colorMode: CoverageColorMode = .signal
     /// Changes when the network filter does, so the layer is rebuilt.
@@ -631,6 +744,9 @@ struct MapLibreView: UIViewRepresentable {
         context.coordinator.syncKnown(on: view)
         context.coordinator.syncAPRS(on: view)
         context.coordinator.syncQuakes(on: view)
+        context.coordinator.syncShapes(on: view)
+        context.coordinator.syncNavigation(on: view)
+        context.coordinator.syncTerrain(on: view)
     }
 
     @MainActor
@@ -643,6 +759,9 @@ struct MapLibreView: UIViewRepresentable {
         private var knownKey = ""
         private var aprsKey = ""
         private var quakesKey = ""
+        private var shapesKey = ""
+        private var navKey = ""
+        private var terrainSynced = ""
         private var regionsFitted = false
         /// Set once the map has centred on the first good GPS fix, so the region
         /// fit doesn't pull it away and later fixes don't fight the user's panning.
@@ -736,6 +855,196 @@ struct MapLibreView: UIViewRepresentable {
             labels.textHaloWidth = NSExpression(forConstantValue: 1.5)
             labels.textOptional = NSExpression(forConstantValue: true)
             style.addLayer(labels)
+        }
+
+        /// Shaded relief under the roads and labels, from the saved (or live) elevation tiles.
+        func syncTerrain(on view: MLNMapView) {
+            guard let style = view.style else { return }
+            let key = "\(parent.look.rawValue)|\(parent.terrainKey)|\(parent.dark)"
+            guard key != terrainSynced else { return }
+            terrainSynced = key
+            if let old = style.layer(withIdentifier: "terrain-hillshade") { style.removeLayer(old) }
+            if let old = style.source(withIdentifier: "terrain-dem") { style.removeSource(old) }
+            guard parent.look.hillshadeOpacity > 0 else { return }
+            let source = MLNRasterDEMSource(identifier: "terrain-dem", tileURLTemplates: [TerrainStore.shared.template],
+                                            options: [.tileSize: 256, .minimumZoomLevel: 0, .maximumZoomLevel: 11,
+                                                      .demEncoding: NSNumber(value: MLNDEMEncoding.terrarium.rawValue)])
+            style.addSource(source)
+            let layer = MLNHillshadeStyleLayer(identifier: "terrain-hillshade", source: source)
+            layer.hillshadeExaggeration = NSExpression(forConstantValue: parent.look == .relief ? 0.9 : 0.35)
+            // Above the land and water fills, below the roads, boundaries and labels.
+            if let firstLine = style.layers.first(where: { $0 is MLNLineStyleLayer || $0 is MLNSymbolStyleLayer }) {
+                style.insertLayer(layer, below: firstLine)
+            } else {
+                style.addLayer(layer)
+            }
+        }
+
+        /// Favorites (gold stars with names) and the line to the Go to waypoint.
+        func syncNavigation(on view: MLNMapView) {
+            guard let style = view.style else { return }
+            let key = parent.favorites.map { "\($0.id)|\($0.name)|\($0.latitude)|\($0.longitude)" }.joined(separator: ";")
+                + "#" + parent.goToLine.map { "\($0.latitude),\($0.longitude)" }.joined(separator: ";")
+                + "#" + String(parent.routeLine.count) + "|" + (parent.routeLine.first.map { "\($0.latitude)" } ?? "")
+            guard key != navKey else { return }
+            navKey = key
+            let stars: [MLNPointFeature] = parent.favorites.map { f in
+                let p = MLNPointFeature()
+                p.coordinate = CLLocationCoordinate2D(latitude: f.latitude, longitude: f.longitude)
+                p.attributes = ["name": f.name]
+                return p
+            }
+            var lineShapes: [MLNShape & MLNFeature] = []
+            if parent.routeLine.count >= 2 {
+                var rc = parent.routeLine
+                let rf = MLNPolylineFeature(coordinates: &rc, count: UInt(rc.count))
+                rf.attributes = ["kind": "route"]
+                lineShapes.append(rf)
+            }
+            if parent.goToLine.count == 2 {
+                var c = parent.goToLine
+                lineShapes.append(MLNPolylineFeature(coordinates: &c, count: 2))
+                let t = MLNPointFeature()
+                t.coordinate = parent.goToLine[1]
+                lineShapes.append(t)
+            }
+            if let s = style.source(withIdentifier: "favorites") as? MLNShapeSource {
+                s.shape = MLNShapeCollectionFeature(shapes: stars)
+                (style.source(withIdentifier: "goto") as? MLNShapeSource)?.shape = MLNShapeCollectionFeature(shapes: lineShapes)
+                return
+            }
+            let favSource = MLNShapeSource(identifier: "favorites", shape: MLNShapeCollectionFeature(shapes: stars), options: nil)
+            let goSource = MLNShapeSource(identifier: "goto", shape: MLNShapeCollectionFeature(shapes: lineShapes), options: nil)
+            style.addSource(favSource)
+            style.addSource(goSource)
+            let line = MLNLineStyleLayer(identifier: "goto-line", source: goSource)
+            line.predicate = NSPredicate(format: "$geometryType != 'Point' AND kind != 'route'")
+            line.lineColor = NSExpression(forConstantValue: UIColor.systemGreen)
+            line.lineWidth = NSExpression(forConstantValue: 4)
+            line.lineDashPattern = NSExpression(forConstantValue: [1.5, 1.5])
+            style.addLayer(line)
+            let routeLayer = MLNLineStyleLayer(identifier: "route-line", source: goSource)
+            routeLayer.predicate = NSPredicate(format: "kind == 'route'")
+            routeLayer.lineColor = NSExpression(forConstantValue: UIColor.systemBlue)
+            routeLayer.lineWidth = NSExpression(forConstantValue: 6)
+            routeLayer.lineCap = NSExpression(forConstantValue: "round")
+            routeLayer.lineJoin = NSExpression(forConstantValue: "round")
+            style.insertLayer(routeLayer, below: line)
+            let target = MLNCircleStyleLayer(identifier: "goto-target", source: goSource)
+            target.predicate = NSPredicate(format: "$geometryType == 'Point'")
+            target.circleRadius = NSExpression(forConstantValue: 11)
+            target.circleColor = NSExpression(forConstantValue: UIColor.clear)
+            target.circleStrokeColor = NSExpression(forConstantValue: UIColor.systemGreen)
+            target.circleStrokeWidth = NSExpression(forConstantValue: 4)
+            style.addLayer(target)
+            let dots = MLNCircleStyleLayer(identifier: "favorite-dots", source: favSource)
+            dots.circleRadius = NSExpression(forConstantValue: 8)
+            dots.circleColor = NSExpression(forConstantValue: UIColor(red: 1, green: 0.8, blue: 0.1, alpha: 1))
+            dots.circleStrokeColor = NSExpression(forConstantValue: UIColor.black)
+            dots.circleStrokeWidth = NSExpression(forConstantValue: 2)
+            style.addLayer(dots)
+            let names = MLNSymbolStyleLayer(identifier: "favorite-names", source: favSource)
+            names.text = NSExpression(forKeyPath: "name")
+            names.textFontNames = NSExpression(forConstantValue: ["Noto Sans Regular"])
+            names.textFontSize = NSExpression(forConstantValue: 12)
+            names.textAnchor = NSExpression(forConstantValue: "top")
+            names.textOffset = NSExpression(forConstantValue: NSValue(cgVector: CGVector(dx: 0, dy: 0.9)))
+            names.textColor = NSExpression(forConstantValue: UIColor(red: 1, green: 0.8, blue: 0.1, alpha: 1))
+            names.textHaloColor = NSExpression(forConstantValue: parent.dark ? UIColor.black : UIColor.white)
+            names.textHaloWidth = NSExpression(forConstantValue: 1.5)
+            names.textOptional = NSExpression(forConstantValue: true)
+            style.addLayer(names)
+        }
+
+        /// Saved drawings (lines and areas, in their colours, with names) and the draft being drawn.
+        func syncShapes(on view: MLNMapView) {
+            guard let style = view.style else { return }
+            let key = parent.shapes.map { "\($0.id)|\($0.name)|\($0.colorIndex)|\($0.points.count)" }.joined(separator: ";")
+                + "#" + parent.draft.map { "\($0.latitude),\($0.longitude)" }.joined(separator: ";") + "#\(parent.draftClosed)"
+            guard key != shapesKey else { return }
+            shapesKey = key
+            func line(_ c: [CLLocationCoordinate2D], ci: Int) -> MLNPolylineFeature {
+                var cc = c
+                let f = MLNPolylineFeature(coordinates: &cc, count: UInt(cc.count))
+                f.attributes = ["cidx": ci]
+                return f
+            }
+            func polygon(_ c: [CLLocationCoordinate2D], ci: Int) -> MLNPolygonFeature {
+                var cc = c
+                let f = MLNPolygonFeature(coordinates: &cc, count: UInt(cc.count))
+                f.attributes = ["cidx": ci]
+                return f
+            }
+            var saved: [MLNShape & MLNFeature] = []
+            var labels: [MLNPointFeature] = []
+            for s in parent.shapes where s.points.count >= 2 {
+                saved.append(s.isArea ? polygon(s.coordinates, ci: s.colorIndex) : line(s.coordinates, ci: s.colorIndex))
+                let c = ShapeMath.centre(s.points)
+                let l = MLNPointFeature()
+                l.coordinate = CLLocationCoordinate2D(latitude: c.latitude, longitude: c.longitude)
+                l.attributes = ["name": s.name, "cidx": s.colorIndex]
+                labels.append(l)
+            }
+            var draftFeatures: [MLNShape & MLNFeature] = []
+            if parent.draft.count >= 2 {
+                draftFeatures.append(parent.draftClosed && parent.draft.count >= 3 ? polygon(parent.draft, ci: 0) : line(parent.draft, ci: 0))
+            }
+            for c in parent.draft {
+                let p = MLNPointFeature()
+                p.coordinate = c
+                draftFeatures.append(p)
+            }
+            let palette = ShapeMath.palette.map { UIColor(red: CGFloat(($0.1 >> 16) & 0xFF) / 255, green: CGFloat(($0.1 >> 8) & 0xFF) / 255, blue: CGFloat($0.1 & 0xFF) / 255, alpha: 1) }
+            let colour = NSExpression(format: "TERNARY(cidx == 0, %@, TERNARY(cidx == 1, %@, TERNARY(cidx == 2, %@, TERNARY(cidx == 3, %@, TERNARY(cidx == 4, %@, %@)))))",
+                                      palette[0], palette[1], palette[2], palette[3], palette[4], palette[5])
+            if let s = style.source(withIdentifier: "shapes") as? MLNShapeSource {
+                s.shape = MLNShapeCollectionFeature(shapes: saved)
+                (style.source(withIdentifier: "shape-labels") as? MLNShapeSource)?.shape = MLNShapeCollectionFeature(shapes: labels)
+                (style.source(withIdentifier: "shape-draft") as? MLNShapeSource)?.shape = MLNShapeCollectionFeature(shapes: draftFeatures)
+                return
+            }
+            let source = MLNShapeSource(identifier: "shapes", shape: MLNShapeCollectionFeature(shapes: saved), options: nil)
+            let labelSource = MLNShapeSource(identifier: "shape-labels", shape: MLNShapeCollectionFeature(shapes: labels), options: nil)
+            let draftSource = MLNShapeSource(identifier: "shape-draft", shape: MLNShapeCollectionFeature(shapes: draftFeatures), options: nil)
+            [source, labelSource, draftSource].forEach { style.addSource($0) }
+            let fill = MLNFillStyleLayer(identifier: "shape-fills", source: source)
+            fill.predicate = NSPredicate(format: "$geometryType == 'Polygon'")
+            fill.fillColor = colour
+            fill.fillOpacity = NSExpression(forConstantValue: 0.25)
+            style.addLayer(fill)
+            let outline = MLNLineStyleLayer(identifier: "shape-lines", source: source)
+            outline.lineColor = colour
+            outline.lineWidth = NSExpression(forConstantValue: 3)
+            outline.lineCap = NSExpression(forConstantValue: "round")
+            outline.lineJoin = NSExpression(forConstantValue: "round")
+            style.addLayer(outline)
+            let names = MLNSymbolStyleLayer(identifier: "shape-names", source: labelSource)
+            names.text = NSExpression(forKeyPath: "name")
+            names.textFontNames = NSExpression(forConstantValue: ["Noto Sans Regular"])
+            names.textFontSize = NSExpression(forConstantValue: 12)
+            names.textColor = colour
+            names.textHaloColor = NSExpression(forConstantValue: parent.dark ? UIColor.black : UIColor.white)
+            names.textHaloWidth = NSExpression(forConstantValue: 1.5)
+            names.textOptional = NSExpression(forConstantValue: true)
+            style.addLayer(names)
+            let dfill = MLNFillStyleLayer(identifier: "draft-fill", source: draftSource)
+            dfill.predicate = NSPredicate(format: "$geometryType == 'Polygon'")
+            dfill.fillColor = NSExpression(forConstantValue: UIColor.systemYellow)
+            dfill.fillOpacity = NSExpression(forConstantValue: 0.2)
+            style.addLayer(dfill)
+            let dline = MLNLineStyleLayer(identifier: "draft-line", source: draftSource)
+            dline.predicate = NSPredicate(format: "$geometryType != 'Point'")
+            dline.lineColor = NSExpression(forConstantValue: UIColor.systemYellow)
+            dline.lineWidth = NSExpression(forConstantValue: 3)
+            dline.lineDashPattern = NSExpression(forConstantValue: [2, 1.5])
+            style.addLayer(dline)
+            let dots = MLNCircleStyleLayer(identifier: "draft-points", source: draftSource)
+            dots.predicate = NSPredicate(format: "$geometryType == 'Point'")
+            dots.circleRadius = NSExpression(forConstantValue: 6)
+            dots.circleColor = NSExpression(forConstantValue: UIColor.systemYellow)
+            dots.circleStrokeColor = NSExpression(forConstantValue: UIColor.black)
+            dots.circleStrokeWidth = NSExpression(forConstantValue: 2)
+            style.addLayer(dots)
         }
 
         /// Earthquakes as rings sized and coloured by magnitude, under everything else.
@@ -919,6 +1228,10 @@ struct MapLibreView: UIViewRepresentable {
         @objc func tap(_ g: UITapGestureRecognizer) {
             guard let view = g.view as? MLNMapView else { return }
             let p = g.location(in: view)
+            if parent.controller.measuring {
+                parent.controller.draft.append(view.convert(p, toCoordinateFrom: view))
+                return
+            }
             let box = CGRect(x: p.x - 12, y: p.y - 12, width: 24, height: 24)
             if let f = view.visibleFeatures(in: box, styleLayerIdentifiers: ["heard-radios"]).first,
                let id = f.attribute(forKey: "lid") as? String {
@@ -958,11 +1271,17 @@ struct MapLibreView: UIViewRepresentable {
                 knownKey = ""
                 aprsKey = ""
                 quakesKey = ""
+                shapesKey = ""
+                navKey = ""
+                terrainSynced = ""
+                syncTerrain(on: mapView)
                 syncNodes(on: mapView)
                 syncCoverage(on: mapView)
                 syncKnown(on: mapView)
                 syncAPRS(on: mapView)
                 syncQuakes(on: mapView)
+                syncShapes(on: mapView)
+                syncNavigation(on: mapView)
             }
         }
     }

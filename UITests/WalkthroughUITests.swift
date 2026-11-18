@@ -94,7 +94,7 @@ final class WalkthroughUITests: XCTestCase {
         tab("Map")
         sleep(6)
         shot("12-map")
-        tab("Mesh")
+        tab("Radio")
         sleep(2)
         shot("13-mesh")
     }

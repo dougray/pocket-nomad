@@ -149,6 +149,9 @@ struct HeardRadioDetail: View {
             Text(direct ? "Where the radio says it is. Heard directly by your radio."
                         : "Where the radio says it is. Known from adverts passed along the mesh; not heard directly, so it may be out of range.")
                 .font(.caption).foregroundStyle(.secondary)
+            if let lat = node.latitude, let lon = node.longitude {
+                PlaceActions(name: node.displayName, latitude: lat, longitude: lon) { dismiss() }
+            }
             HideMineButton(radio: HiddenRadio(node)) { dismiss() }
         }
         .font(.subheadline)

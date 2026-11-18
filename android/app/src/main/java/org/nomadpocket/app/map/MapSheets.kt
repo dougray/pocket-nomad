@@ -405,6 +405,7 @@ fun TapDetailSheet(tap: MapTap, onDismiss: () -> Unit) {
                     Box(Modifier.size(14.dp).background(p.kind.color, CircleShape))
                     Text(p.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 }
+                PlaceActions(p.name, p.latitude, p.longitude, onDismiss)
                 Text("${p.kind.label} · ${CoordinateFormat.decimal(p.latitude, p.longitude)}", Modifier.padding(top = 6.dp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -419,6 +420,7 @@ fun TapDetailSheet(tap: MapTap, onDismiss: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(CoordinateFormat.decimal(n.latitude, n.longitude), fontFamily = FontFamily.Monospace,
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                PlaceActions(n.name, n.latitude, n.longitude, onDismiss)
                 HideMineButton(enabled = Mesh.isInitialized) {
                     Mesh.radios.hide(n.num, n.firmware, n.name)
                     onDismiss()
@@ -426,6 +428,7 @@ fun TapDetailSheet(tap: MapTap, onDismiss: () -> Unit) {
             }
             is MapTap.Radio -> {
                 KnownRadioDetail(tap.radio)
+                PlaceActions(tap.radio.name, tap.radio.latitude, tap.radio.longitude, onDismiss)
                 val entry = KnownRadioParser.hiddenRadio(tap.radio)
                 HideMineButton(enabled = Mesh.isInitialized && entry != null) {
                     entry?.let { Mesh.radios.hidden.hide(it) }

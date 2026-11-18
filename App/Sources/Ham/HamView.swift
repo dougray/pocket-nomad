@@ -10,7 +10,7 @@ import SwiftUI
 enum HamRoute: Hashable {
     case monitor, stations, station(String), messages, thread(String), bulletins
     case mail, mailFolder(WinlinkFolder), mailMessage(String, WinlinkFolder), winlink
-    case terminal, settings, reference
+    case terminal, settings, reference, satellites
 
     @MainActor @ViewBuilder
     var destination: some View {
@@ -28,6 +28,7 @@ enum HamRoute: Hashable {
         case .terminal: HamTerminalView()
         case .settings: HamSettingsView()
         case .reference: HamReferenceView()
+        case .satellites: SatellitesView()
         }
     }
 }
@@ -85,6 +86,7 @@ struct HamView: View {
                     NavigationLink(value: HamRoute.monitor) {
                         row("Packet monitor", "waveform", detail: ham.packetsHeard > 0 ? "\(ham.packetsHeard) heard" : nil)
                     }
+                    NavigationLink(value: HamRoute.satellites) { row("Satellite passes", "moon.stars.fill") }
                     NavigationLink(value: HamRoute.reference) { row("Frequencies and reference", "book.closed.fill") }
                     NavigationLink(value: HamRoute.settings) { row("Station settings", "gearshape.fill") }
                 }
@@ -95,6 +97,7 @@ struct HamView: View {
         }
         .task {
             if LaunchScreen.value == "ham:demo" { ham.loadDemo() }
+            if LaunchScreen.value == "ham:satellites" { path.append(.satellites) }
             ham.reconnectLast()
         }
     }
