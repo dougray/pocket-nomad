@@ -298,7 +298,7 @@ private fun openLaunchScreen(nav: NavHostController, screen: String, context: an
             if (arg == "demo") org.nomadpocket.app.conditions.ConditionsStore.loadDemo()
             nav.navigate("conditions")
         }
-        "library", "map", "mesh", "ham" -> nav.navigate(if (kind == "ham") "mesh" else kind) { popUpTo(nav.graph.findStartDestination().id) { saveState = true } }
+        "library", "map", "mesh", "ham", "sdr" -> nav.navigate(if (kind == "ham" || kind == "sdr") "mesh" else kind) { popUpTo(nav.graph.findStartDestination().id) { saveState = true } }
         "settings" -> nav.navigate("settings")
         "coverage" -> nav.navigate("coverage")
         "tool" -> nav.navigate("tool/$arg")
@@ -321,22 +321,24 @@ private fun openLaunchScreen(nav: NavHostController, screen: String, context: an
 fun RadioScreen(launchScreen: String? = null) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember { context.getSharedPreferences("radio", android.content.Context.MODE_PRIVATE) }
-    var ham by remember { mutableStateOf(launchScreen?.startsWith("ham") == true || prefs.getBoolean("ham", false)) }
+    var section by remember { mutableStateOf(if (launchScreen?.startsWith("sdr") == true) "sdr" else if (launchScreen?.startsWith("ham") == true || prefs.getBoolean("ham", false)) "ham" else prefs.getString("section", "mesh") ?: "mesh") }
+    val ham = section == "ham"
     Column(Modifier.fillMaxSize()) {
         SingleChoiceSegmentedButtonRow(
             Modifier.fillMaxWidth().background(org.nomadpocket.mesh.ui.MeshColors.background).statusBarsPadding().padding(horizontal = 16.dp, vertical = 6.dp)
         ) {
-            listOf("Mesh", "Ham").forEachIndexed { i, label ->
+            listOf("Mesh" to "mesh", "Ham" to "ham", "SDR" to "sdr").forEachIndexed { i, (label, id) ->
                 SegmentedButton(
-                    selected = ham == (i == 1),
-                    onClick = { ham = i == 1; prefs.edit().putBoolean("ham", ham).apply() },
-                    shape = SegmentedButtonDefaults.itemShape(i, 2),
+                    selected = section == id,
+                    onClick = { section = id; prefs.edit().putString("section", id).putBoolean("ham", id == "ham").apply() },
+                    shape = SegmentedButtonDefaults.itemShape(i, 3),
                 ) { Text(label) }
             }
         }
         // The switch already sits below the status bar; the screens' top bars must not add it again.
         Box(Modifier.weight(1f).consumeWindowInsets(androidx.compose.foundation.layout.WindowInsets.statusBars)) {
             if (ham) org.nomadpocket.ham.HamScreen(Modifier.fillMaxSize(), demo = launchScreen == "ham:demo", satellites = launchScreen == "ham:satellites")
+            else if (section == "sdr") org.nomadpocket.app.sdr.SdrScreen(Modifier.fillMaxSize(), autoConnect = launchScreen == "sdr:connect")
             else MeshScreen(Modifier.fillMaxSize())
         }
     }

@@ -57,6 +57,7 @@ targets:
         LSSupportsOpeningDocumentsInPlace: false
         UIBackgroundModes: [bluetooth-central, location]
         NSLocationWhenInUseUsageDescription: Pocket Nomad shows where you are on the offline map and compass, can add your coordinates to an SOS message, and (if you turn it on) records where your radio hears others for the coverage map. In drive mode, which you turn on, this keeps working while the phone is locked. Your location never leaves the phone unless you send or export it.
+        NSLocalNetworkUsageDescription: Pocket Nomad connects to an SDR box (a small Raspberry Pi receiver) on your network to show aircraft, APRS packets and weather alerts it hears.
         NSBluetoothAlwaysUsageDescription: Pocket Nomad connects to your Meshtastic or MeshCore radios, and to ham radio KISS TNCs, over Bluetooth so you can send and receive messages without cell service.
         NSCameraUsageDescription: Pocket Nomad uses the camera flash as an SOS and Morse signal light.
         ITSAppUsesNonExemptEncryption: false

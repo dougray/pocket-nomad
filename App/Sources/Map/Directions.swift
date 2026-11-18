@@ -54,6 +54,14 @@ struct RoadWay: Codable, Equatable, Sendable {
     var nodes: [Int64]
     var lat: [Double]
     var lon: [Double]
+    /// Dirt, gravel or a track (nil in older saved squares).
+    var unpaved: Bool? = nil
+}
+
+/// What a route should steer clear of.
+struct RoutePrefs: Equatable, Hashable, Sendable {
+    var avoidHighways = false
+    var avoidUnpaved = false
 }
 
 struct RouteStep: Equatable, Sendable {
@@ -86,6 +94,8 @@ enum Overpass {
             guard e["type"] as? String == "way", let id = (e["id"] as? NSNumber)?.int64Value,
                   let tags = e["tags"] as? [String: Any], let hw = tags["highway"] as? String,
                   let nodes = e["nodes"] as? [NSNumber], let geom = e["geometry"] as? [[String: Any]], nodes.count == geom.count, nodes.count >= 2 else { return nil }
+            let surface = (tags["surface"] as? String) ?? ""
+            let unpaved = hw == "track" || ["unpaved", "dirt", "gravel", "ground", "earth", "sand", "mud", "grass", "fine_gravel", "compacted", "pebblestone", "dirt/sand"].contains(surface)
             let oneway = (tags["oneway"] as? String).map { $0 == "yes" || $0 == "true" || $0 == "1" } ?? (hw == "motorway" || tags["junction"] as? String == "roundabout")
             return RoadWay(id: id, highway: hw, name: (tags["name"] as? String) ?? (tags["ref"] as? String) ?? "",
                            oneway: oneway, nodes: nodes.map(\.int64Value),
@@ -101,10 +111,12 @@ struct RoadGraph: Sendable {
     private(set) var adjacency: [[Edge]] = []
     private(set) var ways: [RoadWay]
     let mode: TravelMode
+    let prefs: RoutePrefs
 
-    init(ways: [RoadWay], mode: TravelMode) {
+    init(ways: [RoadWay], mode: TravelMode, prefs: RoutePrefs = RoutePrefs()) {
         self.ways = ways
         self.mode = mode
+        self.prefs = prefs
         var index: [Int64: Int] = [:]
         func node(_ id: Int64, _ lat: Double, _ lon: Double) -> Int {
             if let i = index[id] { return i }
@@ -116,6 +128,8 @@ struct RoadGraph: Sendable {
         }
         for (wi, w) in ways.enumerated() {
             guard let speed = mode.speed(highway: w.highway) else { continue }
+            if mode == .car, prefs.avoidHighways, ["motorway", "motorway_link", "trunk", "trunk_link"].contains(w.highway) { continue }
+            if mode != .foot, prefs.avoidUnpaved, w.unpaved ?? false { continue }
             for k in 1..<w.nodes.count {
                 let a = node(w.nodes[k - 1], w.lat[k - 1], w.lon[k - 1]), b = node(w.nodes[k], w.lat[k], w.lon[k])
                 let m = CoverageShare.distance(w.lat[k - 1], w.lon[k - 1], w.lat[k], w.lon[k])
@@ -233,7 +247,7 @@ final class RoadStore {
     private(set) var progress = 0.0
     private(set) var message = ""
     private(set) var cellCount: Int
-    private var graphs: [TravelMode: RoadGraph] = [:]
+    private var graphs: [String: RoadGraph] = [:]
 
     init(folder: URL = URL.applicationSupportDirectory.appending(path: "roads")) {
         self.folder = folder
@@ -294,14 +308,15 @@ final class RoadStore {
     }
 
     /// Plan a route off the main thread (the first call per mode builds the graph from the saved squares).
-    func plan(mode: TravelMode, from: MapShape.Coordinate, to: MapShape.Coordinate) async -> Route? {
-        let cached = graphs[mode]
+    func plan(mode: TravelMode, prefs: RoutePrefs = RoutePrefs(), from: MapShape.Coordinate, to: MapShape.Coordinate) async -> Route? {
+        let key = "\(mode.rawValue)|\(prefs.avoidHighways)|\(prefs.avoidUnpaved)"
+        let cached = graphs[key]
         let folder = self.folder
         let (route, built) = await Task.detached(priority: .userInitiated) { () -> (Route?, RoadGraph?) in
-            let g = cached ?? RoadGraph(ways: Self.loadWays(folder), mode: mode)
+            let g = cached ?? RoadGraph(ways: Self.loadWays(folder), mode: mode, prefs: prefs)
             return (g.isEmpty ? nil : g.route(from: from, to: to), cached == nil ? g : nil)
         }.value
-        if let built, !built.isEmpty { graphs[mode] = built }
+        if let built, !built.isEmpty { graphs[key] = built }
         return route
     }
 

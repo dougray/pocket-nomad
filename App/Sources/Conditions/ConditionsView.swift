@@ -71,6 +71,7 @@ struct ConditionsView: View {
         List {
             updateSection
             alertsSection
+            receivedAlertsSection
             forecastSection
             quakesSection
             spaceSection
@@ -120,6 +121,23 @@ struct ConditionsView: View {
             }
             ForEach(store.errors.sorted { $0.key.rawValue < $1.key.rawValue }, id: \.key) { k, v in
                 Label("\(k.title): \(v)", systemImage: "wifi.exclamationmark").font(.footnote).foregroundStyle(MeshUI.warn)
+            }
+        }
+    }
+
+    /// Alerts picked up straight off the air by an SDR box (they work with no internet).
+    @ViewBuilder private var receivedAlertsSection: some View {
+        let sdr = SdrState.shared
+        if !sdr.alerts.isEmpty {
+            Section {
+                ForEach(Array(sdr.alerts.prefix(5).enumerated()), id: \.offset) { _, a in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(a.text).font(.headline)
+                        Text("\(a.receivedAt.formatted(date: .abbreviated, time: .shortened)) · \(String(format: "%.3f", a.mhz)) MHz").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            } header: { Text(sdr.simulated ? "Weather radio (simulated)" : "Weather radio (received)") } footer: {
+                Text("Heard directly by your SDR box. Check the official source when you can.")
             }
         }
     }

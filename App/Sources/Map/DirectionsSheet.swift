@@ -13,6 +13,8 @@ struct DirectionsSheet: View {
     @State private var roads = RoadStore.shared
     @State private var compass = NavigationCompass.shared
     @AppStorage("map.travelMode") private var modeRaw = TravelMode.foot.rawValue
+    @AppStorage("map.avoidHighways") private var avoidHighways = false
+    @AppStorage("map.avoidUnpaved") private var avoidUnpaved = false
     @State private var route: Route?
     @State private var note = ""
     @State private var planning = false
@@ -31,6 +33,14 @@ struct DirectionsSheet: View {
                     }.pickerStyle(.segmented)
                     .onChange(of: modeRaw) { _, _ in route = nil; note = "" }
                 }
+                if mode != .foot {
+                    Section {
+                        if mode == .car { Toggle("Avoid highways", isOn: $avoidHighways) }
+                        Toggle("Avoid dirt and gravel", isOn: $avoidUnpaved)
+                    }
+                    .onChange(of: avoidHighways) { _, _ in route = nil }
+                    .onChange(of: avoidUnpaved) { _, _ in route = nil }
+                }
                 if !roads.hasRoads { downloadSection }
                 else {
                     Section {
@@ -47,7 +57,7 @@ struct DirectionsSheet: View {
                             Spacer()
                             Text(duration(r.seconds)).foregroundStyle(.secondary)
                         }
-                        Button { NavigationState.shared.start(name: name, route: r); dismiss() } label: { Label("Start", systemImage: "location.north.line.fill") }
+                        Button { NavigationState.shared.start(name: name, route: r, destination: (latitude, longitude), mode: mode, prefs: RoutePrefs(avoidHighways: avoidHighways && mode == .car, avoidUnpaved: avoidUnpaved)); dismiss() } label: { Label("Start", systemImage: "location.north.line.fill") }
                     }
                     Section("Steps") {
                         ForEach(Array(r.steps.enumerated()), id: \.offset) { _, s in
@@ -87,7 +97,7 @@ struct DirectionsSheet: View {
     private func plan() async {
         guard let here = compass.location?.coordinate else { return }
         planning = true; note = ""
-        route = await roads.plan(mode: mode, from: .init(latitude: here.latitude, longitude: here.longitude), to: .init(latitude: latitude, longitude: longitude))
+        route = await roads.plan(mode: mode, prefs: RoutePrefs(avoidHighways: avoidHighways && mode == .car, avoidUnpaved: avoidUnpaved), from: .init(latitude: here.latitude, longitude: here.longitude), to: .init(latitude: latitude, longitude: longitude))
         if route == nil { note = "No route found. Either you or the place is outside the saved roads, or they aren't connected for \(mode.label.lowercased())ing." }
         planning = false
     }

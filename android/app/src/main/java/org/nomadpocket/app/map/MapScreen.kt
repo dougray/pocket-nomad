@@ -21,7 +21,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material3.IconButton
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Check
@@ -106,7 +108,7 @@ import org.nomadpocket.mesh.rawValue
 import kotlin.math.max
 
 /** Camera and first-fix state that outlive the map view when the user switches tabs. */
-private object MapMemory {
+internal object MapMemory {
     var camera: CameraPosition? = null
     var snappedToUser = false
 }
@@ -126,6 +128,8 @@ private const val SRC_APRS = "aprs-stations"
 private const val SRC_QUAKES = "quakes"
 private const val SRC_FAVORITES = "favorites"
 private const val SRC_GOTO = "goto-line"
+private const val SRC_AIRCRAFT = "sdr-aircraft"
+private const val SRC_PATH = "radio-path"
 private const val SRC_ROUTE = "route"
 private val LABEL_FONT = arrayOf("Noto Sans Regular")
 
@@ -140,6 +144,9 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
     var showShapes by remember { mutableStateOf(prefs.getBoolean("showShapes", true)) }
     var showFavorites by remember { mutableStateOf(prefs.getBoolean("showFavorites", true)) }
     var showSearch by remember { mutableStateOf(false) }
+    val pathOverlay by RadioPathOverlay.state.collectAsState()
+    var showAircraft by remember { mutableStateOf(prefs.getBoolean("showAircraft", true)) }
+    val sdrAircraft by org.nomadpocket.app.sdr.SdrState.aircraft.collectAsState()
     var look by remember { mutableStateOf(runCatching { MapLook.valueOf(prefs.getString("look", "") ?: "") }.getOrDefault(MapLook.STREETS)) }
     var showTerrain by remember { mutableStateOf(false) }
     val terrainStore = remember { TerrainStore.get(context) }
@@ -149,7 +156,6 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
     val favoriteStore = remember { FavoritesStore.get(context) }
     val navTarget by NavigationState.target.collectAsState()
     val navArrived by NavigationState.arrived.collectAsState()
-    val heading = rememberHeading(navTarget != null)
     val shapeStore = remember { ShapeStore(java.io.File(context.filesDir, "shapes.json")) }
     var shapes by remember { mutableStateOf(shapeStore.shapes) }
     val draft = remember { androidx.compose.runtime.mutableStateListOf<LatLng>() }
@@ -170,6 +176,7 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
     }
 
     val location = rememberLocation()
+    val heading = rememberHeading(navTarget != null, location)
     val permitted by LocationService.permitted.collectAsState()
     val heard by Mesh.repository.heard.collectAsState()
     val demoNodes by DemoData.nodesFlow.collectAsState()
@@ -295,6 +302,24 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
         val firstAbove = s.layers.firstOrNull { it is LineLayer || it is SymbolLayer }
         if (firstAbove != null) s.addLayerBelow(layer, firstAbove.id) else s.addLayer(layer)
     }
+    // The radio path last checked, as a line coloured by the verdict.
+    LaunchedEffect(style, pathOverlay) {
+        val o = pathOverlay
+        style?.source(SRC_PATH)?.setGeoJson(FeatureCollection.fromFeatures(
+            if (o == null) emptyList() else listOf(Feature.fromGeometry(org.maplibre.geojson.LineString.fromLngLats(
+                listOf(Point.fromLngLat(o.from.longitude, o.from.latitude), Point.fromLngLat(o.to.longitude, o.to.latitude)))).also {
+                it.addStringProperty("v", when (o.verdict) { PathVerdict.CLEAR -> "clear"; PathVerdict.MARGINAL -> "marginal"; else -> "blocked" })
+            })))
+    }
+    // Aircraft heard by an SDR box.
+    LaunchedEffect(style, sdrAircraft, showAircraft) {
+        val list = if (showAircraft) org.nomadpocket.app.sdr.SdrState.visibleAircraft(System.currentTimeMillis()) else emptyList()
+        style?.source(SRC_AIRCRAFT)?.setGeoJson(FeatureCollection.fromFeatures(list.map { a ->
+            Feature.fromGeometry(Point.fromLngLat(a.longitude, a.latitude)).also {
+                it.addStringProperty("name", "${a.callsign.ifEmpty { a.icao }} ${if (a.altitudeFeet >= 18000) "FL${a.altitudeFeet / 100}" else "${a.altitudeFeet} ft"}")
+            }
+        }))
+    }
     // Go to: keep the position fresh for the arrival check, and draw the dashed line.
     LaunchedEffect(location) { location?.let { NavigationState.update(ShapePoint(it.latitude, it.longitude)) } }
     LaunchedEffect(style, showSearch, showFavorites, navTarget, location) {
@@ -367,6 +392,9 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
                     }
                     DropdownMenuItem(text = { Text("Download elevation (hills, line of sight)…") }, leadingIcon = { Icon(Icons.Filled.Download, null) },
                         onClick = { showLayers = false; showTerrain = true })
+                    CheckItem("Aircraft (SDR box)", Icons.Filled.Star, showAircraft) {
+                        showAircraft = !showAircraft; prefs.edit().putBoolean("showAircraft", showAircraft).apply()
+                    }
                     CheckItem("Favorites", Icons.Filled.Star, showFavorites) {
                         showFavorites = !showFavorites; prefs.edit().putBoolean("showFavorites", showFavorites).apply()
                     }
@@ -416,6 +444,14 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
             }
         }
 
+        pathOverlay?.let { o ->
+            Panel(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 56.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Radio path: ${o.label}", style = MaterialTheme.typography.labelLarge)
+                    IconButton(onClick = { RadioPathOverlay.clear() }, Modifier.size(24.dp)) { Icon(Icons.Filled.Close, "Clear radio path") }
+                }
+            }
+        }
         Column(
             Modifier.align(Alignment.BottomStart).padding(start = 12.dp, end = 12.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -625,9 +661,21 @@ private fun cellOutlineColor(): Expression =
 
 /** Known radios under coverage, under live nodes, under pins. */
 private fun addLayers(style: Style) {
-    listOf(SRC_QUAKES, SRC_KNOWN, SRC_CELLS, SRC_APRS, SRC_NODES, SRC_PINS, SRC_FAVORITES, SRC_GOTO, SRC_ROUTE).forEach {
+    listOf(SRC_QUAKES, SRC_KNOWN, SRC_CELLS, SRC_APRS, SRC_NODES, SRC_PINS, SRC_FAVORITES, SRC_GOTO, SRC_ROUTE, SRC_AIRCRAFT, SRC_PATH).forEach {
         style.addSource(GeoJsonSource(it, FeatureCollection.fromFeatures(emptyList())))
     }
+    style.addLayer(CircleLayer(SRC_AIRCRAFT, SRC_AIRCRAFT).withProperties(
+        PropertyFactory.circleRadius(5f), PropertyFactory.circleColor(android.graphics.Color.rgb(48, 176, 199)),
+        PropertyFactory.circleStrokeColor(android.graphics.Color.WHITE), PropertyFactory.circleStrokeWidth(1.5f)))
+    style.addLayer(SymbolLayer("sdr-aircraft-names", SRC_AIRCRAFT).withProperties(
+        PropertyFactory.textField(get("name")), PropertyFactory.textFont(LABEL_FONT), PropertyFactory.textSize(11f),
+        PropertyFactory.textAnchor(org.maplibre.android.style.layers.Property.TEXT_ANCHOR_TOP), PropertyFactory.textOffset(arrayOf(0f, 0.8f)),
+        PropertyFactory.textColor(android.graphics.Color.rgb(48, 176, 199)), PropertyFactory.textHaloColor(android.graphics.Color.BLACK),
+        PropertyFactory.textHaloWidth(1.5f), PropertyFactory.textOptional(true)))
+    style.addLayer(LineLayer("radio-path-line", SRC_PATH).withProperties(
+        PropertyFactory.lineColor(Expression.match(get("v"), color(android.graphics.Color.rgb(229, 72, 77)),
+            stop("clear", color(android.graphics.Color.rgb(52, 199, 89))), stop("marginal", color(android.graphics.Color.rgb(255, 149, 0))))),
+        PropertyFactory.lineWidth(5f), PropertyFactory.lineDasharray(arrayOf(2f, 1.5f))))
     style.addLayer(LineLayer("route-line", SRC_ROUTE).withProperties(
         PropertyFactory.lineColor(android.graphics.Color.rgb(10, 132, 255)), PropertyFactory.lineWidth(6f),
         PropertyFactory.lineCap(org.maplibre.android.style.layers.Property.LINE_CAP_ROUND), PropertyFactory.lineJoin(org.maplibre.android.style.layers.Property.LINE_JOIN_ROUND)))

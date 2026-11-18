@@ -16,13 +16,22 @@ struct RadioPathSheet: View {
     @AppStorage("path.heightA") private var heightA = 2.0
     @AppStorage("path.heightB") private var heightB = 10.0
     @State private var showTerrain = false
+    @AppStorage("path.from") private var fromChoice = "me"
+    @State private var favorites = FavoritesStore.shared
     @Environment(\.dismiss) private var dismiss
     private let metric = ConditionsFormat.current.metric
 
     private var band: RadioBand { RadioBand.all.first { $0.id == bandID } ?? RadioBand.all[0] }
 
+    /// The start of the path: where you are, the middle of the map, or a favorite.
+    private var start: CLLocationCoordinate2D? {
+        if fromChoice == "centre" { return MapController.current?.mapView?.centerCoordinate }
+        if let f = favorites.favorites.first(where: { $0.id.uuidString == fromChoice }) { return CLLocationCoordinate2D(latitude: f.latitude, longitude: f.longitude) }
+        return compass.location?.coordinate
+    }
+
     private var result: PathResult? {
-        guard terrain.hasTiles, let here = compass.location?.coordinate else { return nil }
+        guard terrain.hasTiles, let here = start else { return nil }
         return LineOfSight.analyze(from: .init(latitude: here.latitude, longitude: here.longitude), to: .init(latitude: latitude, longitude: longitude),
                                    heightA: heightA, heightB: heightB, mhz: band.mhz) { terrain.elevation(latitude: $0, longitude: $1) }
     }
@@ -30,7 +39,14 @@ struct RadioPathSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("From where I am to") { Label(name, systemImage: "mappin.circle.fill") }
+                Section("Path from") {
+                    Picker("From", selection: $fromChoice) {
+                        Text("Where I am").tag("me")
+                        Text("Middle of the map").tag("centre")
+                        ForEach(favorites.sorted) { Text($0.name).tag($0.id.uuidString) }
+                    }
+                    Label("to \(name)", systemImage: "mappin.circle.fill")
+                }
                 Section("Radio") {
                     Picker("Band", selection: $bandID) { ForEach(RadioBand.all) { Text($0.name).tag($0.id) } }
                     Stepper(value: $heightA, in: 0...50, step: 1) { Text("My antenna: \(ShapeMath.heightText(heightA, metric: metric))") }
@@ -41,7 +57,7 @@ struct RadioPathSheet: View {
                         Text("A path check needs elevation data for the area. Download it once and it works with no signal.").font(.footnote)
                         Button { showTerrain = true } label: { Label("Download elevation…", systemImage: "arrow.down.circle") }
                     }
-                } else if compass.location == nil {
+                } else if start == nil {
                     Section { HStack { ProgressView(); Text("Waiting for GPS…").foregroundStyle(.secondary) } }
                 } else if let r = result {
                     Section {
@@ -54,6 +70,14 @@ struct RadioPathSheet: View {
                         if r.points.count > 1 { PathChart(points: r.points, heightA: heightA, heightB: heightB).frame(height: 170) }
                         if r.verdict != .unknown {
                             Text(detail(r)).font(.footnote)
+                        }
+                        if r.verdict != .unknown, let s = start {
+                            Button {
+                                RadioPathOverlay.shared.show(from: .init(latitude: s.latitude, longitude: s.longitude), to: .init(latitude: latitude, longitude: longitude),
+                                                             verdict: r.verdict, label: "\(r.verdict.label), \(ShapeMath.distanceText(r.distance, metric: metric))", distance: r.distance)
+                                NavigationState.shared.requestMap()
+                                dismiss()
+                            } label: { Label("Show on map", systemImage: "map") }
                         }
                         if r.missing > 0 { Text("Elevation is missing for part of this path (outside the saved area), so the result is a guess.").font(.footnote).foregroundStyle(.orange) }
                     }

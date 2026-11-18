@@ -106,6 +106,8 @@ enum CoverageColorMode: String, CaseIterable, Identifiable {
 @MainActor @Observable
 final class MapController {
     weak var mapView: MLNMapView?
+    /// The map on screen, so sheets can ask where its centre is.
+    nonisolated(unsafe) static weak var current: MapController?
     var pins = MapPin.load() { didSet { MapPin.save(pins) } }
     var showNodes = UserDefaults.standard.object(forKey: "map.showNodes") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showNodes, forKey: "map.showNodes") }
@@ -121,6 +123,10 @@ final class MapController {
     var measuring = false
     var draft: [CLLocationCoordinate2D] = []
     var draftClosed = false
+    /// Aircraft heard by an SDR box.
+    var showAircraft = UserDefaults.standard.object(forKey: "map.showAircraft") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showAircraft, forKey: "map.showAircraft") }
+    }
     var showFavorites = UserDefaults.standard.object(forKey: "map.showFavorites") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showFavorites, forKey: "map.showFavorites") }
     }
@@ -197,6 +203,7 @@ struct OfflineMapView: View {
     @State private var navigation = NavigationState.shared
     @State private var compass = NavigationCompass.shared
     @State private var showSearch = LaunchScreen.value == "map:search"
+    @State private var pathOverlay = RadioPathOverlay.shared
     @State private var showShapesList = false
     @State private var namingShape = false
     @State private var shapeName = ""
@@ -274,7 +281,8 @@ struct OfflineMapView: View {
                          quakes: controller.showQuakes ? ConditionsStore.shared.nearbyQuakes : [],
                          shapes: controller.showShapes ? shapes.shapes : [],
                          favorites: controller.showFavorites ? favorites.favorites : [],
-                         goToLine: goToLine, routeLine: navigation.target?.line.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) } ?? [],
+                         aircraft: controller.showAircraft ? SdrState.shared.visibleAircraft(now: Date()) : [],
+                         goToLine: goToLine, routeLine: navigation.target?.line.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) } ?? [], pathLine: pathLine, pathVerdict: pathOverlay.verdict.rawValue,
                          draft: controller.draft, draftClosed: controller.draftClosed,
                          coverage: controller.coverage,
                          colorMode: controller.coverageColor,
@@ -305,6 +313,18 @@ struct OfflineMapView: View {
                 }
                 .padding(.trailing, 12)
                 .padding(.top, 60)
+            }
+            .overlay(alignment: .top) {
+                if pathOverlay.isActive {
+                    HStack(spacing: 8) {
+                        Image(systemName: "chart.xyaxis.line")
+                        Text("Radio path: \(pathOverlay.label)").font(.footnote.weight(.semibold))
+                        Button { pathOverlay.clear() } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(.top, 60)
+                }
             }
             .overlay(alignment: .bottom) {
                 if navigation.target != nil, !controller.measuring {
@@ -352,6 +372,7 @@ struct OfflineMapView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
             .onAppear {
+                MapController.current = controller
                 location.begin()
                 streets.start()
             }
@@ -397,6 +418,11 @@ struct OfflineMapView: View {
     }
 
     /// A dashed line from you to the waypoint you're heading for.
+    private var pathLine: [CLLocationCoordinate2D] {
+        guard let a = pathOverlay.from, let b = pathOverlay.to else { return [] }
+        return [CLLocationCoordinate2D(latitude: a.latitude, longitude: a.longitude), CLLocationCoordinate2D(latitude: b.latitude, longitude: b.longitude)]
+    }
+
     private var goToLine: [CLLocationCoordinate2D] {
         guard let t = navigation.target, let loc = compass.location else { return [] }
         return [loc.coordinate, CLLocationCoordinate2D(latitude: t.current.latitude, longitude: t.current.longitude)]
@@ -420,6 +446,7 @@ struct OfflineMapView: View {
             Toggle(isOn: $controller.showKnown) { Label("Known radios (community maps)", systemImage: "dot.radiowaves.up.forward") }
             Toggle(isOn: $controller.showAPRS) { Label("Ham APRS stations heard", systemImage: "mappin.and.ellipse") }
             Toggle(isOn: $controller.showFavorites) { Label("Favorites", systemImage: "star.fill") }
+            Toggle(isOn: $controller.showAircraft) { Label("Aircraft (SDR box)", systemImage: "airplane") }
             Button { showSearch = true } label: { Label("Search and favorites…", systemImage: "magnifyingglass") }
             Toggle(isOn: $controller.showShapes) { Label("My drawings", systemImage: "scribble.variable") }
             Button { showShapesList = true } label: { Label("Drawings…", systemImage: "list.bullet.rectangle") }
@@ -698,10 +725,14 @@ struct MapLibreView: UIViewRepresentable {
     /// Saved drawings and the one being drawn.
     var shapes: [MapShape] = []
     var favorites: [Favorite] = []
+    var aircraft: [SdrAircraft] = []
     /// From the user to the current Go to waypoint (empty when not navigating).
     var goToLine: [CLLocationCoordinate2D] = []
     /// The planned road route, when one is active.
     var routeLine: [CLLocationCoordinate2D] = []
+    /// The radio path last checked (two points), coloured by `pathVerdict`.
+    var pathLine: [CLLocationCoordinate2D] = []
+    var pathVerdict = "unknown"
     var draft: [CLLocationCoordinate2D] = []
     var draftClosed = false
     var coverage: CoverageLayer = .off
@@ -747,6 +778,7 @@ struct MapLibreView: UIViewRepresentable {
         context.coordinator.syncShapes(on: view)
         context.coordinator.syncNavigation(on: view)
         context.coordinator.syncTerrain(on: view)
+        context.coordinator.syncAircraft(on: view)
     }
 
     @MainActor
@@ -762,6 +794,7 @@ struct MapLibreView: UIViewRepresentable {
         private var shapesKey = ""
         private var navKey = ""
         private var terrainSynced = ""
+        private var aircraftKey = ""
         private var regionsFitted = false
         /// Set once the map has centred on the first good GPS fix, so the region
         /// fit doesn't pull it away and later fixes don't fight the user's panning.
@@ -857,6 +890,44 @@ struct MapLibreView: UIViewRepresentable {
             style.addLayer(labels)
         }
 
+        /// Aircraft heard by an SDR box: small arrows pointing along their track, with callsign and altitude.
+        func syncAircraft(on view: MLNMapView) {
+            guard let style = view.style else { return }
+            let key = parent.aircraft.map { "\($0.icao)|\($0.latitude)|\($0.longitude)|\($0.trackDegrees)" }.joined(separator: ";")
+            guard key != aircraftKey else { return }
+            aircraftKey = key
+            let features: [MLNPointFeature] = parent.aircraft.map { a in
+                let f = MLNPointFeature()
+                f.coordinate = CLLocationCoordinate2D(latitude: a.latitude, longitude: a.longitude)
+                let name = a.callsign.isEmpty ? a.icao : a.callsign
+                f.attributes = ["name": "\(name) \(a.altitudeFeet / 100 * 100 >= 1000 ? "\(a.altitudeFeet / 100) FL" : "\(a.altitudeFeet) ft")", "trk": a.trackDegrees]
+                return f
+            }
+            if let source = style.source(withIdentifier: "sdr-aircraft") as? MLNShapeSource {
+                source.shape = MLNShapeCollectionFeature(shapes: features)
+                return
+            }
+            let source = MLNShapeSource(identifier: "sdr-aircraft", features: features, options: nil)
+            style.addSource(source)
+            let dots = MLNCircleStyleLayer(identifier: "sdr-aircraft", source: source)
+            dots.circleColor = NSExpression(forConstantValue: UIColor.systemTeal)
+            dots.circleRadius = NSExpression(forConstantValue: 5)
+            dots.circleStrokeColor = NSExpression(forConstantValue: UIColor.white)
+            dots.circleStrokeWidth = NSExpression(forConstantValue: 1.5)
+            style.addLayer(dots)
+            let labels = MLNSymbolStyleLayer(identifier: "sdr-aircraft-names", source: source)
+            labels.text = NSExpression(forKeyPath: "name")
+            labels.textFontNames = NSExpression(forConstantValue: ["Noto Sans Regular"])
+            labels.textFontSize = NSExpression(forConstantValue: 11)
+            labels.textAnchor = NSExpression(forConstantValue: "top")
+            labels.textOffset = NSExpression(forConstantValue: NSValue(cgVector: CGVector(dx: 0, dy: 0.8)))
+            labels.textColor = NSExpression(forConstantValue: UIColor.systemTeal)
+            labels.textHaloColor = NSExpression(forConstantValue: parent.dark ? UIColor.black : UIColor.white)
+            labels.textHaloWidth = NSExpression(forConstantValue: 1.5)
+            labels.textOptional = NSExpression(forConstantValue: true)
+            style.addLayer(labels)
+        }
+
         /// Shaded relief under the roads and labels, from the saved (or live) elevation tiles.
         func syncTerrain(on view: MLNMapView) {
             guard let style = view.style else { return }
@@ -872,6 +943,12 @@ struct MapLibreView: UIViewRepresentable {
             style.addSource(source)
             let layer = MLNHillshadeStyleLayer(identifier: "terrain-hillshade", source: source)
             layer.hillshadeExaggeration = NSExpression(forConstantValue: parent.look == .relief ? 0.9 : 0.35)
+            // Shadow and highlight take a list of colours in this MapLibre build; accent takes one.
+            func rgb(_ v: CGFloat, _ a: CGFloat = 1) -> UIColor { UIColor(red: v, green: v, blue: v, alpha: a) }
+            let dark = parent.dark
+            layer.hillshadeShadowColor = NSExpression(forConstantValue: [dark ? rgb(0) : rgb(0.15)])
+            layer.hillshadeHighlightColor = NSExpression(forConstantValue: [dark ? rgb(0.55) : rgb(1)])
+            layer.hillshadeAccentColor = NSExpression(forConstantValue: dark ? rgb(0.1) : rgb(0.3))
             // Above the land and water fills, below the roads, boundaries and labels.
             if let firstLine = style.layers.first(where: { $0 is MLNLineStyleLayer || $0 is MLNSymbolStyleLayer }) {
                 style.insertLayer(layer, below: firstLine)
@@ -885,6 +962,7 @@ struct MapLibreView: UIViewRepresentable {
             guard let style = view.style else { return }
             let key = parent.favorites.map { "\($0.id)|\($0.name)|\($0.latitude)|\($0.longitude)" }.joined(separator: ";")
                 + "#" + parent.goToLine.map { "\($0.latitude),\($0.longitude)" }.joined(separator: ";")
+                + "#p" + parent.pathLine.map { "\($0.latitude),\($0.longitude)" }.joined(separator: ";") + parent.pathVerdict
                 + "#" + String(parent.routeLine.count) + "|" + (parent.routeLine.first.map { "\($0.latitude)" } ?? "")
             guard key != navKey else { return }
             navKey = key
@@ -900,6 +978,12 @@ struct MapLibreView: UIViewRepresentable {
                 let rf = MLNPolylineFeature(coordinates: &rc, count: UInt(rc.count))
                 rf.attributes = ["kind": "route"]
                 lineShapes.append(rf)
+            }
+            if parent.pathLine.count == 2 {
+                var pc = parent.pathLine
+                let pf = MLNPolylineFeature(coordinates: &pc, count: 2)
+                pf.attributes = ["kind": "path", "v": parent.pathVerdict]
+                lineShapes.append(pf)
             }
             if parent.goToLine.count == 2 {
                 var c = parent.goToLine
@@ -918,7 +1002,7 @@ struct MapLibreView: UIViewRepresentable {
             style.addSource(favSource)
             style.addSource(goSource)
             let line = MLNLineStyleLayer(identifier: "goto-line", source: goSource)
-            line.predicate = NSPredicate(format: "$geometryType != 'Point' AND kind != 'route'")
+            line.predicate = NSPredicate(format: "$geometryType != 'Point' AND kind != 'route' AND kind != 'path'")
             line.lineColor = NSExpression(forConstantValue: UIColor.systemGreen)
             line.lineWidth = NSExpression(forConstantValue: 4)
             line.lineDashPattern = NSExpression(forConstantValue: [1.5, 1.5])
@@ -930,6 +1014,12 @@ struct MapLibreView: UIViewRepresentable {
             routeLayer.lineCap = NSExpression(forConstantValue: "round")
             routeLayer.lineJoin = NSExpression(forConstantValue: "round")
             style.insertLayer(routeLayer, below: line)
+            let pathLayer = MLNLineStyleLayer(identifier: "radio-path-line", source: goSource)
+            pathLayer.predicate = NSPredicate(format: "kind == 'path'")
+            pathLayer.lineColor = NSExpression(format: "TERNARY(v == 'clear', %@, TERNARY(v == 'marginal', %@, %@))", UIColor.systemGreen, UIColor.systemOrange, UIColor.systemRed)
+            pathLayer.lineWidth = NSExpression(forConstantValue: 5)
+            pathLayer.lineDashPattern = NSExpression(forConstantValue: [2, 1.5])
+            style.insertLayer(pathLayer, below: line)
             let target = MLNCircleStyleLayer(identifier: "goto-target", source: goSource)
             target.predicate = NSPredicate(format: "$geometryType == 'Point'")
             target.circleRadius = NSExpression(forConstantValue: 11)
@@ -1274,6 +1364,8 @@ struct MapLibreView: UIViewRepresentable {
                 shapesKey = ""
                 navKey = ""
                 terrainSynced = ""
+                aircraftKey = ""
+                syncAircraft(on: mapView)
                 syncTerrain(on: mapView)
                 syncNodes(on: mapView)
                 syncCoverage(on: mapView)

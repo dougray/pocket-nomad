@@ -1,0 +1,1 @@
+New: SDR screen in the Radio tab (aircraft, APRS and weather radio from a Raspberry Pi + RTL-SDR box on your Wi-Fi), Directions re-route when you leave the route, avoid highways and dirt roads, radio path lines on the map, true-north Go to on Android. Beta: tell us what breaks.

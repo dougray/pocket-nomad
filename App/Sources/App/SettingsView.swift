@@ -7,6 +7,10 @@ struct SettingsView: View {
     @State private var mesh = MeshService.shared
     @State private var confirmMeshDelete = false
     @State private var showCoverage = false
+    @AppStorage(WorksWith.dismissedKey) private var warWalkerDismissed = false
+    @State private var favorites = FavoritesStore.shared
+    @State private var shapes = ShapeStore.shared
+    @State private var mesh2 = MeshService.shared
 
     var body: some View {
         @Bindable var settings = settings
@@ -30,6 +34,14 @@ struct SettingsView: View {
                             LabeledContent(content.book(id: id)?.title ?? id, value: "\(Int(p * 100))%")
                         }
                         Button("Pause indexing", role: .destructive) { content.cancelIndexing() }
+                    }
+                }
+                if WorksWith.showWarWalker(usesMap: !favorites.favorites.isEmpty || !shapes.shapes.isEmpty,
+                                           usesRadio: !HamService.shared.stations.isEmpty || !mesh2.rememberedLinks.isEmpty, dismissed: warWalkerDismissed) {
+                    Section("Works with") {
+                        Text("WarWalker turns your runs and walks into a game: it maps the Wi-Fi and Bluetooth around you, and it uses Pocket Nomad's targets and coverage hexagons. Free and open source.").font(.footnote)
+                        Link("WarWalker on GitHub", destination: WorksWith.warWalkerURL)
+                        Button("Not interested", role: .cancel) { warWalkerDismissed = true }
                     }
                 }
                 Section("Battery tips") {

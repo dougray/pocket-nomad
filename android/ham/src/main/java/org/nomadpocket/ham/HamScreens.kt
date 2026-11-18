@@ -398,9 +398,19 @@ private fun StationScreen(id: String, back: () -> Unit, open: (HamRoute) -> Unit
                 kv("Packets", s.packets.toString())
                 kv("First heard", dateTime(s.firstHeard))
             }
+            // Star and Go to come from the app (the Map module), through this hook.
+            val place = HamPlaceHook.content
+            if (place != null && s.latitude != null && s.longitude != null) {
+                Section { Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { place(s.id, s.latitude, s.longitude) } }
+            }
             if (!s.isObject) Section { Row("Message ${s.source}") { open(HamRoute.Thread(s.source)) } }
         }
     }
+}
+
+/** Lets the app show its own star / Go to / route buttons for a heard station (the ham module cannot see the Map module). */
+object HamPlaceHook {
+    var content: (@Composable (name: String, latitude: Double, longitude: Double) -> Unit)? = null
 }
 
 @Composable

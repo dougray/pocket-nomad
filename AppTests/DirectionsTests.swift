@@ -49,4 +49,27 @@ final class DirectionsTests: XCTestCase {
         let cells = RoadStore.cells(centre: .init(latitude: 30.27, longitude: -97.74), radiusKm: 10)
         XCTAssertTrue((9...30).contains(cells.count), "\(cells.count)")
     }
+
+    func testDistanceToLineAndOffRoute() {
+        let line = [c(0, 0), c(0, 2)]   // west to east along 30.000
+        XCTAssertEqual(RouteGeometry.distance(from: c(0, 1), toLine: line), 0, accuracy: 0.5)
+        XCTAssertEqual(RouteGeometry.distance(from: .init(latitude: 30.0005, longitude: -96.999), toLine: line), 55.6, accuracy: 1)
+        XCTAssertEqual(RouteGeometry.distance(from: .init(latitude: 30.0, longitude: -96.995), toLine: line), 289.2, accuracy: 1)   // past the end: to the end point
+        XCTAssertGreaterThan(RouteGeometry.distance(from: .init(latitude: 30.001, longitude: -96.999), toLine: line), GoToMath.offRouteMeters)
+    }
+
+    func testAvoidOptionsRemoveRoads() {
+        func way(_ id: Int64, _ hw: String, _ a: Int64, _ b: Int64, unpaved: Bool? = nil) -> RoadWay {
+            RoadWay(id: id, highway: hw, name: "W\(id)", oneway: false, nodes: [a, b], lat: [30, 30], lon: [-97 + Double(a) * 0.001, -97 + Double(b) * 0.001], unpaved: unpaved)
+        }
+        let ways = [way(1, "motorway", 1, 2), way(2, "residential", 2, 3), way(3, "track", 3, 4, unpaved: true)]
+        func names(_ prefs: RoutePrefs, _ mode: TravelMode) -> String {
+            RoadGraph(ways: ways, mode: mode, prefs: prefs).route(from: .init(latitude: 30, longitude: -96.999), to: .init(latitude: 30, longitude: -96.996))?
+                .steps.map(\.text).joined(separator: " | ") ?? "none"
+        }
+        XCTAssertTrue(names(RoutePrefs(), .car).contains("W1") && names(RoutePrefs(), .car).contains("W3"))
+        XCTAssertFalse(names(RoutePrefs(avoidUnpaved: true), .bike).contains("W3"), "the track is left out")
+        XCTAssertTrue(names(RoutePrefs(avoidUnpaved: true), .foot).contains("W3"), "walking ignores the unpaved preference")
+        XCTAssertFalse(names(RoutePrefs(avoidHighways: true), .car).contains("W1"), "the motorway is left out")
+    }
 }

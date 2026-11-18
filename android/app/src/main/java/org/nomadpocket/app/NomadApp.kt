@@ -26,6 +26,7 @@ class NomadApp : Application() {
         MapLibre.getInstance(this)
         Mesh.init(this)
         org.nomadpocket.ham.Ham.init(this)
+        org.nomadpocket.ham.HamPlaceHook.content = { name, lat, lon -> org.nomadpocket.app.map.PlaceActions(name, lat, lon) }
         org.nomadpocket.app.conditions.ConditionsStore.init(this)
         KnownRadioStore.init(this)
         connectNearbyRadios()

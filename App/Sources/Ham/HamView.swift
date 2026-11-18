@@ -181,14 +181,16 @@ struct RadioTabView: View {
             Picker("Radio", selection: $section) {
                 Text("Mesh").tag("mesh")
                 Text("Ham").tag("ham")
+                Text("SDR").tag("sdr")
             }
             .pickerStyle(.segmented)
             .padding(.horizontal)
             .padding(.vertical, 6)
-            if section == "ham" { HamView() } else { MeshView() }
+            if section == "ham" { HamView() } else if section == "sdr" { SdrView() } else { MeshView() }
         }
         .onAppear {
             if LaunchScreen.parts()?.0 == "ham" { section = "ham" }
+            if LaunchScreen.parts()?.0 == "sdr" { section = "sdr" }
         }
     }
 }

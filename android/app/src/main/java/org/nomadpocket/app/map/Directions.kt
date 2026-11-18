@@ -50,16 +50,19 @@ enum class TravelMode(val label: String) {
     }
 }
 
+/** What a route should steer clear of. */
+data class RoutePrefs(val avoidHighways: Boolean = false, val avoidUnpaved: Boolean = false)
+
 data class RoadWay(val id: Long, val highway: String, val name: String, val oneway: Boolean,
-                   val nodes: LongArray, val lat: DoubleArray, val lon: DoubleArray) {
+                   val nodes: LongArray, val lat: DoubleArray, val lon: DoubleArray, val unpaved: Boolean = false) {
     fun toJson(): JSONObject = JSONObject().put("id", id).put("hw", highway).put("name", name).put("oneway", oneway)
-        .put("nodes", JSONArray(nodes.toList())).put("lat", JSONArray(lat.toList())).put("lon", JSONArray(lon.toList()))
+        .put("unpaved", unpaved).put("nodes", JSONArray(nodes.toList())).put("lat", JSONArray(lat.toList())).put("lon", JSONArray(lon.toList()))
 
     companion object {
         fun fromJson(o: JSONObject): RoadWay {
             val n = o.getJSONArray("nodes"); val la = o.getJSONArray("lat"); val lo = o.getJSONArray("lon")
             return RoadWay(o.getLong("id"), o.getString("hw"), o.optString("name"), o.optBoolean("oneway"),
-                LongArray(n.length()) { n.getLong(it) }, DoubleArray(la.length()) { la.getDouble(it) }, DoubleArray(lo.length()) { lo.getDouble(it) })
+                LongArray(n.length()) { n.getLong(it) }, DoubleArray(la.length()) { la.getDouble(it) }, DoubleArray(lo.length()) { lo.getDouble(it) }, o.optBoolean("unpaved"))
         }
     }
 }
@@ -85,17 +88,19 @@ object Overpass {
             val nodes = e.optJSONArray("nodes") ?: continue
             val geom = e.optJSONArray("geometry") ?: continue
             if (nodes.length() != geom.length() || nodes.length() < 2) continue
+            val surface = tags.optString("surface")
+            val unpaved = hw == "track" || surface in listOf("unpaved", "dirt", "gravel", "ground", "earth", "sand", "mud", "grass", "fine_gravel", "compacted", "pebblestone", "dirt/sand")
             val oneway = if (tags.has("oneway")) tags.optString("oneway") in listOf("yes", "true", "1") else (hw == "motorway" || tags.optString("junction") == "roundabout")
             out += RoadWay(e.getLong("id"), hw, tags.optString("name").ifEmpty { tags.optString("ref") }, oneway,
                 LongArray(nodes.length()) { nodes.getLong(it) }, DoubleArray(geom.length()) { Math.round(geom.getJSONObject(it).getDouble("lat") * 1e6) / 1e6 },
-                DoubleArray(geom.length()) { Math.round(geom.getJSONObject(it).getDouble("lon") * 1e6) / 1e6 })
+                DoubleArray(geom.length()) { Math.round(geom.getJSONObject(it).getDouble("lon") * 1e6) / 1e6 }, unpaved)
         }
         return out
     }
 }
 
 /** A road graph for one travel mode. */
-class RoadGraph(private val ways: List<RoadWay>, val mode: TravelMode) {
+class RoadGraph(private val ways: List<RoadWay>, val mode: TravelMode, val prefs: RoutePrefs = RoutePrefs()) {
     private class Edge(val to: Int, val meters: Double, val seconds: Double, val way: Int)
     private val coords = ArrayList<ShapePoint>()
     private val adjacency = ArrayList<ArrayList<Edge>>()
@@ -105,6 +110,8 @@ class RoadGraph(private val ways: List<RoadWay>, val mode: TravelMode) {
         fun node(id: Long, lat: Double, lon: Double): Int = index.getOrPut(id) { coords.add(ShapePoint(lat, lon)); adjacency.add(ArrayList()); coords.size - 1 }
         ways.forEachIndexed { wi, w ->
             val speed = mode.speed(w.highway) ?: return@forEachIndexed
+            if (mode == TravelMode.CAR && prefs.avoidHighways && w.highway in listOf("motorway", "motorway_link", "trunk", "trunk_link")) return@forEachIndexed
+            if (mode != TravelMode.FOOT && prefs.avoidUnpaved && w.unpaved) return@forEachIndexed
             for (k in 1 until w.nodes.size) {
                 val a = node(w.nodes[k - 1], w.lat[k - 1], w.lon[k - 1]); val b = node(w.nodes[k], w.lat[k], w.lon[k])
                 val m = KnownRadioParser.distance(w.lat[k - 1], w.lon[k - 1], w.lat[k], w.lon[k])
@@ -194,7 +201,7 @@ class RoadStore(context: Context) {
     private val _state = MutableStateFlow(State(count()))
     val state: StateFlow<State> = _state
     private var loaded: List<RoadWay>? = null
-    private val graphs = HashMap<TravelMode, RoadGraph>()
+    private val graphs = HashMap<String, RoadGraph>()
 
     private fun count() = folder.listFiles { f -> f.extension == "json" }?.size ?: 0
     val hasRoads get() = _state.value.cellCount > 0
@@ -239,13 +246,14 @@ class RoadStore(context: Context) {
     fun deleteAll() { folder.deleteRecursively(); loaded = null; graphs.clear(); _state.value = State(0) }
 
     /** Plan a route off the main thread (the first call per mode builds the graph from the saved squares). */
-    suspend fun plan(mode: TravelMode, from: ShapePoint, to: ShapePoint): Route? = withContext(Dispatchers.Default) {
-        graph(mode)?.route(from, to)
+    suspend fun plan(mode: TravelMode, from: ShapePoint, to: ShapePoint, prefs: RoutePrefs = RoutePrefs()): Route? = withContext(Dispatchers.Default) {
+        graph(mode, prefs)?.route(from, to)
     }
 
     @Synchronized
-    fun graph(mode: TravelMode): RoadGraph? {
-        graphs[mode]?.let { return it }
+    fun graph(mode: TravelMode, prefs: RoutePrefs = RoutePrefs()): RoadGraph? {
+        val key = "${mode.name}|${prefs.avoidHighways}|${prefs.avoidUnpaved}"
+        graphs[key]?.let { return it }
         if (loaded == null) {
             val seen = HashSet<Long>()
             loaded = (folder.listFiles { f -> f.extension == "json" } ?: emptyArray()).flatMap { f ->
@@ -254,7 +262,7 @@ class RoadStore(context: Context) {
         }
         val w = loaded ?: return null
         if (w.isEmpty()) return null
-        return RoadGraph(w, mode).also { graphs[mode] = it }
+        return RoadGraph(w, mode, prefs).also { graphs[key] = it }
     }
 
     companion object {

@@ -65,6 +65,8 @@
 	<string>Pocket Nomad uses the camera flash as an SOS and Morse signal light.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Apache License 2.0. See LICENSE.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Pocket Nomad connects to an SDR box (a small Raspberry Pi receiver) on your network to show aircraft, APRS packets and weather alerts it hears.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Pocket Nomad shows where you are on the offline map and compass, can add your coordinates to an SOS message, and (if you turn it on) records where your radio hears others for the coverage map. In drive mode, which you turn on, this keeps working while the phone is locked. Your location never leaves the phone unless you send or export it.</string>
 	<key>UIApplicationSceneManifest</key>

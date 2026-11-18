@@ -156,6 +156,15 @@ fun ConditionsScreen(onBack: () -> Unit) {
                 s.errors.forEach { (k, v) -> Text("$k: $v", fontSize = 12.sp, color = warn) }
             }
 
+            val received by org.nomadpocket.app.sdr.SdrState.alerts.collectAsState()
+            val receivedSim by org.nomadpocket.app.sdr.SdrState.simulated.collectAsState()
+            if (received.isNotEmpty()) {
+                Header(if (receivedSim) "Weather radio (simulated)" else "Weather radio (received)")
+                Box2 {
+                    received.take(5).forEach { a -> Text(a.text, fontWeight = FontWeight.SemiBold); Muted("%.3f MHz".format(a.mhz)) }
+                    Muted("Heard directly by your SDR box. Check the official source when you can.")
+                }
+            }
             Header("Weather alerts")
             Box2 {
                 val active = ConditionsStore.activeAlerts(s)

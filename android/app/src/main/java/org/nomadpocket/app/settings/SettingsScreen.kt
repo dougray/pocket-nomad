@@ -2,6 +2,11 @@ package org.nomadpocket.app.settings
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -65,6 +70,17 @@ fun SettingsScreen(
     Column(modifier.verticalScroll(rememberScrollState())) {
         FormSection(footer = "On phones with OLED screens, black pixels use almost no power.") {
             ToggleRow("Always dark (saves battery)", forceDark, onChange = onForceDark)
+        }
+        val worksPrefs = remember { context.getSharedPreferences("worksWith", android.content.Context.MODE_PRIVATE) }
+        var warWalkerDismissed by remember { mutableStateOf(worksPrefs.getBoolean("warwalker.dismissed", false)) }
+        val usesMap = remember { org.nomadpocket.app.map.FavoritesStore.get(context).favorites.isNotEmpty() || java.io.File(context.filesDir, "shapes.json").let { it.exists() && it.length() > 4 } }
+        val usesRadio = org.nomadpocket.ham.Ham.isInitialized && org.nomadpocket.ham.Ham.service.stations.isNotEmpty()
+        if (org.nomadpocket.app.WorksWith.showWarWalker(usesMap, usesRadio, warWalkerDismissed)) {
+            FormSection("Works with") {
+                Footnote("WarWalker turns your runs and walks into a game: it maps the Wi-Fi and Bluetooth around you, and it uses Pocket Nomad's targets and coverage hexagons. Free and open source.")
+                LinkRow("WarWalker on GitHub", external = true) { open(org.nomadpocket.app.WorksWith.WARWALKER_URL) }
+                TextButton(onClick = { warWalkerDismissed = true; worksPrefs.edit().putBoolean("warwalker.dismissed", true).apply() }) { Text("Not interested") }
+            }
         }
         FormSection("Battery tips") {
             Footnote("Turn on Battery Saver. Lower screen brightness. Use Airplane mode with Bluetooth on to keep mesh messaging while saving power. Keep the phone warm in cold weather; cold batteries die fast.")

@@ -92,7 +92,7 @@ enum LaunchScreen {
         case "ask": .ask
         case "library", "packs", "book": .library
         case "map": .map
-        case "mesh", "coverage": .mesh
+        case "mesh", "coverage", "sdr": .mesh
         // The phone shows Ham inside the Radio tab; the iPad sidebar has it as a section.
         case "ham": UIDevice.current.userInterfaceIdiom == .pad ? .ham : .mesh
         default: .survive

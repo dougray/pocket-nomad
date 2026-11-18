@@ -42,3 +42,26 @@ class DirectionsTest {
         assertTrue(RoadStore.cells(30.27, -97.74, 10.0).size in 9..30)
     }
 }
+
+class RouteSafetyTest {
+    private fun c(i: Int, j: Int) = ShapePoint(30.0 + i * 0.001, -97.0 + j * 0.001)
+
+    @Test fun distanceToLineAndOffRoute() {
+        val line = listOf(c(0, 0), c(0, 2))
+        assertEquals(0.0, RouteGeometry.distance(c(0, 1), line), 0.5)
+        assertEquals(55.6, RouteGeometry.distance(ShapePoint(30.0005, -96.999), line), 1.0)
+        assertEquals(289.2, RouteGeometry.distance(ShapePoint(30.0, -96.995), line), 1.0)
+        assertTrue(RouteGeometry.distance(ShapePoint(30.001, -96.999), line) > GoToMath.OFF_ROUTE_METERS)
+    }
+
+    @Test fun avoidOptionsRemoveRoads() {
+        fun way(id: Long, hw: String, a: Long, b: Long, unpaved: Boolean = false) =
+            RoadWay(id, hw, "W$id", false, longArrayOf(a, b), doubleArrayOf(30.0, 30.0), doubleArrayOf(-97 + a * 0.001, -97 + b * 0.001), unpaved)
+        val ways = listOf(way(1, "motorway", 1, 2), way(2, "residential", 2, 3), way(3, "track", 3, 4, true))
+        fun names(p: RoutePrefs, m: TravelMode) = RoadGraph(ways, m, p).route(ShapePoint(30.0, -96.999), ShapePoint(30.0, -96.996))?.steps?.joinToString(" | ") { it.text } ?: "none"
+        assertTrue(names(RoutePrefs(), TravelMode.CAR).let { "W1" in it && "W3" in it })
+        assertFalse("W3" in names(RoutePrefs(avoidUnpaved = true), TravelMode.BIKE))
+        assertTrue("W3" in names(RoutePrefs(avoidUnpaved = true), TravelMode.FOOT))
+        assertFalse("W1" in names(RoutePrefs(avoidHighways = true), TravelMode.CAR))
+    }
+}

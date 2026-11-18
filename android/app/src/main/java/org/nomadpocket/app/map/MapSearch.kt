@@ -193,11 +193,15 @@ fun MapSearchSheet(
     }
 }
 
-/** The phone's compass heading in degrees (true north is approximated by magnetic), or null with no sensor. */
+/** The phone's compass heading in degrees from TRUE north (the magnetic reading plus the local declination), or null with no sensor. */
 @Composable
-fun rememberHeading(active: Boolean): Float? {
+fun rememberHeading(active: Boolean, location: android.location.Location? = null): Float? {
     val context = LocalContext.current
     var heading by remember { mutableStateOf<Float?>(null) }
+    val declination = remember(location?.latitude?.let { Math.round(it * 5) }, location?.longitude?.let { Math.round(it * 5) }) {
+        location?.let { android.hardware.GeomagneticField(it.latitude.toFloat(), it.longitude.toFloat(), it.altitude.toFloat(), System.currentTimeMillis()).declination } ?: 0f
+    }
+    val declinationNow by rememberUpdatedState(declination)
     DisposableEffect(active) {
         val sm = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
         val sensor = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
@@ -206,7 +210,7 @@ fun rememberHeading(active: Boolean): Float? {
             override fun onSensorChanged(e: SensorEvent) {
                 SensorManager.getRotationMatrixFromVector(r, e.values)
                 SensorManager.getOrientation(r, o)
-                val deg = ((Math.toDegrees(o[0].toDouble()) + 360) % 360).toFloat()
+                val deg = ((Math.toDegrees(o[0].toDouble()) + declinationNow + 720) % 360).toFloat()
                 if (heading == null || kotlin.math.abs(deg - heading!!) > 2f) heading = deg
             }
             override fun onAccuracyChanged(s: Sensor?, a: Int) {}
@@ -293,6 +297,9 @@ fun DirectionsDialog(name: String, latitude: Double, longitude: Double, here: Sh
     var note by remember { mutableStateOf("") }
     var planning by remember { mutableStateOf(false) }
     var radius by remember { mutableStateOf(10.0) }
+    var avoidHighways by remember { mutableStateOf(prefs.getBoolean("avoidHighways", false)) }
+    var avoidUnpaved by remember { mutableStateOf(prefs.getBoolean("avoidUnpaved", false)) }
+    val routePrefs = RoutePrefs(avoidHighways && mode == TravelMode.CAR, avoidUnpaved)
     val metric = remember { ConditionsFormat.current().metric }
     val scope = rememberCoroutineScope()
 
@@ -302,6 +309,16 @@ fun DirectionsDialog(name: String, latitude: Double, longitude: Double, here: Sh
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     TravelMode.entries.forEach { m ->
                         FilterChip(selected = mode == m, onClick = { mode = m; prefs.edit().putString("travelMode", m.name).apply(); route = null; note = "" }, label = { Text(m.label) })
+                    }
+                }
+                if (mode != TravelMode.FOOT) {
+                    if (mode == TravelMode.CAR) Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Avoid highways", Modifier.weight(1f))
+                        Switch(avoidHighways, { avoidHighways = it; route = null; prefs.edit().putBoolean("avoidHighways", it).apply() })
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Avoid dirt and gravel", Modifier.weight(1f))
+                        Switch(avoidUnpaved, { avoidUnpaved = it; route = null; prefs.edit().putBoolean("avoidUnpaved", it).apply() })
                     }
                 }
                 if (state.cellCount == 0) {
@@ -322,7 +339,7 @@ fun DirectionsDialog(name: String, latitude: Double, longitude: Double, here: Sh
                     Button(enabled = !planning && here != null, onClick = {
                         planning = true; note = ""
                         scope.launch {
-                            route = store.plan(mode, here!!, ShapePoint(latitude, longitude))
+                            route = store.plan(mode, here!!, ShapePoint(latitude, longitude), routePrefs)
                             if (route == null) note = "No route found. Either you or the place is outside the saved roads, or they aren't connected for ${mode.label.lowercase()}ing."
                             planning = false
                         }
@@ -333,7 +350,10 @@ fun DirectionsDialog(name: String, latitude: Double, longitude: Double, here: Sh
                 route?.let { r ->
                     val mins = Math.round(r.seconds / 60).toInt()
                     Text("${ShapeMath.distanceText(r.meters, metric)} · ${if (mins < 60) "${maxOf(1, mins)} min" else "${mins / 60} h ${mins % 60} min"}", style = MaterialTheme.typography.titleMedium)
-                    Button(onClick = { NavigationState.start(name, r); onDismiss() }) { Text("Start") }
+                    Button(onClick = {
+                        NavigationState.start(name, r, ShapePoint(latitude, longitude), mode, routePrefs) { m, p, a, b -> store.plan(m, a, b, p) }
+                        onDismiss()
+                    }) { Text("Start") }
                     r.steps.forEach { s ->
                         Row { Text(s.text, Modifier.weight(1f)); if (s.meters > 0) Text(ShapeMath.distanceText(s.meters, metric), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
@@ -360,16 +380,29 @@ fun RadioPathDialog(name: String, latitude: Double, longitude: Double, here: Sha
     var hA by remember { mutableStateOf(prefs.getFloat("pathHeightA", 2f).toDouble()) }
     var hB by remember { mutableStateOf(prefs.getFloat("pathHeightB", 10f).toDouble()) }
     var showTerrain by remember { mutableStateOf(false) }
+    var fromChoice by remember { mutableStateOf(prefs.getString("pathFrom", "me") ?: "me") }
+    val favs = remember { FavoritesStore.get(context).sorted }
     val metric = remember { ConditionsFormat.current().metric }
+    val start: ShapePoint? = when {
+        fromChoice == "centre" -> MapMemory.camera?.target?.let { ShapePoint(it.latitude, it.longitude) }
+        favs.any { it.id == fromChoice } -> favs.first { it.id == fromChoice }.let { ShapePoint(it.latitude, it.longitude) }
+        else -> here
+    }
     val band = RadioBand.ALL.firstOrNull { it.id == bandId } ?: RadioBand.ALL[0]
-    val result = remember(tstate.tileCount, here, bandId, hA, hB) {
-        if (tstate.tileCount > 0 && here != null) LineOfSight.analyze(here, ShapePoint(latitude, longitude), hA, hB, band.mhz) { la, lo -> terrain.elevation(la, lo) } else null
+    val result = remember(tstate.tileCount, start, bandId, hA, hB) {
+        if (tstate.tileCount > 0 && start != null) LineOfSight.analyze(start, ShapePoint(latitude, longitude), hA, hB, band.mhz) { la, lo -> terrain.elevation(la, lo) } else null
     }
     if (showTerrain) TerrainDialog(terrain, tstate, here?.let { it.latitude to it.longitude }) { showTerrain = false }
 
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Radio path to $name") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Path from", style = MaterialTheme.typography.labelMedium)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("me" to "Where I am", "centre" to "Middle of the map").plus(favs.map { it.id to it.name }).forEach { (id, label) ->
+                        FilterChip(selected = fromChoice == id, onClick = { fromChoice = id; prefs.edit().putString("pathFrom", id).apply() }, label = { Text(label) })
+                    }
+                }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     RadioBand.ALL.forEach { b -> FilterChip(selected = bandId == b.id, onClick = { bandId = b.id; prefs.edit().putString("pathBand", b.id).apply() }, label = { Text(b.name) }) }
                 }
@@ -388,7 +421,7 @@ fun RadioPathDialog(name: String, latitude: Double, longitude: Double, here: Sha
                         Text("A path check needs elevation data for the area. Download it once and it works with no signal.", style = MaterialTheme.typography.bodySmall)
                         Button(onClick = { showTerrain = true }) { Text("Download elevation…") }
                     }
-                    here == null -> Text("Waiting for GPS…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    start == null -> Text("Waiting for GPS…", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     result != null -> {
                         val r = result
                         Text("${r.verdict.label} · ${ShapeMath.distanceText(r.distance, metric)}", style = MaterialTheme.typography.titleMedium,
@@ -401,6 +434,13 @@ fun RadioPathDialog(name: String, latitude: Double, longitude: Double, here: Sha
                             PathVerdict.MARGINAL -> Text("The line is clear, but only $pct% of the first Fresnel zone is open (about 60% is wanted). Expect a weaker link.", style = MaterialTheme.typography.bodySmall)
                             PathVerdict.CLEAR -> Text("The first Fresnel zone is $pct% clear at its tightest point.", style = MaterialTheme.typography.bodySmall)
                             else -> {}
+                        }
+                        if (r.verdict != PathVerdict.UNKNOWN && start != null) {
+                            Button(onClick = {
+                                RadioPathOverlay.show(PathOverlay(start, ShapePoint(latitude, longitude), r.verdict, "${r.verdict.label}, ${ShapeMath.distanceText(r.distance, metric)}"))
+                                NavigationState.requestMap()
+                                onDismiss()
+                            }) { Text("Show on map") }
                         }
                         if (r.missing > 0) Text("Elevation is missing for part of this path (outside the saved area), so the result is a guess.", style = MaterialTheme.typography.bodySmall, color = androidx.compose.ui.graphics.Color(0xFFFF9500))
                     }
