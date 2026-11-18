@@ -1,5 +1,7 @@
 package org.nomadpocket.app.settings
 
+import org.nomadpocket.app.i18n.tr
+
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.runtime.getValue
@@ -69,35 +71,48 @@ fun SettingsScreen(
 
     Column(modifier.verticalScroll(rememberScrollState())) {
         FormSection(footer = "On phones with OLED screens, black pixels use almost no power.") {
-            ToggleRow("Always dark (saves battery)", forceDark, onChange = onForceDark)
+            ToggleRow(tr("Always dark (saves battery)"), forceDark, onChange = onForceDark)
         }
         val worksPrefs = remember { context.getSharedPreferences("worksWith", android.content.Context.MODE_PRIVATE) }
         var warWalkerDismissed by remember { mutableStateOf(worksPrefs.getBoolean("warwalker.dismissed", false)) }
         val usesMap = remember { org.nomadpocket.app.map.FavoritesStore.get(context).favorites.isNotEmpty() || java.io.File(context.filesDir, "shapes.json").let { it.exists() && it.length() > 4 } }
         val usesRadio = org.nomadpocket.ham.Ham.isInitialized && org.nomadpocket.ham.Ham.service.stations.isNotEmpty()
         if (org.nomadpocket.app.WorksWith.showWarWalker(usesMap, usesRadio, warWalkerDismissed)) {
-            FormSection("Works with") {
+            FormSection(tr("Works with")) {
                 Footnote("WarWalker turns your runs and walks into a game: it maps the Wi-Fi and Bluetooth around you, and it uses Pocket Nomad's targets and coverage hexagons. Free and open source.")
-                LinkRow("WarWalker on GitHub", external = true) { open(org.nomadpocket.app.WorksWith.WARWALKER_URL) }
-                TextButton(onClick = { warWalkerDismissed = true; worksPrefs.edit().putBoolean("warwalker.dismissed", true).apply() }) { Text("Not interested") }
+                LinkRow(tr("WarWalker on GitHub"), external = true) { open(org.nomadpocket.app.WorksWith.WARWALKER_URL) }
+                TextButton(onClick = { warWalkerDismissed = true; worksPrefs.edit().putBoolean("warwalker.dismissed", true).apply() }) { Text(tr("Not interested")) }
             }
         }
-        FormSection("Battery tips") {
+        run {
+            val context = LocalContext.current
+            val current = org.nomadpocket.app.i18n.Language.current
+            FormSection(footer = tr("Menus and screens are translated (first-pass translations, still being reviewed). Guides and books stay in English for now: first-aid and survival text needs a qualified human translator.")) {
+                Text(tr("Language"), style = MaterialTheme.typography.titleSmall)
+                androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    org.nomadpocket.app.i18n.AppLanguage.entries.forEach { l ->
+                        androidx.compose.material3.FilterChip(selected = current == l, onClick = { org.nomadpocket.app.i18n.Language.set(context, l) },
+                            label = { Text(if (l == org.nomadpocket.app.i18n.AppLanguage.SYSTEM) tr("System default") else l.nativeName) })
+                    }
+                }
+            }
+        }
+        FormSection(tr("Battery tips")) {
             Footnote("Turn on Battery Saver. Lower screen brightness. Use Airplane mode with Bluetooth on to keep mesh messaging while saving power. Keep the phone warm in cold weather; cold batteries die fast.")
         }
-        FormSection("Privacy", footer = "No accounts, analytics or tracking. Nothing leaves this phone unless you send it: a mesh message, an SOS, or a file you export.") {
-            LinkRow("How Pocket Nomad handles your data", onClick = onPrivacy)
-            LinkRow("Coverage map settings…", onClick = onCoverage)
+        FormSection(tr("Privacy"), footer = tr("No accounts, analytics or tracking. Nothing leaves this phone unless you send it: a mesh message, an SOS, or a file you export.")) {
+            LinkRow(tr("How Pocket Nomad handles your data"), onClick = onPrivacy)
+            LinkRow(tr("Coverage map settings…"), onClick = onCoverage)
             LinkRow("Privacy policy", external = true) { open(PRIVACY_URL) }
         }
-        FormSection("About") {
+        FormSection(tr("About")) {
             // Always on black: the logo's white lettering vanishes on a light background.
             Box(Modifier.fillMaxWidth().background(Color.Black, RoundedCornerShape(16.dp)).padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
                 Image(painterResource(R.drawable.logo), contentDescription = "Pocket Nomad", modifier = Modifier.widthIn(max = 220.dp).size(220.dp),
                     contentScale = ContentScale.Fit)
             }
-            LabeledRow("Version", BuildConfig.VERSION_NAME)
-            Text("Pocket Nomad is free, open-source software (Apache 2.0). It is an independent project, inspired by Project NOMAD, and not affiliated with it.",
+            LabeledRow(tr("Version"), BuildConfig.VERSION_NAME)
+            Text(tr("Pocket Nomad is free, open-source software (Apache 2.0). It is an independent project, inspired by Project NOMAD, and not affiliated with it."),
                 style = MaterialTheme.typography.bodySmall)
             LinkRow("Source code", external = true) { open(SOURCE_URL) }
             Footnote("Guides in this app don't replace first-aid training. Call emergency services whenever you can.")
@@ -149,7 +164,7 @@ private val points: List<Triple<ImageVector, String, String>> = listOf(
     Triple(Icons.Filled.Hexagon, "Coverage sharing is opt-in",
         "Off by default, and it needs a private zone first. Before a file exists, the phone removes your private zones, exact positions, node names and IDs, and dates finer than a month. Nothing is sent: you export the file and choose where it goes."),
     Triple(Icons.Filled.CloudDownload, "Weather, earthquakes and space weather",
-        "When you tap Update in Conditions, the app asks free public services (USGS, National Weather Service, Open-Meteo, NOAA) for data and keeps it on the phone. Alerts and the forecast are asked for your position rounded to about 7 miles, never your exact location. Earthquakes, space weather and radio transmitters are whole-region downloads filtered on the phone. Updates happen only when you ask, unless you turn on updating when the app opens. Saving elevation (hills, radio paths) and roads (directions) downloads map data for an area from free public services (AWS Open Data terrain tiles and the OpenStreetMap Overpass service); those requests reveal roughly which area you asked for, about 5 to 100 km wide, but nothing else, and no account is used. Routes, favorites, drawings and radio path checks are worked out and kept on the phone."),
+        "When you tap Update in Conditions, the app asks free public services (USGS, National Weather Service, Open-Meteo, NOAA) for data and keeps it on the phone. Alerts and the forecast are asked for your position rounded to about 7 miles, never your exact location. Earthquakes, space weather and radio transmitters are whole-region downloads filtered on the phone. Updates happen only when you ask, unless you turn on updating when the app opens. Parks on the Air asks the free POTA service for a box about 100 km wide around your position rounded to about 7 miles, never your exact location. Saving elevation (hills, radio paths) and roads (directions) downloads map data for an area from free public services (AWS Open Data terrain tiles and the OpenStreetMap Overpass service); those requests reveal roughly which area you asked for, about 5 to 100 km wide, but nothing else, and no account is used. Routes, favorites, drawings and radio path checks are worked out and kept on the phone."),
     Triple(Icons.Filled.CloudDownload, "Satellite passes",
         "Orbit data for the space station and amateur radio satellites is downloaded from CelesTrak when you tap Update. Passes are worked out on the phone from your location, which is never sent."),
     Triple(Icons.Filled.CloudDownload, "Downloads you start",

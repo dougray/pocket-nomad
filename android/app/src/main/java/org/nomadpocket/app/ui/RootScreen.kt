@@ -128,7 +128,7 @@ fun RootScreen(forceDark: Boolean, onForceDark: (Boolean) -> Unit, launchScreen:
                                     }
                                 },
                                 icon = { Icon(tab.icon, contentDescription = null) },
-                                label = { Text(tab.title) },
+                                label = { Text(org.nomadpocket.app.i18n.tr(tab.title)) },
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = MaterialTheme.colorScheme.primary,
                                     selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -332,7 +332,7 @@ fun RadioScreen(launchScreen: String? = null) {
                     selected = section == id,
                     onClick = { section = id; prefs.edit().putString("section", id).putBoolean("ham", id == "ham").apply() },
                     shape = SegmentedButtonDefaults.itemShape(i, 3),
-                ) { Text(label) }
+                ) { Text(org.nomadpocket.app.i18n.tr(label)) }
             }
         }
         // The switch already sits below the status bar; the screens' top bars must not add it again.

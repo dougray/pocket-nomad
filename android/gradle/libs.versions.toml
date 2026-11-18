@@ -1,6 +1,7 @@
 # Shared by :app, :mesh and :library. Add a library here (not in a module's build file) so
 # both modules resolve the same version.
 [versions]
+desugarJdkLibs = "2.1.5"
 agp = "9.4.1"
 kotlin = "2.4.21"
 coreKtx = "1.19.1"
@@ -26,6 +27,7 @@ concurrentFutures = "1.3.0"
 documentfile = "1.0.0"
 
 [libraries]
+desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }

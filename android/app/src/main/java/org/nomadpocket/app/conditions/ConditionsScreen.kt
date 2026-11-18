@@ -9,6 +9,8 @@
 
 package org.nomadpocket.app.conditions
 
+import org.nomadpocket.app.i18n.tr
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -80,11 +82,11 @@ fun ConditionsCard(onClick: () -> Unit) {
     val now = System.currentTimeMillis()
     Column(Modifier.fillMaxWidth().background(cardColor, RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Conditions", Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            Text(tr("Conditions"), Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 17.sp)
             s.oldestUpdate?.let { Text(ConditionsParsers.age(it, now), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
         if (!s.hasAnything) {
-            Text("Weather alerts, forecast, earthquakes and space weather. Update once, read it with no signal.", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(tr("Weather alerts, forecast, earthquakes and space weather. Update once, read it with no signal."), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
             val active = ConditionsStore.activeAlerts(s)
             if (active.isNotEmpty()) {
@@ -122,7 +124,7 @@ fun ConditionsScreen(onBack: () -> Unit) {
 
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text("Conditions", fontWeight = FontWeight.Bold) },
+            title = { Text(tr("Conditions"), fontWeight = FontWeight.Bold) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             actions = {
                 IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "More") }
@@ -147,7 +149,7 @@ fun ConditionsScreen(onBack: () -> Unit) {
                         Text("Needs a connection. After that it reads with no signal.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Button(onClick = { scope.launch { ConditionsStore.refresh(force = true) } }, enabled = !s.updating) {
-                        if (s.updating) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Update")
+                        if (s.updating) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text(tr("Update"))
                     }
                 }
                 if (s.needsLocation) {
@@ -202,7 +204,7 @@ fun ConditionsScreen(onBack: () -> Unit) {
                     HorizontalDivider()
                     ConditionsParsers.days(snap.value, TimeZone.getDefault()).forEach { d ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(java.text.SimpleDateFormat("EEEE", java.util.Locale.getDefault()).format(Date(d.dayStartMillis)), Modifier.width(100.dp))
+                            Text(java.text.SimpleDateFormat("EEEE", androidx.compose.ui.platform.LocalConfiguration.current.locales[0]).format(Date(d.dayStartMillis)), Modifier.width(100.dp))
                             Text(codeLabel(d.code), Modifier.weight(1f), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Column(horizontalAlignment = Alignment.End) {
                                 Text("${fmt.temperature(d.highC)} / ${fmt.temperature(d.lowC)}", fontSize = 14.sp)

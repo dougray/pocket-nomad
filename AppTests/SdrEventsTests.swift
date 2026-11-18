@@ -49,6 +49,7 @@ final class SdrEventsTests: XCTestCase {
         XCTAssertNil(SdrParser.event(["t": "aircraft", "icao": "A", "lat": 95, "lon": 0]))
         XCTAssertNil(SdrParser.event(["t": "hello", "proto": 2]))
         XCTAssertNil(SdrParser.event(["t": "nonsense"]))
+        XCTAssertEqual(SdrParser.event(["t": "error", "code": "auth"]), .error(code: "auth"))
         var r = SdrLineReader()
         XCTAssertEqual(r.feed(Data("garbage\n{\"t\":\"status\",\"seq\":1}\n".utf8)).count, 1)
         XCTAssertEqual(r.errors, 1)

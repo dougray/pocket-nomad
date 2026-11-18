@@ -1,0 +1,17 @@
+{"t":"hello","seq":0,"proto":1,"fw":"0.1.0","model":"simulator","dongle":"Simulated RTL-SDR","modes":["adsb","aprs","nwr","spectrum"],"gps":false,"sim":true}
+{"t":"ship","seq":101,"ts":1793975400000,"mmsi":366999000,"name":"TEST VESSEL","lat":29.87,"lon":-97.24,"kind":"Cargo","sog":12.3,"cog":90.0}
+{"t":"ship","seq":102,"ts":1793975400000,"mmsi":338087471,"name":"SIM FERRY","lat":29.77,"lon":-97.19,"kind":"Passenger","sog":7.300000000000001,"cog":90.0}
+{"t":"sonde","seq":103,"ts":1793975400000,"id":"R1234567","model":"RS41","lat":30.47,"lon":-98.04,"alt":8000,"vv":5.0,"vh":21.0,"mhz":402.5}
+{"t":"spot","seq":104,"ts":1793975400000,"mode":"ft8","call":"DL1ABC","grid":"JO62","snr":-6,"mhz":14.0755}
+{"t":"ship","seq":105,"ts":1793975402000,"mmsi":366999000,"name":"TEST VESSEL","lat":29.872,"lon":-97.24,"kind":"Cargo","sog":12.3,"cog":91.0}
+{"t":"ship","seq":106,"ts":1793975402000,"mmsi":338087471,"name":"SIM FERRY","lat":29.772,"lon":-97.19,"kind":"Passenger","sog":7.300000000000001,"cog":91.0}
+{"t":"sonde","seq":107,"ts":1793975402000,"id":"R1234567","model":"RS41","lat":30.48,"lon":-98.03,"alt":8300,"vv":5.0,"vh":21.0,"mhz":402.5}
+{"t":"spot","seq":108,"ts":1793975402000,"mode":"ft8","call":"K5ABC","grid":"EM10","snr":5,"mhz":14.0755}
+{"t":"ship","seq":109,"ts":1793975404000,"mmsi":366999000,"name":"TEST VESSEL","lat":29.874,"lon":-97.24,"kind":"Cargo","sog":12.3,"cog":92.0}
+{"t":"ship","seq":110,"ts":1793975404000,"mmsi":338087471,"name":"SIM FERRY","lat":29.774,"lon":-97.19,"kind":"Passenger","sog":7.300000000000001,"cog":92.0}
+{"t":"sonde","seq":111,"ts":1793975404000,"id":"R1234567","model":"RS41","lat":30.49,"lon":-98.02,"alt":8600,"vv":5.0,"vh":21.0,"mhz":402.5}
+{"t":"spot","seq":112,"ts":1793975404000,"mode":"ft8","call":"DL1ABC","grid":"EM10","snr":-17,"mhz":14.0754}
+{"t":"ship","seq":113,"ts":1793975406000,"mmsi":366999000,"name":"TEST VESSEL","lat":29.876,"lon":-97.24,"kind":"Cargo","sog":12.3,"cog":93.0}
+{"t":"ship","seq":114,"ts":1793975406000,"mmsi":338087471,"name":"SIM FERRY","lat":29.776,"lon":-97.19,"kind":"Passenger","sog":7.300000000000001,"cog":93.0}
+{"t":"sonde","seq":115,"ts":1793975406000,"id":"R1234567","model":"RS41","lat":30.5,"lon":-98.01,"alt":8900,"vv":5.0,"vh":21.0,"mhz":402.5}
+{"t":"spot","seq":116,"ts":1793975406000,"mode":"ft8","call":"JA1XYZ","grid":"EM10","snr":-18,"mhz":14.0756}

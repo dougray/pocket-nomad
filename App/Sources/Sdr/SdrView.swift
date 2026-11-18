@@ -9,17 +9,24 @@ struct SdrView: View {
     @State private var client = SdrClient.shared
     @State private var state = SdrState.shared
     @State private var location = LocationService.shared
+    @State private var token = SdrToken.load()
     private let metric = ConditionsFormat.current.metric
 
-    private let modes: [(id: String, label: String, symbol: String)] = [
+    private let allModes: [(id: String, label: String, symbol: String)] = [
         ("adsb", "Aircraft", "airplane"), ("aprs", "APRS", "dot.radiowaves.left.and.right"), ("nwr", "Weather radio", "cloud.bolt.rain"),
+        ("ais", "Ships (AIS)", "ferry"), ("sonde", "Weather balloons", "balloon"), ("ft8", "HF stations (FT8)", "waveform"),
     ]
+    /// Only what this box says it can receive.
+    private var modes: [(id: String, label: String, symbol: String)] {
+        guard let offered = state.hello?.modes else { return Array(allModes.prefix(3)) }
+        return allModes.filter { offered.contains($0.id) }
+    }
 
     var body: some View {
         List {
             connectionSection
             if client.isConnected { listenSection }
-            if client.isConnected { aircraftSection; alertsSection }
+            if client.isConnected { aircraftSection; shipsSection; sondesSection; spotsSection; alertsSection }
             helpSection
         }
         .onAppear {
@@ -45,6 +52,9 @@ struct SdrView: View {
             TextField("Box address (for example sdrbox.local)", text: $client.host)
                 .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
             Stepper("Port \(String(client.port))", value: $client.port, in: 1...65535)
+            SecureField("Pairing token (printed by the installer)", text: $token)
+                .textInputAutocapitalization(.characters).autocorrectionDisabled()
+                .onChange(of: token) { _, new in client.token = new }
             if client.isConnected || client.link == .connecting {
                 Button("Disconnect", role: .destructive) { client.disconnect() }
             } else {
@@ -99,6 +109,49 @@ struct SdrView: View {
         }
     }
 
+    @ViewBuilder private var shipsSection: some View {
+        let ships = state.visibleShips(now: Date())
+        if !ships.isEmpty || client.mode == "ais" {
+            Section("Ships (\(ships.count))") {
+                if ships.isEmpty { Text("Listening… ships appear within a few minutes.").foregroundStyle(.secondary) }
+                ForEach(ships.prefix(40)) { s in
+                    VStack(alignment: .leading) {
+                        Text(s.name.isEmpty ? "MMSI \(s.mmsi)" : s.name).font(.headline)
+                        Text([s.kind, s.speedKnots.map { String(format: "%.1f kt", $0) }, s.courseDegrees.map { String(format: "heading %.0f°", $0) }].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var sondesSection: some View {
+        let sondes = state.visibleSondes(now: Date())
+        if !sondes.isEmpty || client.mode == "sonde" {
+            Section("Weather balloons (\(sondes.count))") {
+                if sondes.isEmpty { Text("Listening… balloons are launched twice a day around 00:00 and 12:00 UTC.").foregroundStyle(.secondary) }
+                ForEach(sondes) { s in
+                    VStack(alignment: .leading) {
+                        Text("\(s.id) · \(s.model)").font(.headline)
+                        Text("\(s.altitudeMetres.formatted()) m · \(s.climbMS >= 0 ? "rising" : "falling") \(String(format: "%.0f", abs(s.climbMS))) m/s · \(String(format: "%.3f", s.mhz)) MHz").font(.caption).foregroundStyle(.secondary)
+                        PlaceActions(name: s.id, latitude: s.latitude, longitude: s.longitude)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var spotsSection: some View {
+        let spots = state.visibleSpots(now: Date())
+        if !spots.isEmpty || client.mode == "ft8" || client.mode == "wspr" {
+            Section("Heard on HF (\(spots.count))") {
+                ForEach(spots.prefix(40)) { s in
+                    HStack { Text(s.call).font(.headline); Text(s.grid).foregroundStyle(.secondary); Spacer(); Text("\(s.snr) dB · \(String(format: "%.3f", s.mhz)) MHz").font(.caption) }
+                }
+            }
+        }
+    }
+
     private var alertsSection: some View {
         Section("Weather radio") {
             if !state.channels.isEmpty {
@@ -120,7 +173,7 @@ struct SdrView: View {
         Section("How to set it up") {
             Text("1. Plug an RTL-SDR dongle and its antenna into a Raspberry Pi Zero 2 W (a USB-OTG adapter is needed).").font(.footnote)
             Text("2. Install the sdrbox software on the Pi (see the sdrbox project) and put the Pi on your phone's Wi-Fi or its own hotspot.").font(.footnote)
-            Text("3. Type the Pi's address above and tap Connect. Aircraft show on the Map too (Layers > Aircraft).").font(.footnote)
+            Text("3. Type the Pi's address and the pairing token the installer printed, and tap Connect. Aircraft show on the Map too (Layers > Aircraft).").font(.footnote)
             Text("Tips: an antenna by a window or outside hears far more. Your location is never sent to the box.").font(.footnote).foregroundStyle(.secondary)
         }
     }

@@ -24,6 +24,9 @@ class NomadApp : Application() {
         super.onCreate()
         // No API key: the map style and tiles come from OpenFreeMap.
         MapLibre.getInstance(this)
+        org.nomadpocket.app.i18n.Language.load(this)
+        // The NVIS planner (Ham module) reads the latest geomagnetic Kp from Conditions when it has one.
+        org.nomadpocket.ham.HamNvisHooks.kp = { org.nomadpocket.app.conditions.ConditionsStore.state.value.space?.value?.kpNow ?: 2.0 }
         Mesh.init(this)
         org.nomadpocket.ham.Ham.init(this)
         org.nomadpocket.ham.HamPlaceHook.content = { name, lat, lon -> org.nomadpocket.app.map.PlaceActions(name, lat, lon) }

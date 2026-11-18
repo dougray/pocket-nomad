@@ -25,6 +25,9 @@ targets:
       - path: App/Resources/Map
         type: folder
         buildPhase: resources
+      - path: App/Resources/Localization/en.lproj/Localizable.strings
+      - path: App/Resources/Localization/es.lproj/Localizable.strings
+      - path: App/Resources/Localization/fr.lproj/Localizable.strings
     configFiles:
       Debug: Config/Shared.xcconfig
       Release: Config/Shared.xcconfig
@@ -43,6 +46,7 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: Pocket Nomad
+        CFBundleLocalizations: [en, es, fr]
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen:

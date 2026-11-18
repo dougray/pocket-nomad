@@ -82,7 +82,7 @@ android {
     ndkVersion = "29.0.14206865"
 
     defaultConfig {
-        minSdk = 26
+        minSdk = 24
         consumerProguardFiles("consumer-rules.pro")
         ndk {
             // Phones are arm64, and so are emulators on Apple-silicon Macs. Add "x86_64"
@@ -116,6 +116,7 @@ android {
     }
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
@@ -129,6 +130,7 @@ if (llamaSourceOverride == null && !skipNative) {
 }
 
 dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(libs.kotlinx.coroutines.android)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

@@ -49,6 +49,7 @@ class SdrEventsTest {
         assertNull(SdrParser.event(org.json.JSONObject("""{"t":"aircraft","icao":"A","lat":95,"lon":0}""")))
         assertNull(SdrParser.event(org.json.JSONObject("""{"t":"hello","proto":2}""")))
         assertNull(SdrParser.event(org.json.JSONObject("""{"t":"nonsense"}""")))
+        assertEquals(SdrEvent.Error("auth"), SdrParser.event(org.json.JSONObject("""{"t":"error","code":"auth"}""")))
         val r = SdrLineReader()
         assertEquals(1, r.feed("garbage\n{\"t\":\"status\",\"seq\":1}\n".toByteArray()).size)
         assertEquals(1, r.errors)

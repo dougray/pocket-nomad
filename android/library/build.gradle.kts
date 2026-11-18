@@ -13,11 +13,12 @@ android {
     }
 
     defaultConfig {
-        minSdk = 26
+        minSdk = 24
         consumerProguardFiles("consumer-rules.pro")
     }
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
@@ -32,6 +33,7 @@ android {
 }
 
 dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(libs.androidx.sqlite.bundled)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.xz)

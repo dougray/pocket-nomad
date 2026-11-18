@@ -46,6 +46,12 @@ weather alert and forecast requests include your position rounded to 0.1 degree 
 whole-region downloads filtered on the phone, so no location is sent for them. These
 services see your IP address and what you request, like any website.
 
+The Ham contact log is kept only on the phone. It leaves only when you export or share an ADIF file yourself.
+
+Parks on the Air asks the free POTA service (pota.app) for the parks in a box about 100 km wide around your
+position rounded to 0.1 degree (about 7 miles), and for the list of current on-air spots. Only when you tap
+Update. No exact location is sent.
+
 Saving elevation (for shaded hills and radio path checks) and roads (for directions) downloads
 map data for an area from free public services (AWS Open Data terrain tiles and the
 OpenStreetMap Overpass service). Only when you tap Download. Those requests reveal roughly which

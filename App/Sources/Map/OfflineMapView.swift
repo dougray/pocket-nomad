@@ -127,6 +127,14 @@ final class MapController {
     var showAircraft = UserDefaults.standard.object(forKey: "map.showAircraft") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showAircraft, forKey: "map.showAircraft") }
     }
+    /// Parks on the Air: parks near you and who is on the air.
+    var showPota = UserDefaults.standard.object(forKey: "map.showPota") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showPota, forKey: "map.showPota") }
+    }
+    /// The 300-mile NVIS ring around you.
+    var showNvis = UserDefaults.standard.object(forKey: "map.showNvis") as? Bool ?? false {
+        didSet { UserDefaults.standard.set(showNvis, forKey: "map.showNvis") }
+    }
     var showFavorites = UserDefaults.standard.object(forKey: "map.showFavorites") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showFavorites, forKey: "map.showFavorites") }
     }
@@ -204,6 +212,8 @@ struct OfflineMapView: View {
     @State private var compass = NavigationCompass.shared
     @State private var showSearch = LaunchScreen.value == "map:search"
     @State private var pathOverlay = RadioPathOverlay.shared
+    @State private var showPota = false
+    @State private var pota = PotaStore.shared
     @State private var showShapesList = false
     @State private var namingShape = false
     @State private var shapeName = ""
@@ -282,7 +292,9 @@ struct OfflineMapView: View {
                          shapes: controller.showShapes ? shapes.shapes : [],
                          favorites: controller.showFavorites ? favorites.favorites : [],
                          aircraft: controller.showAircraft ? SdrState.shared.visibleAircraft(now: Date()) : [],
-                         goToLine: goToLine, routeLine: navigation.target?.line.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) } ?? [], pathLine: pathLine, pathVerdict: pathOverlay.verdict.rawValue,
+                         ships: controller.showAircraft ? SdrState.shared.visibleShips(now: Date()) : [], sondes: controller.showAircraft ? SdrState.shared.visibleSondes(now: Date()) : [], hfSpots: controller.showAircraft ? SdrState.shared.visibleSpots(now: Date()) : [],
+                         potaParks: controller.showPota ? (pota.snapshot?.parks ?? []) : [], potaSpots: controller.showPota ? pota.activeSpots(near: nil) : [],
+                         goToLine: goToLine, routeLine: navigation.target?.line.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) } ?? [], pathLine: pathLine, pathVerdict: pathOverlay.verdict.rawValue, nvisRing: nvisRing,
                          draft: controller.draft, draftClosed: controller.draftClosed,
                          coverage: controller.coverage,
                          colorMode: controller.coverageColor,
@@ -405,6 +417,7 @@ struct OfflineMapView: View {
             .sheet(isPresented: $showTerrainSheet) {
                 TerrainSheet(mapCenter: controller.mapView?.centerCoordinate ?? controller.mapView?.userLocation?.coordinate)
             }
+            .sheet(isPresented: $showPota) { PotaView() }
             .sheet(isPresented: $showStreetsSheet) {
                 StreetMapsSheet(mapCenter: controller.mapView?.centerCoordinate)
             }
@@ -418,6 +431,11 @@ struct OfflineMapView: View {
     }
 
     /// A dashed line from you to the waypoint you're heading for.
+    private var nvisRing: [CLLocationCoordinate2D] {
+        guard controller.showNvis, let c = location.location?.coordinate else { return [] }
+        return Nvis.circle(latitude: c.latitude, longitude: c.longitude, radiusKm: Nvis.rangeKm).map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+    }
+
     private var pathLine: [CLLocationCoordinate2D] {
         guard let a = pathOverlay.from, let b = pathOverlay.to else { return [] }
         return [CLLocationCoordinate2D(latitude: a.latitude, longitude: a.longitude), CLLocationCoordinate2D(latitude: b.latitude, longitude: b.longitude)]
@@ -446,7 +464,10 @@ struct OfflineMapView: View {
             Toggle(isOn: $controller.showKnown) { Label("Known radios (community maps)", systemImage: "dot.radiowaves.up.forward") }
             Toggle(isOn: $controller.showAPRS) { Label("Ham APRS stations heard", systemImage: "mappin.and.ellipse") }
             Toggle(isOn: $controller.showFavorites) { Label("Favorites", systemImage: "star.fill") }
+            Toggle(isOn: $controller.showNvis) { Label("NVIS range ring (300 mi)", systemImage: "circle.dashed") }
             Toggle(isOn: $controller.showAircraft) { Label("Aircraft (SDR box)", systemImage: "airplane") }
+            Toggle(isOn: $controller.showPota) { Label("Parks on the Air", systemImage: "tree.fill") }
+            Button { showPota = true } label: { Label("Parks on the Air…", systemImage: "list.bullet") }
             Button { showSearch = true } label: { Label("Search and favorites…", systemImage: "magnifyingglass") }
             Toggle(isOn: $controller.showShapes) { Label("My drawings", systemImage: "scribble.variable") }
             Button { showShapesList = true } label: { Label("Drawings…", systemImage: "list.bullet.rectangle") }
@@ -726,6 +747,11 @@ struct MapLibreView: UIViewRepresentable {
     var shapes: [MapShape] = []
     var favorites: [Favorite] = []
     var aircraft: [SdrAircraft] = []
+    var ships: [SdrShip] = []
+    var sondes: [SdrSonde] = []
+    var hfSpots: [SdrSpot] = []
+    var potaParks: [PotaPark] = []
+    var potaSpots: [PotaSpot] = []
     /// From the user to the current Go to waypoint (empty when not navigating).
     var goToLine: [CLLocationCoordinate2D] = []
     /// The planned road route, when one is active.
@@ -733,6 +759,8 @@ struct MapLibreView: UIViewRepresentable {
     /// The radio path last checked (two points), coloured by `pathVerdict`.
     var pathLine: [CLLocationCoordinate2D] = []
     var pathVerdict = "unknown"
+    /// The NVIS range ring (empty when off).
+    var nvisRing: [CLLocationCoordinate2D] = []
     var draft: [CLLocationCoordinate2D] = []
     var draftClosed = false
     var coverage: CoverageLayer = .off
@@ -779,6 +807,7 @@ struct MapLibreView: UIViewRepresentable {
         context.coordinator.syncNavigation(on: view)
         context.coordinator.syncTerrain(on: view)
         context.coordinator.syncAircraft(on: view)
+        context.coordinator.syncPota(on: view)
     }
 
     @MainActor
@@ -795,6 +824,7 @@ struct MapLibreView: UIViewRepresentable {
         private var navKey = ""
         private var terrainSynced = ""
         private var aircraftKey = ""
+        private var potaKey = ""
         private var regionsFitted = false
         /// Set once the map has centred on the first good GPS fix, so the region
         /// fit doesn't pull it away and later fixes don't fight the user's panning.
@@ -890,18 +920,77 @@ struct MapLibreView: UIViewRepresentable {
             style.addLayer(labels)
         }
 
+        /// Parks on the Air: parks as green dots, people on the air from a park as orange ones with frequency and mode.
+        func syncPota(on view: MLNMapView) {
+            guard let style = view.style else { return }
+            let key = "\(parent.potaParks.count)|" + parent.potaSpots.map { "\($0.id)" }.joined(separator: ",")
+            guard key != potaKey else { return }
+            potaKey = key
+            let activeRefs = Set(parent.potaSpots.map(\.reference))
+            var features: [MLNPointFeature] = parent.potaParks.filter { !activeRefs.contains($0.reference) }.map { p in
+                let f = MLNPointFeature()
+                f.coordinate = CLLocationCoordinate2D(latitude: p.latitude, longitude: p.longitude)
+                f.attributes = ["name": p.reference, "live": 0]
+                return f
+            }
+            features += parent.potaSpots.map { s in
+                let f = MLNPointFeature()
+                f.coordinate = CLLocationCoordinate2D(latitude: s.latitude, longitude: s.longitude)
+                f.attributes = ["name": "\(s.activator) \(s.frequencyText) \(s.mode)", "live": 1]
+                return f
+            }
+            if let source = style.source(withIdentifier: "pota") as? MLNShapeSource {
+                source.shape = MLNShapeCollectionFeature(shapes: features)
+                return
+            }
+            let source = MLNShapeSource(identifier: "pota", features: features, options: nil)
+            style.addSource(source)
+            let dots = MLNCircleStyleLayer(identifier: "pota-dots", source: source)
+            dots.circleColor = NSExpression(format: "TERNARY(live == 1, %@, %@)", UIColor.systemOrange, UIColor.systemGreen)
+            dots.circleRadius = NSExpression(format: "TERNARY(live == 1, 7, 4)")
+            dots.circleStrokeColor = NSExpression(forConstantValue: UIColor.white)
+            dots.circleStrokeWidth = NSExpression(forConstantValue: 1.5)
+            style.addLayer(dots)
+            let labels = MLNSymbolStyleLayer(identifier: "pota-names", source: source)
+            labels.text = NSExpression(forKeyPath: "name")
+            labels.textFontNames = NSExpression(forConstantValue: ["Noto Sans Regular"])
+            labels.textFontSize = NSExpression(forConstantValue: 10)
+            labels.textAnchor = NSExpression(forConstantValue: "top")
+            labels.textOffset = NSExpression(forConstantValue: NSValue(cgVector: CGVector(dx: 0, dy: 0.8)))
+            labels.textColor = NSExpression(forConstantValue: UIColor.systemGreen)
+            labels.textHaloColor = NSExpression(forConstantValue: parent.dark ? UIColor.black : UIColor.white)
+            labels.textHaloWidth = NSExpression(forConstantValue: 1.5)
+            labels.textOptional = NSExpression(forConstantValue: true)
+            style.addLayer(labels)
+        }
+
         /// Aircraft heard by an SDR box: small arrows pointing along their track, with callsign and altitude.
         func syncAircraft(on view: MLNMapView) {
             guard let style = view.style else { return }
             let key = parent.aircraft.map { "\($0.icao)|\($0.latitude)|\($0.longitude)|\($0.trackDegrees)" }.joined(separator: ";")
+                + "#s" + parent.ships.map { "\($0.mmsi)|\($0.latitude)|\($0.longitude)" }.joined(separator: ";")
+                + "#b" + parent.sondes.map { "\($0.id)|\($0.latitude)|\($0.longitude)" }.joined(separator: ";")
+                + "#h" + parent.hfSpots.map { "\($0.id)|\($0.snr)" }.joined(separator: ";")
             guard key != aircraftKey else { return }
             aircraftKey = key
-            let features: [MLNPointFeature] = parent.aircraft.map { a in
+            var features: [MLNPointFeature] = parent.aircraft.map { a in
                 let f = MLNPointFeature()
                 f.coordinate = CLLocationCoordinate2D(latitude: a.latitude, longitude: a.longitude)
                 let name = a.callsign.isEmpty ? a.icao : a.callsign
-                f.attributes = ["name": "\(name) \(a.altitudeFeet / 100 * 100 >= 1000 ? "\(a.altitudeFeet / 100) FL" : "\(a.altitudeFeet) ft")", "trk": a.trackDegrees]
+                f.attributes = ["name": "\(name) \(a.altitudeFeet / 100 * 100 >= 1000 ? "\(a.altitudeFeet / 100) FL" : "\(a.altitudeFeet) ft")", "trk": a.trackDegrees, "kind": 0]
                 return f
+            }
+            for s in parent.ships {
+                let f = MLNPointFeature(); f.coordinate = CLLocationCoordinate2D(latitude: s.latitude, longitude: s.longitude)
+                f.attributes = ["name": s.name.isEmpty ? "MMSI \(s.mmsi)" : s.name, "kind": 1]; features.append(f)
+            }
+            for s in parent.sondes {
+                let f = MLNPointFeature(); f.coordinate = CLLocationCoordinate2D(latitude: s.latitude, longitude: s.longitude)
+                f.attributes = ["name": "\(s.id) \(s.altitudeMetres / 100 * 100) m", "kind": 2]; features.append(f)
+            }
+            for s in parent.hfSpots {
+                let f = MLNPointFeature(); f.coordinate = CLLocationCoordinate2D(latitude: s.latitude, longitude: s.longitude)
+                f.attributes = ["name": "\(s.call) \(s.snr) dB", "kind": 3]; features.append(f)
             }
             if let source = style.source(withIdentifier: "sdr-aircraft") as? MLNShapeSource {
                 source.shape = MLNShapeCollectionFeature(shapes: features)
@@ -910,7 +999,7 @@ struct MapLibreView: UIViewRepresentable {
             let source = MLNShapeSource(identifier: "sdr-aircraft", features: features, options: nil)
             style.addSource(source)
             let dots = MLNCircleStyleLayer(identifier: "sdr-aircraft", source: source)
-            dots.circleColor = NSExpression(forConstantValue: UIColor.systemTeal)
+            dots.circleColor = NSExpression(format: "TERNARY(kind == 1, %@, TERNARY(kind == 2, %@, TERNARY(kind == 3, %@, %@)))", UIColor.systemBlue, UIColor.systemRed, UIColor.systemPurple, UIColor.systemTeal)
             dots.circleRadius = NSExpression(forConstantValue: 5)
             dots.circleStrokeColor = NSExpression(forConstantValue: UIColor.white)
             dots.circleStrokeWidth = NSExpression(forConstantValue: 1.5)
@@ -962,6 +1051,7 @@ struct MapLibreView: UIViewRepresentable {
             guard let style = view.style else { return }
             let key = parent.favorites.map { "\($0.id)|\($0.name)|\($0.latitude)|\($0.longitude)" }.joined(separator: ";")
                 + "#" + parent.goToLine.map { "\($0.latitude),\($0.longitude)" }.joined(separator: ";")
+                + "#n" + String(parent.nvisRing.count) + (parent.nvisRing.first.map { "\($0.latitude),\($0.longitude)" } ?? "")
                 + "#p" + parent.pathLine.map { "\($0.latitude),\($0.longitude)" }.joined(separator: ";") + parent.pathVerdict
                 + "#" + String(parent.routeLine.count) + "|" + (parent.routeLine.first.map { "\($0.latitude)" } ?? "")
             guard key != navKey else { return }
@@ -978,6 +1068,12 @@ struct MapLibreView: UIViewRepresentable {
                 let rf = MLNPolylineFeature(coordinates: &rc, count: UInt(rc.count))
                 rf.attributes = ["kind": "route"]
                 lineShapes.append(rf)
+            }
+            if parent.nvisRing.count > 2 {
+                var nc = parent.nvisRing
+                let nf = MLNPolylineFeature(coordinates: &nc, count: UInt(nc.count))
+                nf.attributes = ["kind": "nvis"]
+                lineShapes.append(nf)
             }
             if parent.pathLine.count == 2 {
                 var pc = parent.pathLine
@@ -1002,7 +1098,7 @@ struct MapLibreView: UIViewRepresentable {
             style.addSource(favSource)
             style.addSource(goSource)
             let line = MLNLineStyleLayer(identifier: "goto-line", source: goSource)
-            line.predicate = NSPredicate(format: "$geometryType != 'Point' AND kind != 'route' AND kind != 'path'")
+            line.predicate = NSPredicate(format: "$geometryType != 'Point' AND kind != 'route' AND kind != 'path' AND kind != 'nvis'")
             line.lineColor = NSExpression(forConstantValue: UIColor.systemGreen)
             line.lineWidth = NSExpression(forConstantValue: 4)
             line.lineDashPattern = NSExpression(forConstantValue: [1.5, 1.5])
@@ -1020,6 +1116,12 @@ struct MapLibreView: UIViewRepresentable {
             pathLayer.lineWidth = NSExpression(forConstantValue: 5)
             pathLayer.lineDashPattern = NSExpression(forConstantValue: [2, 1.5])
             style.insertLayer(pathLayer, below: line)
+            let nvisLayer = MLNLineStyleLayer(identifier: "nvis-ring", source: goSource)
+            nvisLayer.predicate = NSPredicate(format: "kind == 'nvis'")
+            nvisLayer.lineColor = NSExpression(forConstantValue: UIColor.systemPurple)
+            nvisLayer.lineWidth = NSExpression(forConstantValue: 3)
+            nvisLayer.lineDashPattern = NSExpression(forConstantValue: [3, 2])
+            style.insertLayer(nvisLayer, below: line)
             let target = MLNCircleStyleLayer(identifier: "goto-target", source: goSource)
             target.predicate = NSPredicate(format: "$geometryType == 'Point'")
             target.circleRadius = NSExpression(forConstantValue: 11)
@@ -1365,6 +1467,8 @@ struct MapLibreView: UIViewRepresentable {
                 navKey = ""
                 terrainSynced = ""
                 aircraftKey = ""
+                potaKey = ""
+                syncPota(on: mapView)
                 syncAircraft(on: mapView)
                 syncTerrain(on: mapView)
                 syncNodes(on: mapView)

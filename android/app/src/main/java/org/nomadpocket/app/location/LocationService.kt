@@ -49,7 +49,15 @@ object LocationService {
     private var appContext: Context? = null
     private var listening = false
 
-    private val listener = LocationListener { loc -> _location.value = loc }
+    // An object, not a lambda: before Android 11 LocationListener has three more abstract methods, and a lambda
+    // crashes with AbstractMethodError when the system calls them (seen on an Android 8.1 phone).
+    private val listener = object : LocationListener {
+        override fun onLocationChanged(loc: android.location.Location) { _location.value = loc }
+        @Deprecated("Called only before Android 10")
+        override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
+        override fun onProviderEnabled(provider: String) {}
+        override fun onProviderDisabled(provider: String) {}
+    }
 
     private val sensorListener = object : SensorEventListener {
         private val rotation = FloatArray(9)

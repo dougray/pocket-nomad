@@ -13,7 +13,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
-import java.util.Base64
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
@@ -62,7 +61,7 @@ data class WinlinkMessage(
     fun toJson(): JSONObject = JSONObject().apply {
         put("mid", mid); put("date", dateMillis); put("from", from); put("to", JSONArray(to)); put("cc", JSONArray(cc))
         put("subject", subject); put("body", body); put("type", type); put("mbo", mbo)
-        put("files", JSONArray(attachments.map { JSONObject().put("name", it.name).put("data", Base64.getEncoder().encodeToString(it.data)) }))
+        put("files", JSONArray(attachments.map { JSONObject().put("name", it.name).put("data", Base64Compat.encode(it.data)) }))
     }
 
     companion object {
@@ -158,7 +157,7 @@ data class WinlinkMessage(
         fun fromJson(o: JSONObject): WinlinkMessage {
             fun list(k: String) = o.optJSONArray(k)?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()
             val files = o.optJSONArray("files")?.let { a ->
-                (0 until a.length()).map { val f = a.getJSONObject(it); WinlinkAttachment(f.getString("name"), Base64.getDecoder().decode(f.getString("data"))) }
+                (0 until a.length()).map { val f = a.getJSONObject(it); WinlinkAttachment(f.getString("name"), Base64Compat.decode(f.getString("data"))) }
             } ?: emptyList()
             return WinlinkMessage(o.getString("mid"), o.getLong("date"), o.getString("from"), list("to"), list("cc"),
                 o.getString("subject"), o.getString("body"), files, o.optString("type", "Private"), o.optString("mbo"))
@@ -185,7 +184,7 @@ data class WinlinkMessage(
                 val charset = m.groupValues[1].lowercase()
                 val text = m.groupValues[3]
                 val bytes = if (m.groupValues[2].lowercase() == "b") {
-                    try { Base64.getDecoder().decode(text) } catch (_: Exception) { ByteArray(0) }
+                    try { Base64Compat.decode(text) } catch (_: Exception) { ByteArray(0) }
                 } else {
                     val out = java.io.ByteArrayOutputStream()
                     var i = 0

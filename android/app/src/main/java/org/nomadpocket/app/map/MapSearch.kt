@@ -6,6 +6,8 @@
 
 package org.nomadpocket.app.map
 
+import org.nomadpocket.app.i18n.tr
+
 import android.content.Context
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -49,12 +51,12 @@ fun PlaceActions(name: String, latitude: Double, longitude: Double, onGoTo: () -
             Spacer(Modifier.width(6.dp)); Text(if (starred) "Favorited" else "Favorite")
         }
         OutlinedButton(onClick = { NavigationState.start(name, latitude, longitude); onGoTo() }) {
-            Icon(Icons.Filled.Navigation, null); Spacer(Modifier.width(6.dp)); Text("Go to")
+            Icon(Icons.Filled.Navigation, null); Spacer(Modifier.width(6.dp)); Text(tr("Go to"))
         }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = { routing = true }) { Icon(Icons.Filled.Directions, null); Spacer(Modifier.width(6.dp)); Text("Route") }
-        OutlinedButton(onClick = { pathing = true }) { Icon(Icons.Filled.ShowChart, null); Spacer(Modifier.width(6.dp)); Text("Radio path") }
+        OutlinedButton(onClick = { routing = true }) { Icon(Icons.Filled.Directions, null); Spacer(Modifier.width(6.dp)); Text(tr("Route")) }
+        OutlinedButton(onClick = { pathing = true }) { Icon(Icons.Filled.ShowChart, null); Spacer(Modifier.width(6.dp)); Text(tr("Radio path")) }
     }
     }
 }
@@ -85,7 +87,7 @@ fun MapSearchSheet(
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Search", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                Text(tr("Search"), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
                 Box {
                     TextButton(onClick = { formatMenu = true }) { Text(format.label) }
                     DropdownMenu(expanded = formatMenu, onDismissRequest = { formatMenu = false }) {
@@ -113,15 +115,15 @@ fun MapSearchSheet(
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     OutlinedButton(onClick = { fly(p.latitude, p.longitude) }, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Show") }
-                    OutlinedButton(onClick = { go("Position", p.latitude, p.longitude) }, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Go to") }
-                    OutlinedButton(onClick = { routeTo = p }, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Route") }
+                    OutlinedButton(onClick = { go("Position", p.latitude, p.longitude) }, contentPadding = PaddingValues(horizontal = 10.dp)) { Text(tr("Go to")) }
+                    OutlinedButton(onClick = { routeTo = p }, contentPadding = PaddingValues(horizontal = 10.dp)) { Text(tr("Route")) }
                     OutlinedButton(onClick = { onDropPin(p.latitude, p.longitude); onDismiss() }, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Pin") }
                     OutlinedButton(onClick = { nameText = ""; naming = p }, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("★") }
                 }
             }
 
             if (q.isEmpty()) {
-                Text("Quick spots", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 10.dp))
+                Text(tr("Quick spots"), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 10.dp))
                 listOf(FavoriteKind.HOME, FavoriteKind.CAMP, FavoriteKind.RALLY, FavoriteKind.CAR).forEach { kind ->
                     val spot = favorites.firstOrNull { it.kind == kind }
                     var menu by remember { mutableStateOf(false) }
@@ -136,7 +138,7 @@ fun MapSearchSheet(
                             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                                 if (spot != null) {
                                     DropdownMenuItem(text = { Text("Go to ${kind.label}") }, onClick = { menu = false; go(spot.name, spot.latitude, spot.longitude) })
-                                    DropdownMenuItem(text = { Text("Show on map") }, onClick = { menu = false; fly(spot.latitude, spot.longitude) })
+                                    DropdownMenuItem(text = { Text(tr("Show on map")) }, onClick = { menu = false; fly(spot.latitude, spot.longitude) })
                                 }
                                 DropdownMenuItem(text = { Text(if (spot == null) "Set to where I am" else "Move to where I am") }, enabled = here != null,
                                     onClick = { menu = false; here?.let { store.add(kind.label, kind, it.first, it.second); favorites = store.favorites } })
@@ -151,7 +153,7 @@ fun MapSearchSheet(
 
             val list = store.search(q).filter { !(it.kind.quick && q.isEmpty()) }
             if (list.isNotEmpty()) {
-                Text("Favorites", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 10.dp))
+                Text(tr("Favorites"), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 10.dp))
                 list.forEach { f ->
                     Row(Modifier.fillMaxWidth().clickable { fly(f.latitude, f.longitude) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.Star, null, tint = MaterialTheme.colorScheme.primary)
@@ -188,8 +190,8 @@ fun MapSearchSheet(
     naming?.let { p ->
         AlertDialog(onDismissRequest = { naming = null }, title = { Text("Save favorite") },
             text = { OutlinedTextField(nameText, { nameText = it }, singleLine = true, placeholder = { Text("Name") }) },
-            confirmButton = { TextButton(onClick = { store.add(nameText, latitude = p.latitude, longitude = p.longitude); favorites = store.favorites; naming = null }) { Text("Save") } },
-            dismissButton = { TextButton(onClick = { naming = null }) { Text("Cancel") } })
+            confirmButton = { TextButton(onClick = { store.add(nameText, latitude = p.latitude, longitude = p.longitude); favorites = store.favorites; naming = null }) { Text(tr("Save")) } },
+            dismissButton = { TextButton(onClick = { naming = null }) { Text(tr("Cancel")) } })
     }
 }
 
@@ -232,8 +234,8 @@ fun GoToPanel(target: GoToTarget, arrived: Boolean, here: ShapePoint?, heading: 
                     Text(target.name, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                     if (target.isRoute) Text("Waypoint ${target.index + 1} of ${target.waypoints.size}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                if (target.isRoute && !target.isLast) TextButton(onClick = { NavigationState.skip() }) { Text("Skip") }
-                TextButton(onClick = { NavigationState.stop() }) { Text("Stop", color = MaterialTheme.colorScheme.error) }
+                if (target.isRoute && !target.isLast) TextButton(onClick = { NavigationState.skip() }) { Text(tr("Skip")) }
+                TextButton(onClick = { NavigationState.stop() }) { Text(tr("Stop"), color = MaterialTheme.colorScheme.error) }
             }
             when {
                 arrived -> Text("You've arrived", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
@@ -262,7 +264,7 @@ fun GoToPanel(target: GoToTarget, arrived: Boolean, here: ShapePoint?, heading: 
 fun TerrainDialog(store: TerrainStore, state: TerrainStore.State, centre: Pair<Double, Double>?, onDismiss: () -> Unit) {
     var radius by remember { mutableStateOf(50.0) }
     val scope = rememberCoroutineScope()
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("Elevation") },
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(tr("Elevation")) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Elevation data lets the map shade hills (Layers > Look) and lets Pocket Nomad check a radio path for hills in the way. Download an area once and it works with no signal.", style = MaterialTheme.typography.bodySmall)
@@ -282,7 +284,7 @@ fun TerrainDialog(store: TerrainStore, state: TerrainStore.State, centre: Pair<D
                 Text("Elevation: Mapzen terrain tiles from AWS Open Data (SRTM, USGS, and others).", style = MaterialTheme.typography.labelSmall)
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } })
+        confirmButton = { TextButton(onClick = onDismiss) { Text(tr("Done")) } })
 }
 
 /** Plan a route to a place on the roads saved on this phone. */
@@ -313,11 +315,11 @@ fun DirectionsDialog(name: String, latitude: Double, longitude: Double, here: Sh
                 }
                 if (mode != TravelMode.FOOT) {
                     if (mode == TravelMode.CAR) Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Avoid highways", Modifier.weight(1f))
+                        Text(tr("Avoid highways"), Modifier.weight(1f))
                         Switch(avoidHighways, { avoidHighways = it; route = null; prefs.edit().putBoolean("avoidHighways", it).apply() })
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Avoid dirt and gravel", Modifier.weight(1f))
+                        Text(tr("Avoid dirt and gravel"), Modifier.weight(1f))
                         Switch(avoidUnpaved, { avoidUnpaved = it; route = null; prefs.edit().putBoolean("avoidUnpaved", it).apply() })
                     }
                 }
@@ -353,7 +355,7 @@ fun DirectionsDialog(name: String, latitude: Double, longitude: Double, here: Sh
                     Button(onClick = {
                         NavigationState.start(name, r, ShapePoint(latitude, longitude), mode, routePrefs) { m, p, a, b -> store.plan(m, a, b, p) }
                         onDismiss()
-                    }) { Text("Start") }
+                    }) { Text(tr("Start")) }
                     r.steps.forEach { s ->
                         Row { Text(s.text, Modifier.weight(1f)); if (s.meters > 0) Text(ShapeMath.distanceText(s.meters, metric), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
@@ -366,7 +368,7 @@ fun DirectionsDialog(name: String, latitude: Double, longitude: Double, here: Sh
                     style = MaterialTheme.typography.labelSmall)
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } })
+        confirmButton = { TextButton(onClick = onDismiss) { Text(tr("Done")) } })
 }
 
 /** Terrain profile and Fresnel clearance between you and a place (a radio, a repeater, a pin). */
@@ -440,7 +442,7 @@ fun RadioPathDialog(name: String, latitude: Double, longitude: Double, here: Sha
                                 RadioPathOverlay.show(PathOverlay(start, ShapePoint(latitude, longitude), r.verdict, "${r.verdict.label}, ${ShapeMath.distanceText(r.distance, metric)}"))
                                 NavigationState.requestMap()
                                 onDismiss()
-                            }) { Text("Show on map") }
+                            }) { Text(tr("Show on map")) }
                         }
                         if (r.missing > 0) Text("Elevation is missing for part of this path (outside the saved area), so the result is a guess.", style = MaterialTheme.typography.bodySmall, color = androidx.compose.ui.graphics.Color(0xFFFF9500))
                     }
@@ -448,7 +450,7 @@ fun RadioPathDialog(name: String, latitude: Double, longitude: Double, here: Sha
                 Text("Terrain only. Trees, buildings and weather are not in the data, so Clear means possible, not guaranteed. Elevation: Mapzen terrain tiles (AWS Open Data).", style = MaterialTheme.typography.labelSmall)
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } })
+        confirmButton = { TextButton(onClick = onDismiss) { Text(tr("Done")) } })
 }
 
 @Composable

@@ -25,6 +25,12 @@ final class SdrClient {
     var host = UserDefaults.standard.string(forKey: "sdr.host") ?? "" { didSet { UserDefaults.standard.set(host, forKey: "sdr.host") } }
     var port = UserDefaults.standard.object(forKey: "sdr.port") as? Int ?? 8731 { didSet { UserDefaults.standard.set(port, forKey: "sdr.port") } }
 
+    /// The box's pairing token, kept in the Keychain.
+    var token: String {
+        get { SdrToken.load() }
+        set { SdrToken.save(newValue) }
+    }
+
     private var connection: NWConnection?
     private var reader = SdrLineReader()
     private let state = SdrState.shared
@@ -44,7 +50,7 @@ final class SdrClient {
             Task { @MainActor in
                 guard let self, self.connection === c else { return }
                 switch s {
-                case .ready: self.link = .connected; self.receiveLoop(c)
+                case .ready: self.link = .connected; self.receiveLoop(c); self.send(["cmd": "auth", "token": self.token])
                 case .failed(let e): self.link = .failed(e.localizedDescription); self.connection = nil
                 case .waiting(let e): self.link = .failed("Can't reach the box (\(e.localizedDescription)).")
                 case .cancelled: if self.link != .idle { self.link = .idle }
@@ -88,6 +94,11 @@ final class SdrClient {
 
     /// Apply one event. APRS frames go to the Ham tab's decoder, but never from a simulated box.
     func handle(_ e: SdrEvent) {
+        if case .error(let code) = e {
+            link = .failed(code == "blocked" ? "Too many wrong tries. Wait a minute and try again." : "The box didn't accept the pairing token.")
+            connection?.cancel(); connection = nil
+            return
+        }
         state.apply(e)
         if case .aprs(let frame, _) = e, !state.simulated { HamService.shared.receive(frame) }
     }

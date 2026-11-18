@@ -122,6 +122,8 @@ struct HamReferenceView: View {
         ("14.300 MHz USB", "Maritime Mobile Service Net (HF)"),
         ("14.325 MHz USB", "Hurricane Watch Net (HF, when active)"),
     ]
+    private let js8: [(String, String)] = [("1.842","160 m"), ("3.578","80 m"), ("7.078","40 m"), ("10.130","30 m"), ("14.078","20 m"), ("18.104","17 m"), ("21.078","15 m"), ("28.078","10 m")]
+    private let ft8: [(String, String)] = [("1.840","160 m"), ("3.573","80 m"), ("5.357","60 m"), ("7.074","40 m"), ("10.136","30 m"), ("14.074","20 m"), ("18.100","17 m"), ("21.074","15 m"), ("28.074","10 m"), ("50.313","6 m")]
     private let qCodes: [(String, String)] = [
         ("QTH", "Location"), ("QSL", "I confirm / received"), ("QRZ", "Who is calling me?"), ("QSY", "Change frequency"),
         ("QRM", "Interference from other stations"), ("QRN", "Static / natural noise"), ("QRT", "Stopping / closing down"),
@@ -143,6 +145,17 @@ struct HamReferenceView: View {
             } header: { Text("Frequencies") } footer: {
                 Text("Local repeaters, nets and Winlink gateways vary: write yours down before an emergency. Band plans differ by country.")
             }
+            Section {
+                ForEach(js8, id: \.0) { f in
+                    VStack(alignment: .leading) { Text("\(f.0) MHz USB").font(.headline.monospacedDigit()); Text("JS8Call, \(f.1)").font(.subheadline).foregroundStyle(.secondary) }
+                }
+            } header: { Text("JS8Call dial frequencies") } footer: { Text("JS8 sends free-text messages that relay between stations, even with 5 watts. The same dial frequencies are shared by everyone, so you can find each other.") }
+            Section {
+                ForEach(ft8, id: \.0) { f in
+                    VStack(alignment: .leading) { Text("\(f.0) MHz USB").font(.headline.monospacedDigit()); Text("FT8, \(f.1)").font(.subheadline).foregroundStyle(.secondary) }
+                }
+            } header: { Text("FT8 dial frequencies") }
+            Section("NVIS: short-range HF") { Text("NVIS (short-range HF, about 0 to 300 miles) works best on 80 m or 40 m by day and 160 m or 80 m at night, with a horizontal wire hung low, a tenth to a quarter of a wavelength above ground. The NVIS planner (Ham tab) guesses the best band from the sun and the solar flux. 5 watts is enough for weak-signal digital modes such as JS8 and FT8.") }
             Section {
                 ForEach(ConditionsParsers.radioChannels, id: \.0) { f in
                     VStack(alignment: .leading) {

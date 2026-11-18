@@ -41,7 +41,7 @@ struct PadRootView: View {
                                                  set: { if let item = $0 { nav.sidebarSelection = item } })) {
             Section {
                 ForEach(AppTab.allCases) { tab in
-                    Label(tab.title, systemImage: tab.symbol)
+                    Label(LocalizedStringKey(tab.title), systemImage: tab.symbol)
                         .badge(tab == .mesh ? MeshService.shared.totalUnread : tab == .ham ? HamService.shared.unreadTotal + HamService.shared.unreadMail : 0)
                         .tag(PadSidebarItem.section(tab))
                 }

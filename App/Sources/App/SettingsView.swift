@@ -21,6 +21,13 @@ struct SettingsView: View {
                 } footer: {
                     Text("On iPhones with OLED screens, black pixels use almost no power.")
                 }
+                Section {
+                    Picker("Language", selection: $settings.language) {
+                        ForEach(AppLanguage.allCases) { Text($0 == .system ? "System default" : $0.nativeName).tag($0) }
+                    }
+                } footer: {
+                    Text("Menus and screens are translated (first-pass translations, still being reviewed). Guides and books stay in English for now: first-aid and survival text needs a qualified human translator.")
+                }
                 Section("AI answers") {
                     LabeledContent("Apple on-device model", value: ModelAvailability.appleStatus == nil ? "Ready" : "Not available")
                     if let status = ModelAvailability.appleStatus { Text(status).font(.footnote).foregroundStyle(.secondary) }

@@ -35,11 +35,21 @@ object SdrClient {
     private var socket: Socket? = null
     private var job: Job? = null
 
+    /** The box's pairing token, sealed with the Android Keystore. */
+    fun savedToken(context: Context): String =
+        context.getSharedPreferences("sdr", Context.MODE_PRIVATE).getString("token", null)?.let { org.nomadpocket.ham.KeystoreSecretBox().open(it) } ?: ""
+    fun saveToken(context: Context, token: String) {
+        val t = token.trim()
+        context.getSharedPreferences("sdr", Context.MODE_PRIVATE).edit().apply {
+            if (t.isEmpty()) remove("token") else putString("token", org.nomadpocket.ham.KeystoreSecretBox().seal(t))
+        }.apply()
+    }
+
     fun savedHost(context: Context) = context.getSharedPreferences("sdr", Context.MODE_PRIVATE).getString("host", "") ?: ""
     fun savedPort(context: Context) = context.getSharedPreferences("sdr", Context.MODE_PRIVATE).getInt("port", 8731)
     fun save(context: Context, host: String, port: Int) { context.getSharedPreferences("sdr", Context.MODE_PRIVATE).edit().putString("host", host).putInt("port", port).apply() }
 
-    fun connect(host: String, port: Int) {
+    fun connect(host: String, port: Int, token: String = "") {
         disconnect()
         val h = host.trim()
         if (h.isEmpty()) { _link.value = SdrLink.Failed("Enter the box's address."); return }
@@ -51,6 +61,7 @@ object SdrClient {
                 s.connect(InetSocketAddress(h, port), 5000)
                 socket = s
                 _link.value = SdrLink.Connected
+                send(JSONObject().put("cmd", "auth").put("token", token))
                 val reader = SdrLineReader()
                 val buf = ByteArray(8192)
                 val input = s.getInputStream()
@@ -88,6 +99,11 @@ object SdrClient {
 
     /** Apply one event. APRS frames go to the Ham tab's decoder, but never from a simulated box. */
     fun handle(e: SdrEvent) {
+        if (e is SdrEvent.Error) {
+            _link.value = SdrLink.Failed(if (e.code == "blocked") "Too many wrong tries. Wait a minute and try again." else "The box didn't accept the pairing token.")
+            val s = socket; socket = null; runCatching { s?.close() }
+            return
+        }
         SdrState.apply(e)
         if (e is SdrEvent.Aprs && !SdrState.simulated.value && org.nomadpocket.ham.Ham.isInitialized) org.nomadpocket.ham.Ham.service.receive(e.frame)
     }

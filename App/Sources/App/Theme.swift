@@ -29,12 +29,16 @@ final class AppSettings {
     /// Dark mode saves battery on OLED screens, so it is on by default.
     var forceDark: Bool { didSet { defaults.set(forceDark, forKey: "forceDark") } }
     var preferredBackend: String { didSet { defaults.set(preferredBackend, forKey: "preferredBackend") } }
+    /// The in-app language (follows the phone unless changed).
+    var language: AppLanguage { didSet { defaults.set(language.rawValue, forKey: "app.language") } }
+    var locale: Locale { language.locale }
 
     private let defaults = UserDefaults.standard
 
     private init() {
         forceDark = defaults.object(forKey: "forceDark") as? Bool ?? true
         preferredBackend = defaults.string(forKey: "preferredBackend") ?? "auto"
+        language = AppLanguage(rawValue: defaults.string(forKey: "app.language") ?? "") ?? .system
     }
 }
 

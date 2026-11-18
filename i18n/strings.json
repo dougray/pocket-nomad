@@ -1,0 +1,530 @@
+{
+ "Survive": {
+  "es": "Sobrevivir",
+  "fr": "Survie"
+ },
+ "Ask": {
+  "es": "Preguntar",
+  "fr": "Demander"
+ },
+ "Library": {
+  "es": "Biblioteca",
+  "fr": "Bibliothèque"
+ },
+ "Map": {
+  "es": "Mapa",
+  "fr": "Carte"
+ },
+ "Radio": {
+  "es": "Radio",
+  "fr": "Radio"
+ },
+ "Mesh": {
+  "es": "Malla",
+  "fr": "Maillage"
+ },
+ "Ham": {
+  "es": "Radioaficionado",
+  "fr": "Radioamateur"
+ },
+ "SDR": {
+  "es": "SDR",
+  "fr": "SDR"
+ },
+ "Settings": {
+  "es": "Ajustes",
+  "fr": "Réglages"
+ },
+ "Search": {
+  "es": "Buscar",
+  "fr": "Rechercher"
+ },
+ "Done": {
+  "es": "Listo",
+  "fr": "Terminé"
+ },
+ "Cancel": {
+  "es": "Cancelar",
+  "fr": "Annuler"
+ },
+ "Save": {
+  "es": "Guardar",
+  "fr": "Enregistrer"
+ },
+ "Delete": {
+  "es": "Eliminar",
+  "fr": "Supprimer"
+ },
+ "Update": {
+  "es": "Actualizar",
+  "fr": "Mettre à jour"
+ },
+ "Connect": {
+  "es": "Conectar",
+  "fr": "Connecter"
+ },
+ "Disconnect": {
+  "es": "Desconectar",
+  "fr": "Déconnecter"
+ },
+ "Go to": {
+  "es": "Ir a",
+  "fr": "Aller à"
+ },
+ "Route": {
+  "es": "Ruta",
+  "fr": "Itinéraire"
+ },
+ "Favorite": {
+  "es": "Favorito",
+  "fr": "Favori"
+ },
+ "Favorited": {
+  "es": "Favorito",
+  "fr": "Favori"
+ },
+ "Radio path": {
+  "es": "Trayecto de radio",
+  "fr": "Trajet radio"
+ },
+ "Not interested": {
+  "es": "No me interesa",
+  "fr": "Pas intéressé"
+ },
+ "Version": {
+  "es": "Versión",
+  "fr": "Version"
+ },
+ "About": {
+  "es": "Acerca de",
+  "fr": "À propos"
+ },
+ "Privacy": {
+  "es": "Privacidad",
+  "fr": "Confidentialité"
+ },
+ "Language": {
+  "es": "Idioma",
+  "fr": "Langue"
+ },
+ "Works with": {
+  "es": "Funciona con",
+  "fr": "Fonctionne avec"
+ },
+ "Battery tips": {
+  "es": "Consejos de batería",
+  "fr": "Conseils pour la batterie"
+ },
+ "AI answers": {
+  "es": "Respuestas de IA",
+  "fr": "Réponses de l'IA"
+ },
+ "Search index": {
+  "es": "Índice de búsqueda",
+  "fr": "Index de recherche"
+ },
+ "Always dark (saves battery)": {
+  "es": "Siempre oscuro (ahorra batería)",
+  "fr": "Toujours sombre (économise la batterie)"
+ },
+ "On iPhones with OLED screens, black pixels use almost no power.": {
+  "es": "En los iPhone con pantalla OLED, los píxeles negros casi no gastan energía.",
+  "fr": "Sur les iPhone à écran OLED, les pixels noirs consomment presque rien."
+ },
+ "Apple on-device model": {
+  "es": "Modelo de Apple en el dispositivo",
+  "fr": "Modèle Apple sur l'appareil"
+ },
+ "Downloaded models": {
+  "es": "Modelos descargados",
+  "fr": "Modèles téléchargés"
+ },
+ "All books are ready to search.": {
+  "es": "Todos los libros están listos para buscar.",
+  "fr": "Tous les livres sont prêts pour la recherche."
+ },
+ "Pause indexing": {
+  "es": "Pausar la indexación",
+  "fr": "Suspendre l'indexation"
+ },
+ "Turn on Low Power Mode. Lower screen brightness. Use Airplane Mode with Bluetooth on to keep mesh messaging while saving power. Keep the phone warm in cold weather; cold batteries die fast.": {
+  "es": "Activa el Modo de bajo consumo. Baja el brillo de la pantalla. Usa el Modo avión con Bluetooth activado para seguir usando la malla y ahorrar batería. Mantén el teléfono caliente cuando haga frío: las baterías frías se agotan rápido.",
+  "fr": "Activez le mode économie d'énergie. Baissez la luminosité. Utilisez le mode avion avec le Bluetooth activé pour garder la messagerie maillée tout en économisant la batterie. Gardez le téléphone au chaud par temps froid : une batterie froide se vide vite."
+ },
+ "How Pocket Nomad handles your data": {
+  "es": "Cómo Pocket Nomad trata tus datos",
+  "fr": "Comment Pocket Nomad traite vos données"
+ },
+ "Coverage map settings…": {
+  "es": "Ajustes del mapa de cobertura…",
+  "fr": "Réglages de la carte de couverture…"
+ },
+ "Delete mesh messages and nodes": {
+  "es": "Eliminar mensajes y nodos de la malla",
+  "fr": "Supprimer les messages et nœuds du réseau maillé"
+ },
+ "No accounts, analytics or tracking. Nothing leaves this phone unless you send it: a mesh message, an SOS, or a file you export.": {
+  "es": "Sin cuentas, analíticas ni rastreo. Nada sale de este teléfono a menos que lo envíes: un mensaje de la malla, un SOS o un archivo que exportes.",
+  "fr": "Pas de compte, d'analyse ni de suivi. Rien ne quitte ce téléphone sauf ce que vous envoyez : un message maillé, un SOS ou un fichier exporté."
+ },
+ "Guides in this app don't replace first-aid training. Call emergency services whenever you can.": {
+  "es": "Las guías de esta app no sustituyen la formación en primeros auxilios. Llama a los servicios de emergencia siempre que puedas.",
+  "fr": "Les guides de cette application ne remplacent pas une formation aux premiers secours. Appelez les secours dès que vous le pouvez."
+ },
+ "These guides don't replace training. If you can reach emergency services, call 911 (or your local number) first.": {
+  "es": "Estas guías no sustituyen la formación. Si puedes comunicarte con los servicios de emergencia, llama primero al 911 (o a tu número local).",
+  "fr": "Ces guides ne remplacent pas une formation. Si vous pouvez joindre les secours, appelez d'abord le 911 (ou votre numéro local)."
+ },
+ "Pocket Nomad is free, open-source software (Apache 2.0). It is an independent project, inspired by Project NOMAD, and not affiliated with it.": {
+  "es": "Pocket Nomad es software libre y de código abierto (Apache 2.0). Es un proyecto independiente, inspirado en Project NOMAD, y no está afiliado a él.",
+  "fr": "Pocket Nomad est un logiciel libre et open source (Apache 2.0). C'est un projet indépendant, inspiré de Project NOMAD, sans lien avec celui-ci."
+ },
+ "Your radio keeps its own node list and sends it again next time you connect.": {
+  "es": "Tu radio guarda su propia lista de nodos y la envía de nuevo la próxima vez que te conectes.",
+  "fr": "Votre radio garde sa propre liste de nœuds et la renvoie à la prochaine connexion."
+ },
+ "Emergency": {
+  "es": "Emergencia",
+  "fr": "Urgence"
+ },
+ "Tools": {
+  "es": "Herramientas",
+  "fr": "Outils"
+ },
+ "Conditions": {
+  "es": "Condiciones",
+  "fr": "Conditions"
+ },
+ "Weather alerts, forecast, earthquakes and space weather. Update once, read it with no signal.": {
+  "es": "Alertas meteorológicas, pronóstico, terremotos y clima espacial. Actualiza una vez y léelo sin señal.",
+  "fr": "Alertes météo, prévisions, séismes et météo spatiale. Mettez à jour une fois, lisez sans réseau."
+ },
+ "Search guides and library": {
+  "es": "Buscar guías y biblioteca",
+  "fr": "Rechercher guides et bibliothèque"
+ },
+ "SOS Light": {
+  "es": "Luz SOS",
+  "fr": "Lumière SOS"
+ },
+ "Map layers": {
+  "es": "Capas del mapa",
+  "fr": "Calques de la carte"
+ },
+ "Map look": {
+  "es": "Aspecto del mapa",
+  "fr": "Apparence de la carte"
+ },
+ "Streets": {
+  "es": "Calles",
+  "fr": "Rues"
+ },
+ "Topo": {
+  "es": "Topográfico",
+  "fr": "Topo"
+ },
+ "Relief": {
+  "es": "Relieve",
+  "fr": "Relief"
+ },
+ "Radios heard directly": {
+  "es": "Radios oídas directamente",
+  "fr": "Radios entendues directement"
+ },
+ "Known on the mesh (relayed)": {
+  "es": "Conocidos en la malla (retransmitidos)",
+  "fr": "Connus sur le réseau maillé (relayés)"
+ },
+ "Known radios (community maps)": {
+  "es": "Radios conocidas (mapas comunitarios)",
+  "fr": "Radios connues (cartes communautaires)"
+ },
+ "Ham APRS stations heard": {
+  "es": "Estaciones APRS de radioaficionados oídas",
+  "fr": "Stations APRS radioamateurs entendues"
+ },
+ "Favorites": {
+  "es": "Favoritos",
+  "fr": "Favoris"
+ },
+ "Aircraft (SDR box)": {
+  "es": "Aeronaves (caja SDR)",
+  "fr": "Aéronefs (boîtier SDR)"
+ },
+ "Parks on the Air": {
+  "es": "Parques en el aire (POTA)",
+  "fr": "Parks on the Air (POTA)"
+ },
+ "Parks on the Air…": {
+  "es": "Parques en el aire (POTA)…",
+  "fr": "Parks on the Air (POTA)…"
+ },
+ "Search and favorites…": {
+  "es": "Buscar y favoritos…",
+  "fr": "Rechercher et favoris…"
+ },
+ "My drawings": {
+  "es": "Mis dibujos",
+  "fr": "Mes tracés"
+ },
+ "Drawings…": {
+  "es": "Dibujos…",
+  "fr": "Tracés…"
+ },
+ "Earthquakes (Conditions)": {
+  "es": "Terremotos (Condiciones)",
+  "fr": "Séismes (Conditions)"
+ },
+ "Download known radios…": {
+  "es": "Descargar radios conocidas…",
+  "fr": "Télécharger les radios connues…"
+ },
+ "Download elevation (hills, line of sight)…": {
+  "es": "Descargar elevación (colinas, línea de vista)…",
+  "fr": "Télécharger l'altitude (relief, visibilité directe)…"
+ },
+ "Street map (OpenFreeMap)": {
+  "es": "Mapa de calles (OpenFreeMap)",
+  "fr": "Carte des rues (OpenFreeMap)"
+ },
+ "Download streets around me…": {
+  "es": "Descargar calles a mi alrededor…",
+  "fr": "Télécharger les rues autour de moi…"
+ },
+ "Coverage hexagons": {
+  "es": "Hexágonos de cobertura",
+  "fr": "Hexagones de couverture"
+ },
+ "Coverage networks": {
+  "es": "Redes de cobertura",
+  "fr": "Réseaux de couverture"
+ },
+ "Coverage colours": {
+  "es": "Colores de cobertura",
+  "fr": "Couleurs de couverture"
+ },
+ "Coverage settings…": {
+  "es": "Ajustes de cobertura…",
+  "fr": "Réglages de couverture…"
+ },
+ "Station settings": {
+  "es": "Ajustes de la estación",
+  "fr": "Réglages de la station"
+ },
+ "Contact log": {
+  "es": "Registro de contactos",
+  "fr": "Journal des contacts"
+ },
+ "Contacts": {
+  "es": "Contactos",
+  "fr": "Contacts"
+ },
+ "Packet monitor": {
+  "es": "Monitor de paquetes",
+  "fr": "Moniteur de paquets"
+ },
+ "Frequencies and reference": {
+  "es": "Frecuencias y referencia",
+  "fr": "Fréquences et référence"
+ },
+ "Satellite passes": {
+  "es": "Pasos de satélites",
+  "fr": "Passages de satellites"
+ },
+ "SDR box": {
+  "es": "Caja SDR",
+  "fr": "Boîtier SDR"
+ },
+ "Listen to": {
+  "es": "Escuchar",
+  "fr": "Écouter"
+ },
+ "Stop listening": {
+  "es": "Dejar de escuchar",
+  "fr": "Arrêter l'écoute"
+ },
+ "Connected": {
+  "es": "Conectado",
+  "fr": "Connecté"
+ },
+ "Not connected": {
+  "es": "No conectado",
+  "fr": "Non connecté"
+ },
+ "Aircraft": {
+  "es": "Aeronaves",
+  "fr": "Aéronefs"
+ },
+ "Ships (AIS)": {
+  "es": "Barcos (AIS)",
+  "fr": "Navires (AIS)"
+ },
+ "Weather balloons": {
+  "es": "Globos meteorológicos",
+  "fr": "Ballons météo"
+ },
+ "Weather radio": {
+  "es": "Radio meteorológica",
+  "fr": "Radio météo"
+ },
+ "Directions": {
+  "es": "Indicaciones",
+  "fr": "Itinéraire"
+ },
+ "Plan route from where I am": {
+  "es": "Planificar ruta desde donde estoy",
+  "fr": "Planifier l'itinéraire depuis ma position"
+ },
+ "Start": {
+  "es": "Iniciar",
+  "fr": "Démarrer"
+ },
+ "Steps": {
+  "es": "Pasos",
+  "fr": "Étapes"
+ },
+ "Skip": {
+  "es": "Omitir",
+  "fr": "Passer"
+ },
+ "Stop": {
+  "es": "Detener",
+  "fr": "Arrêter"
+ },
+ "Walk": {
+  "es": "A pie",
+  "fr": "Marche"
+ },
+ "Bike": {
+  "es": "En bici",
+  "fr": "Vélo"
+ },
+ "Drive": {
+  "es": "En coche",
+  "fr": "Voiture"
+ },
+ "Avoid highways": {
+  "es": "Evitar autopistas",
+  "fr": "Éviter les autoroutes"
+ },
+ "Avoid dirt and gravel": {
+  "es": "Evitar caminos de tierra y grava",
+  "fr": "Éviter la terre et le gravier"
+ },
+ "Clear path": {
+  "es": "Trayecto despejado",
+  "fr": "Trajet dégagé"
+ },
+ "Possible, but tight": {
+  "es": "Posible, pero justo",
+  "fr": "Possible, mais juste"
+ },
+ "Blocked by terrain": {
+  "es": "Bloqueado por el terreno",
+  "fr": "Bloqué par le relief"
+ },
+ "Elevation": {
+  "es": "Elevación",
+  "fr": "Altitude"
+ },
+ "Quick spots": {
+  "es": "Lugares rápidos",
+  "fr": "Lieux rapides"
+ },
+ "Home": {
+  "es": "Casa",
+  "fr": "Domicile"
+ },
+ "Camp": {
+  "es": "Campamento",
+  "fr": "Camp"
+ },
+ "Rally point": {
+  "es": "Punto de reunión",
+  "fr": "Point de ralliement"
+ },
+ "Car": {
+  "es": "Coche",
+  "fr": "Voiture"
+ },
+ "New contact": {
+  "es": "Nuevo contacto",
+  "fr": "Nouveau contact"
+ },
+ "Their callsign": {
+  "es": "Su indicativo",
+  "fr": "Son indicatif"
+ },
+ "Mode": {
+  "es": "Modo",
+  "fr": "Mode"
+ },
+ "Notes": {
+  "es": "Notas",
+  "fr": "Notes"
+ },
+ "Parks near you": {
+  "es": "Parques cerca de ti",
+  "fr": "Parcs près de vous"
+ },
+ "Log this contact": {
+  "es": "Registrar este contacto",
+  "fr": "Enregistrer ce contact"
+ },
+ "Show on map": {
+  "es": "Mostrar en el mapa",
+  "fr": "Afficher sur la carte"
+ },
+ "System default": {
+  "es": "Idioma del sistema",
+  "fr": "Langue du système"
+ },
+ "Menus and screens are translated (first-pass translations, still being reviewed). Guides and books stay in English for now: first-aid and survival text needs a qualified human translator.": {
+  "es": "Los menús y pantallas están traducidos (traducciones iniciales, aún en revisión). Las guías y los libros siguen en inglés por ahora: el texto de primeros auxilios y supervivencia necesita un traductor humano cualificado.",
+  "fr": "Les menus et écrans sont traduits (premières traductions, encore en cours de relecture). Les guides et les livres restent en anglais pour l'instant : les textes de premiers secours et de survie demandent un traducteur humain qualifié."
+ },
+ "WarWalker turns your runs and walks into a game: it maps the Wi-Fi and Bluetooth around you, and it uses Pocket Nomad's targets and coverage hexagons. Free and open source.": {
+  "es": "WarWalker convierte tus carreras y paseos en un juego: mapea el Wi-Fi y el Bluetooth a tu alrededor y usa los objetivos y hexágonos de cobertura de Pocket Nomad. Gratis y de código abierto.",
+  "fr": "WarWalker transforme vos courses et marches en jeu : il cartographie le Wi-Fi et le Bluetooth autour de vous et utilise les cibles et hexagones de couverture de Pocket Nomad. Gratuit et open source."
+ },
+ "WarWalker on GitHub": {
+  "es": "WarWalker en GitHub",
+  "fr": "WarWalker sur GitHub"
+ },
+ "Ready": {
+  "es": "Listo",
+  "fr": "Prêt"
+ },
+ "Not in this build": {
+  "es": "No está en esta versión",
+  "fr": "Absent de cette version"
+ },
+ "Update when I open the app": {
+  "es": "Actualizar al abrir la app",
+  "fr": "Mettre à jour à l'ouverture de l'app"
+ },
+ "NVIS range ring (300 mi)": {
+  "es": "Anillo de alcance NVIS (300 mi)",
+  "fr": "Anneau de portée NVIS (300 mi)"
+ },
+ "NVIS planner (short-range HF)": {
+  "es": "Planificador NVIS (HF de corto alcance)",
+  "fr": "Planificateur NVIS (HF courte portée)"
+ },
+ "HF": {
+  "es": "HF",
+  "fr": "HF"
+ },
+ "Power (watts)": {
+  "es": "Potencia (vatios)",
+  "fr": "Puissance (watts)"
+ },
+ "Your grid": {
+  "es": "Tu cuadrícula",
+  "fr": "Votre locator"
+ },
+ "Their grid": {
+  "es": "Su cuadrícula",
+  "fr": "Son locator"
+ }
+}

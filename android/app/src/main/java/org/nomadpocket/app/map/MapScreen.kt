@@ -1,5 +1,7 @@
 package org.nomadpocket.app.map
 
+import org.nomadpocket.app.i18n.tr
+
 import android.content.Context
 import android.graphics.RectF
 import android.view.Gravity
@@ -130,6 +132,8 @@ private const val SRC_FAVORITES = "favorites"
 private const val SRC_GOTO = "goto-line"
 private const val SRC_AIRCRAFT = "sdr-aircraft"
 private const val SRC_PATH = "radio-path"
+private const val SRC_POTA = "pota"
+private const val SRC_NVIS = "nvis-ring"
 private const val SRC_ROUTE = "route"
 private val LABEL_FONT = arrayOf("Noto Sans Regular")
 
@@ -144,9 +148,17 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
     var showShapes by remember { mutableStateOf(prefs.getBoolean("showShapes", true)) }
     var showFavorites by remember { mutableStateOf(prefs.getBoolean("showFavorites", true)) }
     var showSearch by remember { mutableStateOf(false) }
+    var showNvis by remember { mutableStateOf(prefs.getBoolean("showNvis", false)) }
+    var showPota by remember { mutableStateOf(prefs.getBoolean("showPota", true)) }
+    var showPotaList by remember { mutableStateOf(false) }
+    val potaStore = remember { PotaStore.get(context) }
+    val potaState by potaStore.state.collectAsState()
     val pathOverlay by RadioPathOverlay.state.collectAsState()
     var showAircraft by remember { mutableStateOf(prefs.getBoolean("showAircraft", true)) }
     val sdrAircraft by org.nomadpocket.app.sdr.SdrState.aircraft.collectAsState()
+    val sdrShips by org.nomadpocket.app.sdr.SdrState.ships.collectAsState()
+    val sdrSondes by org.nomadpocket.app.sdr.SdrState.sondes.collectAsState()
+    val sdrSpots by org.nomadpocket.app.sdr.SdrState.spots.collectAsState()
     var look by remember { mutableStateOf(runCatching { MapLook.valueOf(prefs.getString("look", "") ?: "") }.getOrDefault(MapLook.STREETS)) }
     var showTerrain by remember { mutableStateOf(false) }
     val terrainStore = remember { TerrainStore.get(context) }
@@ -302,6 +314,25 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
         val firstAbove = s.layers.firstOrNull { it is LineLayer || it is SymbolLayer }
         if (firstAbove != null) s.addLayerBelow(layer, firstAbove.id) else s.addLayer(layer)
     }
+    // The 300-mile NVIS ring around you.
+    LaunchedEffect(style, showNvis, location) {
+        val loc = location
+        val ring = if (showNvis && loc != null) org.nomadpocket.ham.Nvis.circle(loc.latitude, loc.longitude, org.nomadpocket.ham.Nvis.RANGE_KM) else emptyList()
+        style?.source(SRC_NVIS)?.setGeoJson(FeatureCollection.fromFeatures(
+            if (ring.size < 3) emptyList() else listOf(Feature.fromGeometry(org.maplibre.geojson.LineString.fromLngLats(ring.map { Point.fromLngLat(it.second, it.first) })))))
+    }
+    // Parks on the Air: parks as green dots, people on the air from a park as orange ones.
+    LaunchedEffect(style, potaState, showPota) {
+        val snap = potaState.snapshot
+        val spots = if (showPota) potaStore.activeSpots(null) else emptyList()
+        val live = spots.map { it.reference }.toSet()
+        val feats = if (showPota && snap != null) snap.parks.filter { it.reference !in live }.map { p ->
+            Feature.fromGeometry(Point.fromLngLat(p.longitude, p.latitude)).also { it.addStringProperty("name", p.reference); it.addNumberProperty("live", 0) }
+        } else emptyList()
+        style?.source(SRC_POTA)?.setGeoJson(FeatureCollection.fromFeatures(feats + spots.map { s ->
+            Feature.fromGeometry(Point.fromLngLat(s.longitude, s.latitude)).also { it.addStringProperty("name", "${s.activator} ${s.frequencyText} ${s.mode}"); it.addNumberProperty("live", 1) }
+        }))
+    }
     // The radio path last checked, as a line coloured by the verdict.
     LaunchedEffect(style, pathOverlay) {
         val o = pathOverlay
@@ -312,13 +343,16 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
             })))
     }
     // Aircraft heard by an SDR box.
-    LaunchedEffect(style, sdrAircraft, showAircraft) {
-        val list = if (showAircraft) org.nomadpocket.app.sdr.SdrState.visibleAircraft(System.currentTimeMillis()) else emptyList()
-        style?.source(SRC_AIRCRAFT)?.setGeoJson(FeatureCollection.fromFeatures(list.map { a ->
-            Feature.fromGeometry(Point.fromLngLat(a.longitude, a.latitude)).also {
-                it.addStringProperty("name", "${a.callsign.ifEmpty { a.icao }} ${if (a.altitudeFeet >= 18000) "FL${a.altitudeFeet / 100}" else "${a.altitudeFeet} ft"}")
-            }
-        }))
+    LaunchedEffect(style, sdrAircraft, sdrShips, sdrSondes, sdrSpots, showAircraft) {
+        val now = System.currentTimeMillis()
+        val sdr = org.nomadpocket.app.sdr.SdrState
+        fun pt(lon: Double, lat: Double, name: String, kind: Int) = Feature.fromGeometry(Point.fromLngLat(lon, lat)).also { it.addStringProperty("name", name); it.addNumberProperty("kind", kind) }
+        val feats = if (!showAircraft) emptyList() else
+            sdr.visibleAircraft(now).map { a -> pt(a.longitude, a.latitude, "${a.callsign.ifEmpty { a.icao }} ${if (a.altitudeFeet >= 18000) "FL${a.altitudeFeet / 100}" else "${a.altitudeFeet} ft"}", 0) } +
+            sdr.visibleShips(now).map { s -> pt(s.longitude, s.latitude, s.name.ifEmpty { "MMSI ${s.mmsi}" }, 1) } +
+            sdr.visibleSondes(now).map { s -> pt(s.longitude, s.latitude, "${s.id} ${s.altitudeMetres / 100 * 100} m", 2) } +
+            sdr.visibleSpots(now).map { s -> pt(s.longitude, s.latitude, "${s.call} ${s.snr} dB", 3) }
+        style?.source(SRC_AIRCRAFT)?.setGeoJson(FeatureCollection.fromFeatures(feats))
     }
     // Go to: keep the position fresh for the arrival check, and draw the dashed line.
     LaunchedEffect(location) { location?.let { NavigationState.update(ShapePoint(it.latitude, it.longitude)) } }
@@ -377,41 +411,48 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
             Box {
                 MapButton(Icons.Filled.Layers, "Map layers") { showLayers = true }
                 DropdownMenu(expanded = showLayers, onDismissRequest = { showLayers = false }) {
-                    CheckItem("Radios heard directly", Icons.Filled.SettingsInputAntenna, showNodes) {
+                    CheckItem(tr("Radios heard directly"), Icons.Filled.SettingsInputAntenna, showNodes) {
                         showNodes = !showNodes; prefs.edit().putBoolean("showNodes", showNodes).apply()
                     }
                     CheckItem("Known on the mesh", Icons.Filled.Hub, showMeshKnown) {
                         showMeshKnown = !showMeshKnown; prefs.edit().putBoolean("showMeshKnown", showMeshKnown).apply()
                     }
-                    CheckItem("Known radios (community maps)", Icons.Filled.Contactless, showKnown) {
+                    CheckItem(tr("Known radios (community maps)"), Icons.Filled.Contactless, showKnown) {
                         showKnown = !showKnown; prefs.edit().putBoolean("showKnown", showKnown).apply()
                     }
                     MapLook.entries.forEach { l ->
                         DropdownMenuItem(text = { Text("Look: ${l.label}") }, leadingIcon = { Icon(if (look == l) Icons.Filled.RadioButtonChecked else Icons.Filled.RadioButtonUnchecked, null) },
                             onClick = { look = l; prefs.edit().putString("look", l.name).apply(); showLayers = false })
                     }
-                    DropdownMenuItem(text = { Text("Download elevation (hills, line of sight)…") }, leadingIcon = { Icon(Icons.Filled.Download, null) },
+                    DropdownMenuItem(text = { Text(tr("Download elevation (hills, line of sight)…")) }, leadingIcon = { Icon(Icons.Filled.Download, null) },
                         onClick = { showLayers = false; showTerrain = true })
-                    CheckItem("Aircraft (SDR box)", Icons.Filled.Star, showAircraft) {
+                    CheckItem(tr("Aircraft (SDR box)"), Icons.Filled.Star, showAircraft) {
                         showAircraft = !showAircraft; prefs.edit().putBoolean("showAircraft", showAircraft).apply()
                     }
-                    CheckItem("Favorites", Icons.Filled.Star, showFavorites) {
+                    CheckItem(tr("NVIS range ring (300 mi)"), Icons.Filled.Star, showNvis) {
+                        showNvis = !showNvis; prefs.edit().putBoolean("showNvis", showNvis).apply()
+                    }
+                    CheckItem(tr("Parks on the Air"), Icons.Filled.Star, showPota) {
+                        showPota = !showPota; prefs.edit().putBoolean("showPota", showPota).apply()
+                    }
+                    DropdownMenuItem(text = { Text(tr("Parks on the Air…")) }, leadingIcon = { Icon(Icons.Filled.Download, null) }, onClick = { showLayers = false; showPotaList = true })
+                    CheckItem(tr("Favorites"), Icons.Filled.Star, showFavorites) {
                         showFavorites = !showFavorites; prefs.edit().putBoolean("showFavorites", showFavorites).apply()
                     }
-                    CheckItem("My drawings", Icons.Filled.Straighten, showShapes) {
+                    CheckItem(tr("My drawings"), Icons.Filled.Straighten, showShapes) {
                         showShapes = !showShapes; prefs.edit().putBoolean("showShapes", showShapes).apply()
                     }
-                    DropdownMenuItem(text = { Text("Drawings…") }, leadingIcon = { Icon(Icons.Filled.Straighten, null) },
+                    DropdownMenuItem(text = { Text(tr("Drawings…")) }, leadingIcon = { Icon(Icons.Filled.Straighten, null) },
                         onClick = { showLayers = false; showShapesList = true })
-                    CheckItem("Earthquakes (Conditions)", Icons.Filled.Contactless, showQuakes) {
+                    CheckItem(tr("Earthquakes (Conditions)"), Icons.Filled.Contactless, showQuakes) {
                         showQuakes = !showQuakes; prefs.edit().putBoolean("showQuakes", showQuakes).apply()
                     }
-                    CheckItem("Ham APRS stations heard", Icons.Filled.Contactless, showAprs) {
+                    CheckItem(tr("Ham APRS stations heard"), Icons.Filled.Contactless, showAprs) {
                         showAprs = !showAprs; prefs.edit().putBoolean("showAprs", showAprs).apply()
                     }
-                    DropdownMenuItem(text = { Text("Download known radios…") }, leadingIcon = { Icon(Icons.Filled.Download, null) },
+                    DropdownMenuItem(text = { Text(tr("Download known radios…")) }, leadingIcon = { Icon(Icons.Filled.Download, null) },
                         onClick = { showLayers = false; showKnownSheet = true })
-                    DropdownMenuItem(text = { Text("Download streets around me…") }, leadingIcon = { Icon(Icons.Filled.Map, null) },
+                    DropdownMenuItem(text = { Text(tr("Download streets around me…")) }, leadingIcon = { Icon(Icons.Filled.Map, null) },
                         onClick = { showLayers = false; showStreets = true })
                     HorizontalDivider()
                     Text("Coverage", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium,
@@ -435,7 +476,7 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
                             )
                         }
                     }
-                    DropdownMenuItem(text = { Text("Coverage settings…") }, leadingIcon = { Icon(Icons.Filled.Settings, null) },
+                    DropdownMenuItem(text = { Text(tr("Coverage settings…")) }, leadingIcon = { Icon(Icons.Filled.Settings, null) },
                         onClick = { showLayers = false; onCoverageSettings() })
                     HorizontalDivider()
                     DropdownMenuItem(text = { Text("Offline maps…") }, leadingIcon = { Icon(Icons.Filled.Map, null) },
@@ -485,6 +526,7 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
     if (showTerrain) {
         TerrainDialog(terrainStore, terrainState, map?.cameraPosition?.target?.let { it.latitude to it.longitude } ?: location?.let { it.latitude to it.longitude }) { showTerrain = false }
     }
+    if (showPotaList) PotaDialog { showPotaList = false }
     if (showSearch) {
         MapSearchSheet(pins, shapes, location?.let { it.latitude to it.longitude }, map?.cameraPosition?.target?.let { it.latitude to it.longitude },
             onFly = { lat, lon -> map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), 15.0)) },
@@ -661,16 +703,29 @@ private fun cellOutlineColor(): Expression =
 
 /** Known radios under coverage, under live nodes, under pins. */
 private fun addLayers(style: Style) {
-    listOf(SRC_QUAKES, SRC_KNOWN, SRC_CELLS, SRC_APRS, SRC_NODES, SRC_PINS, SRC_FAVORITES, SRC_GOTO, SRC_ROUTE, SRC_AIRCRAFT, SRC_PATH).forEach {
+    listOf(SRC_QUAKES, SRC_KNOWN, SRC_CELLS, SRC_APRS, SRC_NODES, SRC_PINS, SRC_FAVORITES, SRC_GOTO, SRC_ROUTE, SRC_AIRCRAFT, SRC_PATH, SRC_POTA, SRC_NVIS).forEach {
         style.addSource(GeoJsonSource(it, FeatureCollection.fromFeatures(emptyList())))
     }
     style.addLayer(CircleLayer(SRC_AIRCRAFT, SRC_AIRCRAFT).withProperties(
-        PropertyFactory.circleRadius(5f), PropertyFactory.circleColor(android.graphics.Color.rgb(48, 176, 199)),
+        PropertyFactory.circleRadius(5f),
+        PropertyFactory.circleColor(Expression.match(get("kind"), color(android.graphics.Color.rgb(48, 176, 199)),
+            stop(1, color(android.graphics.Color.rgb(10, 132, 255))), stop(2, color(android.graphics.Color.rgb(255, 69, 58))), stop(3, color(android.graphics.Color.rgb(175, 82, 222))))),
         PropertyFactory.circleStrokeColor(android.graphics.Color.WHITE), PropertyFactory.circleStrokeWidth(1.5f)))
     style.addLayer(SymbolLayer("sdr-aircraft-names", SRC_AIRCRAFT).withProperties(
         PropertyFactory.textField(get("name")), PropertyFactory.textFont(LABEL_FONT), PropertyFactory.textSize(11f),
         PropertyFactory.textAnchor(org.maplibre.android.style.layers.Property.TEXT_ANCHOR_TOP), PropertyFactory.textOffset(arrayOf(0f, 0.8f)),
         PropertyFactory.textColor(android.graphics.Color.rgb(48, 176, 199)), PropertyFactory.textHaloColor(android.graphics.Color.BLACK),
+        PropertyFactory.textHaloWidth(1.5f), PropertyFactory.textOptional(true)))
+    style.addLayer(LineLayer("nvis-ring", SRC_NVIS).withProperties(
+        PropertyFactory.lineColor(android.graphics.Color.rgb(175, 82, 222)), PropertyFactory.lineWidth(3f), PropertyFactory.lineDasharray(arrayOf(3f, 2f))))
+    style.addLayer(CircleLayer(SRC_POTA, SRC_POTA).withProperties(
+        PropertyFactory.circleRadius(Expression.switchCase(eq(get("live"), literal(1)), literal(7f), literal(4f))),
+        PropertyFactory.circleColor(Expression.switchCase(eq(get("live"), literal(1)), color(android.graphics.Color.rgb(255, 149, 0)), color(android.graphics.Color.rgb(52, 199, 89)))),
+        PropertyFactory.circleStrokeColor(android.graphics.Color.WHITE), PropertyFactory.circleStrokeWidth(1.5f)))
+    style.addLayer(SymbolLayer("pota-names", SRC_POTA).withProperties(
+        PropertyFactory.textField(get("name")), PropertyFactory.textFont(LABEL_FONT), PropertyFactory.textSize(10f),
+        PropertyFactory.textAnchor(org.maplibre.android.style.layers.Property.TEXT_ANCHOR_TOP), PropertyFactory.textOffset(arrayOf(0f, 0.8f)),
+        PropertyFactory.textColor(android.graphics.Color.rgb(52, 199, 89)), PropertyFactory.textHaloColor(android.graphics.Color.BLACK),
         PropertyFactory.textHaloWidth(1.5f), PropertyFactory.textOptional(true)))
     style.addLayer(LineLayer("radio-path-line", SRC_PATH).withProperties(
         PropertyFactory.lineColor(Expression.match(get("v"), color(android.graphics.Color.rgb(229, 72, 77)),
@@ -940,7 +995,7 @@ private fun RadioLegend(heard: String?, unidentified: List<UnidentifiedRepeater>
             }
             if (showsMeshKnown) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Box(Modifier.size(7.dp).background(Color.Gray.copy(alpha = 0.55f), CircleShape))
-                Text("Known on the mesh (relayed)", style = MaterialTheme.typography.labelSmall)
+                Text(tr("Known on the mesh (relayed)"), style = MaterialTheme.typography.labelSmall)
             }
         }
     }

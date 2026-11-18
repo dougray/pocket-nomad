@@ -1,5 +1,7 @@
 package org.nomadpocket.app.guides
 
+import org.nomadpocket.app.i18n.tr
+
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.webkit.WebResourceRequest
@@ -82,14 +84,14 @@ fun SurviveScreen(
     val library = remember { GuideLibrary.get(context) }
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Survive", Modifier.weight(1f), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+            Text(tr("Survive"), Modifier.weight(1f), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
             IconButton(onClick = onSettings) { Icon(Icons.Filled.Settings, contentDescription = "Settings") }
         }
         OutlinedTextField(
             value = query,
             onValueChange = onQuery,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            placeholder = { Text("Search guides and library") },
+            placeholder = { Text(tr("Search guides and library")) },
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
             trailingIcon = {
                 if (query.isNotEmpty()) IconButton(onClick = { onQuery("") }) { Icon(Icons.Filled.Clear, contentDescription = "Clear search") }
@@ -141,7 +143,7 @@ private fun SurviveHome(library: GuideLibrary, onGuide: (Guide) -> Unit, onCateg
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
         ConditionsCard(onConditions)
         if (library.urgent.isNotEmpty()) {
-            Section("Emergency") {
+            Section(tr("Emergency")) {
                 library.emergencies.chunked(2).forEach { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         row.forEach { g ->
@@ -165,7 +167,7 @@ private fun SurviveHome(library: GuideLibrary, onGuide: (Guide) -> Unit, onCateg
                 }
             }
         }
-        Section("Tools") {
+        Section(tr("Tools")) {
             ToolKind.entries.chunked(3).forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     row.forEach { tool -> ToolTile(tool, Modifier.weight(1f)) { onTool(tool) } }

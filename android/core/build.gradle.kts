@@ -12,10 +12,11 @@ android {
     }
 
     defaultConfig {
-        minSdk = 26
+        minSdk = 24
     }
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
@@ -26,6 +27,7 @@ android {
 }
 
 dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
     testImplementation(libs.junit)
     // org.json is part of Android; JVM unit tests need the real one.
     testImplementation(libs.json)

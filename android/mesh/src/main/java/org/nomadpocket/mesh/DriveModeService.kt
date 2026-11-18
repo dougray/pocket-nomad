@@ -178,6 +178,8 @@ class DriveModeService : Service() {
         private const val ALERT_ID = 4108
 
         private fun ensureChannel(context: Context) {
+            // Notification channels exist from Android 8.0; before that the notification just shows.
+            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return
             val nm = context.getSystemService(NotificationManager::class.java) ?: return
             if (nm.getNotificationChannel(CHANNEL_ID) == null) {
                 nm.createNotificationChannel(NotificationChannel(CHANNEL_ID, "Drive mode", NotificationManager.IMPORTANCE_LOW).apply {

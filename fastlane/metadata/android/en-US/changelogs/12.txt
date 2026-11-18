@@ -1,0 +1,1 @@
+Fixes a crash on Android 8 and older phones, and now runs on Android 7.0+. New: NVIS planner for short-range HF (best band now, wire lengths, 300-mile map ring), JS8/FT8 frequencies, contact log with power and distance, Parks on the Air, ships/balloons/HF stations from an SDR box, English/Spanish/French in Settings. Beta: tell us what breaks.

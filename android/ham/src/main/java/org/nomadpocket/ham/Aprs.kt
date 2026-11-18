@@ -408,6 +408,21 @@ object HamGeo {
         return (atan2(y, x) * 180 / PI + 360) % 360
     }
 
+    /** The middle of a 4- or 6-character Maidenhead grid square, or null if it isn't one. */
+    fun fromMaidenhead(grid: String): Pair<Double, Double>? {
+        val g = grid.trim()
+        if (g.length != 4 && g.length != 6) return null
+        val u = g.uppercase()
+        if (u[0] !in 'A'..'R' || u[1] !in 'A'..'R' || !u[2].isDigit() || !u[3].isDigit()) return null
+        var lon = (u[0] - 'A') * 20.0 - 180 + (u[2] - '0') * 2.0
+        var lat = (u[1] - 'A') * 10.0 - 90 + (u[3] - '0') * 1.0
+        if (g.length == 6) {
+            if (u[4] !in 'A'..'X' || u[5] !in 'A'..'X') return null
+            lon += (u[4] - 'A') * (2.0 / 24) + 1.0 / 24; lat += (u[5] - 'A') * (1.0 / 24) + 0.5 / 24
+        } else { lon += 1.0; lat += 0.5 }
+        return lat to lon
+    }
+
     fun maidenhead(lat: Double, lon: Double): String {
         val lo = lon + 180; val la = lat + 90
         return "" + ('A' + (lo / 20).toInt()) + ('A' + (la / 10).toInt()) + ((lo % 20) / 2).toInt() + (la % 10).toInt() +

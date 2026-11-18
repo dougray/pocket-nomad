@@ -66,6 +66,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -75,6 +77,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -106,6 +109,8 @@ sealed class HamRoute {
     object Winlink : HamRoute()
     object Terminal : HamRoute()
     object Settings : HamRoute()
+    object Log : HamRoute()
+    object Nvis : HamRoute()
     object Reference : HamRoute()
     object Satellites : HamRoute()
 }
@@ -146,6 +151,8 @@ fun HamScreen(modifier: Modifier = Modifier, demo: Boolean = false, satellites: 
             HamRoute.Settings -> SettingsScreen(back)
             HamRoute.Reference -> ReferenceScreen(back)
             HamRoute.Satellites -> SatellitesScreen(back)
+            HamRoute.Log -> QsoLogScreen(back)
+            HamRoute.Nvis -> NvisScreen(back)
         }
     }
 }
@@ -262,6 +269,12 @@ private fun HamHome(open: (HamRoute) -> Unit, modifier: Modifier) {
                     is HamService.WinlinkState.Connecting -> "connecting…"; is HamService.WinlinkState.Exchanging -> "exchanging…"
                     is HamService.WinlinkState.Done -> "done"; is HamService.WinlinkState.Failed -> "failed"; else -> null
                 }) { open(HamRoute.Winlink) }
+            }
+            Section("HF") {
+                Row("NVIS planner (short-range HF)") { open(HamRoute.Nvis) }
+            }
+            Section("Contacts") {
+                Row("Contact log", QsoLogStore.get(LocalContext.current).log.size.takeIf { it > 0 }?.toString()) { open(HamRoute.Log) }
             }
             Section("BBS and nodes", "Connect to a packet BBS, node or another station and type to it.") {
                 Row("Packet terminal", ham.terminalPeer) { open(HamRoute.Terminal) }
@@ -752,6 +765,13 @@ private fun ReferenceScreen(back: () -> Unit) {
             Section("Frequencies", "Local repeaters, nets and Winlink gateways vary: write yours down before an emergency. Band plans differ by country.") {
                 for ((f, d) in freqs) Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) { Text(f, fontWeight = FontWeight.Bold); Text(d, color = MeshColors.secondary, fontSize = 14.sp) }
             }
+            Section("JS8Call dial frequencies", "JS8 sends free-text messages that relay between stations, even with 5 watts. The same dial frequencies are shared by everyone, so you can find each other.") {
+                for ((f, b) in listOf("1.842" to "160 m", "3.578" to "80 m", "7.078" to "40 m", "10.130" to "30 m", "14.078" to "20 m", "18.104" to "17 m", "21.078" to "15 m", "28.078" to "10 m")) Row("$f MHz USB", "JS8Call, $b")
+            }
+            Section("FT8 dial frequencies") {
+                for ((f, b) in listOf("1.840" to "160 m", "3.573" to "80 m", "5.357" to "60 m", "7.074" to "40 m", "10.136" to "30 m", "14.074" to "20 m", "18.100" to "17 m", "21.074" to "15 m", "28.074" to "10 m", "50.313" to "6 m")) Row("$f MHz USB", "FT8, $b")
+            }
+            Section("NVIS: short-range HF") { Text("NVIS (short-range HF, about 0 to 300 miles) works best on 80 m or 40 m by day and 160 m or 80 m at night, with a horizontal wire hung low, a tenth to a quarter of a wavelength above ground. The NVIS planner (Ham tab) guesses the best band from the sun and the solar flux. 5 watts is enough for weak-signal digital modes such as JS8 and FT8.", modifier = Modifier.padding(16.dp)) }
             Section("NOAA Weather Radio", "Receive only; most handhelds hear this band. The Conditions screen (Survive tab) lists the nearest transmitters once you've updated it.") {
                 for ((f, ch) in listOf("162.400" to "WX2", "162.425" to "WX4", "162.450" to "WX5", "162.475" to "WX3", "162.500" to "WX6", "162.525" to "WX7", "162.550" to "WX1"))
                     Row("$f MHz", "Channel $ch")
@@ -862,3 +882,141 @@ private fun SatellitesScreen(back: () -> Unit) {
         }
     }
 }
+
+
+@Composable
+private fun QsoLogScreen(back: () -> Unit) {
+    val context = LocalContext.current
+    val store = remember { QsoLogStore.get(context) }
+    var version by remember { mutableStateOf(0) }
+    var search by remember { mutableStateOf("") }
+    var editing by remember { mutableStateOf<Qso?>(null) }
+    var note by remember { mutableStateOf("") }
+    val importer = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            val text = runCatching { context.contentResolver.openInputStream(uri)?.bufferedReader()?.readText() }.getOrNull()
+            note = if (text == null) "Couldn't read that file." else store.merge(Adif.parse(text)).let { n -> if (n == 0) "No new contacts found in that file." else "Imported $n contact${if (n == 1) "" else "s"}." }
+            version++
+        }
+    }
+    fun share() {
+        val dir = java.io.File(context.cacheDir, "drawings_export").apply { mkdirs() }
+        val file = java.io.File(dir, "PocketNomad-log.adi").apply { writeText(store.exportAdif()) }
+        val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.mesh.files", file)
+        context.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = "text/plain"; putExtra(android.content.Intent.EXTRA_STREAM, uri); addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }, "Share ADIF file"))
+    }
+    editing?.let { QsoEditorDialog(it) { editing = null; version++ } }
+    HamScaffold("Contact log", back, actions = {
+        IconButton(onClick = { editing = blankQso(myCall = Ham.service.settings.baseCall, myGrid = Ham.service.myPosition?.let { HamGeo.maidenhead(it.first, it.second) } ?: "") }) { Icon(Icons.Filled.Add, "New contact") }
+        if (store.log.isNotEmpty()) TextButton(onClick = ::share) { Text("Export") }
+        TextButton(onClick = { importer.launch("*/*") }) { Text("Import") }
+    }) {
+        val list = remember(version, search) { store.search(search) }
+        androidx.compose.foundation.lazy.LazyColumn {
+            item {
+                OutlinedTextField(search, { search = it }, Modifier.fillMaxWidth().padding(16.dp, 8.dp), singleLine = true, label = { Text("Call, name, park or grid") })
+                if (store.log.isEmpty()) Text("No contacts yet. Tap + after you make one. Everything stays on this phone; Export makes an ADIF file you can open in any logging program or upload to a logbook yourself.",
+                    color = MeshColors.secondary, modifier = Modifier.padding(16.dp))
+                if (note.isNotEmpty()) Text(note, color = MeshColors.secondary, modifier = Modifier.padding(horizontal = 16.dp))
+            }
+            items(list.size) { i ->
+                val q = list[i]
+                val f = remember { java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") } }
+                Column(Modifier.fillMaxWidth().clickable { editing = q }.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    androidx.compose.foundation.layout.Row { Text(q.call, color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); Text("${q.band} ${q.mode}", color = MeshColors.secondary) }
+                    Text("${f.format(java.util.Date(q.whenMillis))} UTC${if (q.sigInfo.isNotEmpty()) " · ${q.sig} ${q.sigInfo}" else ""}", color = MeshColors.secondary, fontSize = 13.sp)
+                    qsoRangeLine(q)?.let { Text(it, color = MeshColors.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+                }
+            }
+        }
+    }
+}
+
+
+/** "5 W · 84 mi · 16.8 mi per watt", when the power and both grids are known. */
+internal fun qsoRangeLine(q: Qso): String? {
+    val parts = ArrayList<String>()
+    q.watts?.let { parts += if (it == Math.rint(it)) "${it.toInt()} W" else "%.1f W".format(it) }
+    q.distanceKm?.let { parts += "%.0f mi".format(it / 1.609344) }
+    q.milesPerWatt?.let { parts += "%.1f mi per watt".format(it) }
+    return if (parts.isEmpty()) null else parts.joinToString(" · ")
+}
+
+@Composable
+private fun NvisScreen(back: () -> Unit) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("nvis", android.content.Context.MODE_PRIVATE) }
+    var flux by remember { mutableStateOf(if (prefs.contains("flux")) prefs.getFloat("flux", 100f).toDouble() else null) }
+    var fluxTime by remember { mutableStateOf(prefs.getLong("fluxTime", 0L)) }
+    var manual by remember { mutableStateOf(prefs.getFloat("manual", 0f).toDouble()) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var showRing by remember { mutableStateOf(context.getSharedPreferences("map", android.content.Context.MODE_PRIVATE).getBoolean("showNvis", false)) }
+    val scope = rememberCoroutineScope()
+    val me = Ham.service.myPosition
+    val sfi = if (manual > 0) manual else (flux ?: 100.0)
+    val kp = org.nomadpocket.ham.HamNvisHooks.kp?.invoke() ?: 2.0
+    val elevation = Nvis.sunElevation(me?.first ?: 30.0, me?.second ?: -97.0, System.currentTimeMillis())
+    val advice = Nvis.advise(sfi, kp, elevation)
+    HamScaffold("NVIS planner", back) {
+        androidx.compose.foundation.lazy.LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            item {
+                Text("NVIS (near vertical incidence skywave) is HF radio aimed almost straight up, so the signal comes back down around you, roughly 0 to 300 miles. It keeps a region in touch when towers and internet are down, even with 5 watts and a wire.", color = MeshColors.secondary, fontSize = 13.sp)
+                Text("Right now", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                Text("Sun: ${if (elevation > 6) "Daytime" else if (elevation < -6) "Night" else "Dawn or dusk"}", color = Color.White)
+                Text("Solar flux: ${if (flux == null && manual == 0.0) "100 (assumed)" else "%.0f".format(sfi)}", color = Color.White)
+                Text("Geomagnetic Kp: ${if (org.nomadpocket.ham.HamNvisHooks.kp == null) "2 (assumed)" else "%.1f".format(kp)}", color = Color.White)
+                androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(enabled = !busy, onClick = {
+                        busy = true; error = null
+                        scope.launch {
+                            val v = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                runCatching {
+                                    val c = java.net.URL("https://services.swpc.noaa.gov/products/summary/10cm-flux.json").openConnection() as java.net.HttpURLConnection
+                                    c.setRequestProperty("User-Agent", "PocketNomad/1.0 (+https://pocketnomad.us)"); c.connectTimeout = 15000; c.readTimeout = 20000
+                                    Nvis.parseFlux(c.inputStream.bufferedReader().readText())
+                                }.getOrNull()
+                            }
+                            if (v == null) error = "Couldn't reach NOAA. The last value is kept." else { flux = v; fluxTime = System.currentTimeMillis(); prefs.edit().putFloat("flux", v.toFloat()).putLong("fluxTime", fluxTime).apply() }
+                            busy = false
+                        }
+                    }) { Text(if (busy) "Updating…" else "Update solar flux") }
+                    OutlinedButton(onClick = { manual = if (manual > 0) 0.0 else sfi; prefs.edit().putFloat("manual", manual.toFloat()).apply() }) { Text(if (manual > 0) "Use NOAA flux" else "Type a flux") }
+                }
+                if (manual > 0) {
+                    androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Typed flux ${manual.toInt()}", color = Color.White, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { manual = maxOf(65.0, manual - 5); prefs.edit().putFloat("manual", manual.toFloat()).apply() }) { Text("−5") }
+                        TextButton(onClick = { manual = minOf(300.0, manual + 5); prefs.edit().putFloat("manual", manual.toFloat()).apply() }) { Text("+5") }
+                    }
+                }
+                error?.let { Text(it, color = Color(0xFFFF9500), fontSize = 13.sp) }
+                Text("Try this band", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                Text(advice.summary, color = Color.White, fontWeight = FontWeight.SemiBold)
+                if (advice.stormed) Text("A geomagnetic storm lowers the usable frequencies. Expect weaker or no NVIS.", color = Color(0xFFFF9500), fontSize = 13.sp)
+                listOfNotNull(advice.best, advice.alternate).forEach { b ->
+                    Text(b.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text("JS8Call %.3f MHz · FT8 %.3f MHz (USB)".format(b.js8mhz, b.ft8mhz), color = MeshColors.secondary, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, fontSize = 13.sp)
+                }
+                Text("Estimated critical frequency %.1f MHz. Best band: highest one below %.1f MHz and above %.1f MHz.".format(advice.foF2, advice.fot, advice.luf), color = MeshColors.secondary, fontSize = 12.sp)
+                androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+                    Text("Show the 300-mile ring on the map", color = Color.White, modifier = Modifier.weight(1f))
+                    Switch(showRing, { showRing = it; context.getSharedPreferences("map", android.content.Context.MODE_PRIVATE).edit().putBoolean("showNvis", it).apply() })
+                }
+                Text("Wire for each band", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                Nvis.bands.forEach { b ->
+                    val a = Nvis.antenna(b)
+                    Text(b.name, color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Dipole %.0f ft (%.1f m) total, hung %.0f to %.0f ft up".format(a.dipoleFeet, a.dipoleMetres, a.heightMinMetres * 3.28084, a.heightMaxMetres * 3.28084), color = MeshColors.secondary, fontSize = 13.sp)
+                }
+                Text("A half-wave dipole or an end-fed half-wave wire (the same length). Lay it horizontal and low: a tenth to a quarter of a wavelength above ground sends the signal up instead of out. Cut a little long and trim for the best match.", color = Color.White, fontSize = 13.sp)
+                Text("This is a rule of thumb, not a propagation forecast: it guesses from the time of day, the solar flux and the Kp index. Real conditions vary. If a band is quiet, try the neighbour, and always listen first.", color = MeshColors.secondary, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+/** Lets the app tell the planner the current Kp (the ham module cannot see the Conditions module). */
+object HamNvisHooks { var kp: (() -> Double)? = null }

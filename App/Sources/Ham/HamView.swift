@@ -10,13 +10,15 @@ import SwiftUI
 enum HamRoute: Hashable {
     case monitor, stations, station(String), messages, thread(String), bulletins
     case mail, mailFolder(WinlinkFolder), mailMessage(String, WinlinkFolder), winlink
-    case terminal, settings, reference, satellites
+    case terminal, settings, reference, satellites, log, nvis
 
     @MainActor @ViewBuilder
     var destination: some View {
         switch self {
         case .monitor: HamMonitorView()
         case .stations: HamStationsView()
+        case .log: QsoLogView()
+        case .nvis: NvisView()
         case .station(let id): HamStationDetail(id: id)
         case .messages: APRSConversationsView()
         case .thread(let peer): APRSThreadView(peer: peer)
@@ -46,6 +48,14 @@ struct HamView: View {
                     Section {
                         Label(notice, systemImage: "info.circle.fill").foregroundStyle(.primary)
                         Button("Dismiss") { ham.notice = nil }
+                    }
+                }
+                Section("HF") {
+                    NavigationLink(value: HamRoute.nvis) { row("NVIS planner (short-range HF)", "dot.radiowaves.up.forward") }
+                }
+                Section("Contacts") {
+                    NavigationLink(value: HamRoute.log) {
+                        row("Contact log", "book.closed.fill", detail: QsoLogStore.shared.log.isEmpty ? nil : "\(QsoLogStore.shared.log.count)")
                     }
                 }
                 Section("APRS") {

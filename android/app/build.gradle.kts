@@ -68,10 +68,10 @@ android {
 
     defaultConfig {
         applicationId = "org.nomadpocket.app"
-        minSdk = 26
+        minSdk = 24
         targetSdk = 37
-        versionCode = 11
-        versionName = "0.9.0-beta"
+        versionCode = 12
+        versionName = "0.9.1-beta"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -105,6 +105,7 @@ android {
         }
     }
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
@@ -140,6 +141,7 @@ androidComponents {
 }
 
 dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(project(":mesh"))
     implementation(project(":ham"))
     implementation(project(":library"))

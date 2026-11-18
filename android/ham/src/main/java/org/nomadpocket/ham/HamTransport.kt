@@ -259,7 +259,7 @@ class HamBluetoothTransport(context: Context) : HamTransport {
         writing = true
         val type = if (c.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0)
             BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE else BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-        val ok = if (Build.VERSION.SDK_INT >= 33) g.writeCharacteristic(c, next, type) == 0
+        val ok = if (Build.VERSION.SDK_INT >= 33) g.writeCharacteristic(c, next, type) == android.bluetooth.BluetoothStatusCodes.SUCCESS
                  else @Suppress("DEPRECATION") run { c.writeType = type; c.value = next; g.writeCharacteristic(c) }
         if (!ok) { writing = false; writes.addFirst(next); main.postDelayed({ drain() }, 20) }
     }

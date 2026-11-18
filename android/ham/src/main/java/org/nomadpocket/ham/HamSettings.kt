@@ -18,7 +18,6 @@ import androidx.compose.runtime.setValue
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.KeyStore
-import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -63,11 +62,11 @@ class KeystoreSecretBox : SecretBox {
     override fun seal(plain: String): String {
         val c = Cipher.getInstance("AES/GCM/NoPadding")
         c.init(Cipher.ENCRYPT_MODE, key())
-        return Base64.getEncoder().encodeToString(c.iv + c.doFinal(plain.toByteArray()))
+        return Base64Compat.encode(c.iv + c.doFinal(plain.toByteArray()))
     }
 
     override fun open(sealed: String): String? = try {
-        val all = Base64.getDecoder().decode(sealed)
+        val all = Base64Compat.decode(sealed)
         val c = Cipher.getInstance("AES/GCM/NoPadding")
         c.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, all.copyOfRange(0, 12)))
         String(c.doFinal(all.copyOfRange(12, all.size)))

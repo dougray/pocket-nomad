@@ -42,6 +42,7 @@ struct NomadPocketApp: App {
                 .environment(content)
                 .environment(settings)
                 .preferredColorScheme(settings.forceDark ? .dark : nil)
+                .environment(\.locale, settings.locale)
                 .tint(Theme.accent)
                 .task { await AppStartup.run(content) }
                 .onOpenURL { url in Task { await content.importFile(at: url) } }
@@ -151,16 +152,16 @@ struct RootView: View {
     private var tabs: some View {
         TabView(selection: $nav.section) {
             SurviveView()
-                .tabItem { Label(AppTab.survive.title, systemImage: AppTab.survive.symbol) }
+                .tabItem { Label(LocalizedStringKey(AppTab.survive.title), systemImage: AppTab.survive.symbol) }
                 .tag(AppTab.survive)
             AskView()
-                .tabItem { Label(AppTab.ask.title, systemImage: AppTab.ask.symbol) }
+                .tabItem { Label(LocalizedStringKey(AppTab.ask.title), systemImage: AppTab.ask.symbol) }
                 .tag(AppTab.ask)
             LibraryView()
-                .tabItem { Label(AppTab.library.title, systemImage: AppTab.library.symbol) }
+                .tabItem { Label(LocalizedStringKey(AppTab.library.title), systemImage: AppTab.library.symbol) }
                 .tag(AppTab.library)
             OfflineMapView()
-                .tabItem { Label(AppTab.map.title, systemImage: AppTab.map.symbol) }
+                .tabItem { Label(LocalizedStringKey(AppTab.map.title), systemImage: AppTab.map.symbol) }
                 .tag(AppTab.map)
             // Mesh and Ham share the Radio tab: a phone shows five tabs at most.
             RadioTabView()

@@ -42,6 +42,42 @@ struct SdrAlert: Equatable, Sendable {
 
 struct SdrChannel: Equatable, Sendable { var mhz: Double; var snr: Double }
 
+struct SdrShip: Equatable, Identifiable, Sendable {
+    var id: Int { mmsi }
+    var mmsi: Int
+    var name: String
+    var latitude: Double
+    var longitude: Double
+    var speedKnots: Double?
+    var courseDegrees: Double?
+    var kind: String
+    var heardAt: Date
+}
+
+struct SdrSonde: Equatable, Identifiable, Sendable {
+    var id: String
+    var model: String
+    var latitude: Double
+    var longitude: Double
+    var altitudeMetres: Int
+    var climbMS: Double
+    var mhz: Double
+    var heardAt: Date
+}
+
+/// A station heard on HF (FT8 or WSPR). The position is the middle of its grid square.
+struct SdrSpot: Equatable, Identifiable, Sendable {
+    var id: String { "\(mode)|\(call)" }
+    var mode: String
+    var call: String
+    var grid: String
+    var snr: Int
+    var mhz: Double
+    var latitude: Double
+    var longitude: Double
+    var heardAt: Date
+}
+
 enum SdrEvent: Equatable, Sendable {
     case hello(SdrHello)
     case status(mode: String, decoded: Int, dongle: Bool)
@@ -51,6 +87,11 @@ enum SdrEvent: Equatable, Sendable {
     case alert(SdrAlert)
     case weatherChannels([SdrChannel])
     case spectrum(lowHz: Int, stepHz: Int, db: [Int])
+    /// The box refused us: "auth" (wrong or missing token) or "blocked" (too many wrong tries).
+    case error(code: String)
+    case ship(SdrShip)
+    case sonde(SdrSonde)
+    case spot(SdrSpot)
 }
 
 /// Collects Bluetooth chunks into complete protocol lines.
@@ -109,6 +150,19 @@ enum SdrParser {
                 return SdrChannel(mhz: m, snr: s)
             }
             return .weatherChannels(ch)
+        case "ship":
+            guard let mmsi = int("mmsi"), let lat = dbl("lat"), let lon = dbl("lon"), (-90...90).contains(lat), (-180...180).contains(lon) else { return nil }
+            return .ship(SdrShip(mmsi: mmsi, name: j["name"] as? String ?? "", latitude: lat, longitude: lon, speedKnots: dbl("sog"), courseDegrees: dbl("cog"),
+                                 kind: j["kind"] as? String ?? "", heardAt: date))
+        case "sonde":
+            guard let id = j["id"] as? String, let lat = dbl("lat"), let lon = dbl("lon"), (-90...90).contains(lat), (-180...180).contains(lon) else { return nil }
+            return .sonde(SdrSonde(id: id, model: j["model"] as? String ?? "", latitude: lat, longitude: lon, altitudeMetres: int("alt") ?? 0, climbMS: dbl("vv") ?? 0,
+                                   mhz: dbl("mhz") ?? 0, heardAt: date))
+        case "spot":
+            guard let call = j["call"] as? String, let grid = j["grid"] as? String, let c = Coordinates.fromMaidenhead(grid) else { return nil }
+            return .spot(SdrSpot(mode: j["mode"] as? String ?? "", call: call, grid: grid, snr: int("snr") ?? 0, mhz: dbl("mhz") ?? 0, latitude: c.latitude, longitude: c.longitude, heardAt: date))
+        case "error":
+            return .error(code: j["code"] as? String ?? "unknown")
         case "spectrum":
             guard let lo = int("lo"), let step = int("step"), let db = j["db"] as? [NSNumber] else { return nil }
             return .spectrum(lowHz: lo, stepHz: step, db: db.map(\.intValue))
@@ -127,6 +181,9 @@ final class SdrState {
     private(set) var aircraft: [String: SdrAircraft] = [:]
     private(set) var alerts: [SdrAlert] = []
     private(set) var channels: [SdrChannel] = []
+    private(set) var ships: [Int: SdrShip] = [:]
+    private(set) var sondes: [String: SdrSonde] = [:]
+    private(set) var spots: [String: SdrSpot] = [:]
     private(set) var decoded = 0
     /// Set once any hello says sim:true; the whole run then counts as invented.
     private(set) var simulated = false
@@ -140,7 +197,10 @@ final class SdrState {
         case .aircraft(let a): aircraft[a.icao] = a
         case .alert(let a): alerts.insert(a, at: 0); alerts = Array(alerts.prefix(50))
         case .weatherChannels(let c): channels = c
-        case .aprs, .spectrum: break
+        case .ship(let s): ships[s.mmsi] = s
+        case .sonde(let s): sondes[s.id] = s
+        case .spot(let s): spots[s.id] = s
+        case .aprs, .spectrum, .error: break
         }
     }
 
@@ -153,5 +213,13 @@ final class SdrState {
         }
     }
 
-    func reset() { hello = nil; aircraft = [:]; alerts = []; channels = []; decoded = 0; simulated = false }
+    static let shipLifetime: TimeInterval = 600
+    static let sondeLifetime: TimeInterval = 1800
+    static let spotLifetime: TimeInterval = 1800
+
+    func visibleShips(now: Date) -> [SdrShip] { ships.values.filter { now.timeIntervalSince($0.heardAt) <= Self.shipLifetime }.sorted { $0.mmsi < $1.mmsi } }
+    func visibleSondes(now: Date) -> [SdrSonde] { sondes.values.filter { now.timeIntervalSince($0.heardAt) <= Self.sondeLifetime }.sorted { $0.id < $1.id } }
+    func visibleSpots(now: Date) -> [SdrSpot] { spots.values.filter { now.timeIntervalSince($0.heardAt) <= Self.spotLifetime }.sorted { $0.heardAt > $1.heardAt } }
+
+    func reset() { hello = nil; aircraft = [:]; ships = [:]; sondes = [:]; spots = [:]; alerts = []; channels = []; decoded = 0; simulated = false }
 }
