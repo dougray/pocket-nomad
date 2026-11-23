@@ -989,6 +989,55 @@
           ]
         },
         {
+          "id": "antennas",
+          "title": "Antennas for Your Radios",
+          "summary": "Which antenna for which radio, and how to set one up in a car, a pack or at home.",
+          "file": "radio-comms/antennas.html",
+          "urgent": false,
+          "keywords": [
+            "antenna",
+            "whip",
+            "dipole",
+            "v-dipole",
+            "gooseneck",
+            "coax",
+            "swr",
+            "dual band",
+            "144",
+            "430",
+            "1090",
+            "137",
+            "satellite",
+            "car",
+            "pack",
+            "home",
+            "sdr"
+          ]
+        },
+        {
+          "id": "solar-mesh-node",
+          "title": "Solar Mesh Node",
+          "summary": "Build a portable solar mesh node in a weatherproof box: antenna, cable, power and placement.",
+          "file": "radio-comms/solar-mesh-node.html",
+          "urgent": false,
+          "keywords": [
+            "mesh",
+            "node",
+            "solar",
+            "lora",
+            "meshtastic",
+            "meshcore",
+            "repeater",
+            "router",
+            "battery",
+            "18650",
+            "pole",
+            "antenna",
+            "915",
+            "portable"
+          ]
+        },
+        {
           "id": "radio-procedure",
           "title": "Radio Procedure and Etiquette",
           "summary": "How to call, what to say in an emergency, and common words.",

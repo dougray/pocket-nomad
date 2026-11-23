@@ -54,7 +54,7 @@ struct TileLabel: View {
             Image(systemName: symbol)
                 .font(.system(size: 28, weight: .semibold))
                 .foregroundStyle(tint.map(AnyShapeStyle.init) ?? AnyShapeStyle(Theme.brandGradient))
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.subheadline.weight(.semibold))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.primary)

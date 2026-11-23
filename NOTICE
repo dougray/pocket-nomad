@@ -38,3 +38,13 @@ Ham radio (App/Sources/Ham, android/ham):
   (Okumura, Yoshizaki, Rikitake), licensed "use, distribute, and modify this
   program freely". Test fixtures gettysburg.txt / e.txt and their .lzh forms are
   from wl2k-go's test data.
+- The FT8 decoder (App/Sources/Ham/Ft8Decoder.swift, Ft8Constants.swift and
+  android/ham/.../Ft8Decoder.kt, Ft8Constants.kt) is a port of ft8_lib
+  (https://github.com/kgoba/ft8_lib), MIT License, Copyright (c) 2018 Karlis
+  Goba. FT8 itself is by Joe Taylor (K1JT), Steve Franke (K9AN) and Bill
+  Somerville (G4WJS). The test recordings in AppTests/Fixtures/Ft8 (websdr_test4.wav,
+  websdr_test6.wav) and their expected outputs come from ft8_lib's test data; the
+  gen_*.wav files were made with its encoder.
+- The AIS receiver (android/app/.../sdr/Ais.kt) is written from ITU-R M.1371 and
+  the HDLC description. The frame bit-order and CRC conventions were checked
+  against the published source of rtl-ais (GPL); no code was copied.

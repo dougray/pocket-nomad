@@ -1,0 +1,76 @@
+<h2>Do this now</h2>
+<ol>
+<li>Pick the band first. An antenna works well on the band it was cut for and poorly on others.</li>
+<li>Get it outside and up high with a clear view. Height beats gain.</li>
+<li>Keep the cable short. Thin cable wastes signal, most of all at high frequencies.</li>
+<li>Never connect a dongle or a radio you do not mean to transmit with to an antenna that a transmitter is using.</li>
+</ol>
+<h2>The three rules</h2>
+<ul>
+<li><strong>Match the antenna to the band.</strong> A 2 m antenna hears 2 m well and other bands weakly. Dual-band antennas cover two bands, usually 144 and 430 MHz.</li>
+<li><strong>Height and clear sky beat gain.</strong> Outdoors and high is the biggest win. Indoors by a window is second best.</li>
+<li><strong>Short, good cable.</strong> Thin cable (RG-174) loses a lot above 100 MHz. Use RG-58, LMR-195 or better, and keep it short.</li>
+</ul>
+<h2>Which antenna for which radio</h2>
+<table>
+<tr><th>What you want</th><th>Frequency</th><th>Antenna</th><th>Quarter wave</th></tr>
+<tr><td>Aircraft (SDR box)</td><td>1090 MHz</td><td>Small vertical on a ground plane, or a 1090 collinear. Needs its own antenna.</td><td>6.5 cm</td></tr>
+<tr><td>APRS</td><td>144.390 MHz (North America)</td><td>2 m whip or a dual-band 144/430 whip</td><td>49 cm</td></tr>
+<tr><td>Weather radio</td><td>162.400 to 162.550 MHz</td><td>2 m or marine VHF whip</td><td>44 cm</td></tr>
+<tr><td>Ships (AIS)</td><td>161.975 and 162.025 MHz</td><td>Marine VHF whip, as high as you can</td><td>44 cm</td></tr>
+<tr><td>Weather satellite pictures</td><td>137.100, 137.620, 137.9125 MHz</td><td>V-dipole: two 52 to 53 cm elements at about 120 degrees, horizontal, outdoors, clear sky</td><td>52 cm each</td></tr>
+<tr><td>Weather balloons</td><td>400 to 406 MHz</td><td>70 cm whip or dual-band 144/430 whip</td><td>18 cm</td></tr>
+<tr><td>HF (FT8, WSPR, JS8)</td><td>1.8 to 30 MHz</td><td>Long wire or half-wave dipole (needs an HF-capable dongle)</td><td>142.65 / MHz metres per half wave</td></tr>
+<tr><td>Mesh radios (LoRa)</td><td>915 MHz in the US</td><td>See the Solar Mesh Node guide</td><td>about 8 cm</td></tr>
+</table>
+<p>Quarter wave in cm is roughly 7130 divided by the MHz. Half wave is roughly 14260 divided by the MHz. Cut a little long, then trim.</p>
+<h2>A dual-band gooseneck antenna</h2>
+<p>A compact omnidirectional dual-band antenna on a gooseneck is a good everyday antenna for a pack or a dash. Check its bands. If they are 144 and 430 MHz:</p>
+<ul>
+<li><strong>Good for:</strong> APRS, the 2 m and 70 cm spectrum views, weather balloons.</li>
+<li><strong>Usable but weaker:</strong> weather radio and ships near 162 MHz.</li>
+<li><strong>Not for:</strong> weather satellites (use a V-dipole) or aircraft (use a 1090 MHz antenna).</li>
+</ul>
+<h2>In a car</h2>
+<ul>
+<li>Put a magnetic or NMO whip in the middle of the roof. The roof is the ground plane that makes a quarter-wave whip work. Never mount one on glass with no metal under it.</li>
+<li>Run the cable through a door seal. Keep it away from power wires and do not coil the extra.</li>
+<li>Put a thin plastic wrap under a magnet so it does not scratch the paint.</li>
+</ul>
+<h2>In a pack</h2>
+<ul>
+<li>Clip a flexible whip or a dual-band gooseneck high on the shoulder strap, upright.</li>
+<li>Keep the radio or dongle in the top pocket with the antenna out and the cable short.</li>
+<li>Your body blocks signal. Keep the antenna high and away from your back.</li>
+<li>For a satellite pass, stop and lay the V-dipole flat in the open with its legs pointing north and south. You cannot do this while walking.</li>
+<li>Carry a spare adapter (SMA to BNC) and a short extension cable.</li>
+</ul>
+<h2>At home</h2>
+<ul>
+<li>Use separate antennas for separate jobs. One antenna for 2 m, spectrum, weather radio and ships; one for 1090 MHz aircraft with a very short cable; one V-dipole for satellites; a long wire for HF.</li>
+<li>One dongle listens to one antenna at a time. A second dongle lets two antennas work together.</li>
+<li>Splitters lose signal. Use one only if you must share an antenna.</li>
+<li>Ground the mast and add a lightning arrestor on any permanent outdoor antenna.</li>
+</ul>
+<div class="callout warn">Never share an antenna between a transmitting radio and a dongle. A transmitter can burn out a dongle in a second. Pocket Nomad and the SDR box only listen. If you transmit with your own radio (this needs a licence), use a separate antenna for the dongle or an antenna switch that disconnects it while you transmit.</div>
+<div class="callout warn">Keep every antenna and mast well away from power lines. Do not raise one in a storm.</div>
+<h2>Test an antenna</h2>
+<ol>
+<li>Open the Spectrum screen (Radio, SDR) and pick a band your antenna should cover.</li>
+<li>Let the orange peak-hold line run for a minute or two.</li>
+<li>Swap the antenna or move to a new spot and watch it again.</li>
+<li>The one with higher peaks and a lower noise floor is better. Use the same dongle, gain and band each time. The values are relative, not calibrated.</li>
+</ol>
+<h2>If you hear nothing</h2>
+<ul>
+<li>Check the antenna is on the right connector and tight.</li>
+<li>Try a lower gain if the whole spectrum shows noise.</li>
+<li>Move away from computers, chargers and LED lights, which add noise.</li>
+<li>If the spectrum shows peaks, the hardware works. A flat line means check the antenna, cable and dongle.</li>
+</ul>
+<h3>Sources</h3>
+<ul>
+<li>Standard antenna formulas (quarter and half wavelength), ARRL Antenna Book</li>
+<li>RTL-SDR Blog, V-dipole antenna guide (rtl-sdr.com)</li>
+<li>NOAA, weather satellite and NOAA Weather Radio frequencies (noaa.gov, weather.gov)</li>
+</ul>

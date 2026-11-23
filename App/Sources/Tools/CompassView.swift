@@ -62,7 +62,7 @@ struct CompassView: View {
                     .rotationEffect(.degrees(Double(i) * 5))
             }
             ForEach(Array(["N", "E", "S", "W"].enumerated()), id: \.offset) { i, label in
-                Text(label)
+                Text(LocalizedStringKey(label))
                     .font(.title2.bold())
                     .foregroundStyle(i == 0 ? Theme.danger : .primary)
                     .rotationEffect(.degrees(Double(-i) * 90 + (heading ?? 0)))
@@ -118,7 +118,7 @@ struct CompassView: View {
 
     private func row(_ label: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(label).foregroundStyle(.secondary).frame(width: 80, alignment: .leading)
+            Text(LocalizedStringKey(label)).foregroundStyle(.secondary).frame(width: 80, alignment: .leading)
             Text(value).font(.body.monospaced()).textSelection(.enabled)
         }
     }

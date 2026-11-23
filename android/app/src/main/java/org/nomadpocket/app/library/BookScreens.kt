@@ -1,5 +1,7 @@
 package org.nomadpocket.app.library
 
+import org.nomadpocket.i18n.tr
+
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -43,7 +45,7 @@ fun BookScreen(bookId: String, onBack: () -> Unit, onArticle: (String) -> Unit, 
         },
     ) { m ->
         if (book == null) {
-            Text("Book not found", Modifier.padding(24.dp))
+            Text(tr("Book not found"), Modifier.padding(24.dp))
         } else {
             Column(m) {
                 if (searching) LibrarySearchField(query, { query = it }, "Find an article by title")

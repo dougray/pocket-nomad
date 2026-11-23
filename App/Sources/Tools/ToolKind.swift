@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum ToolKind: String, CaseIterable, Identifiable, Hashable {
-    case compass, sos, morse, water, medicalID, checklists, sun
+    case compass, sos, morse, water, medicalID, checklists, sun, antenna, solarNode
 
     var id: String { rawValue }
 
@@ -14,6 +14,8 @@ enum ToolKind: String, CaseIterable, Identifiable, Hashable {
         case .medicalID: "Medical ID"
         case .checklists: "Checklists"
         case .sun: "Daylight"
+        case .antenna: "Antenna Lengths"
+        case .solarNode: "Solar Node Power"
         }
     }
 
@@ -26,6 +28,8 @@ enum ToolKind: String, CaseIterable, Identifiable, Hashable {
         case .medicalID: "heart.text.square.fill"
         case .checklists: "checklist"
         case .sun: "sun.horizon.fill"
+        case .antenna: "antenna.radiowaves.left.and.right"
+        case .solarNode: "battery.100.bolt"
         }
     }
 
@@ -39,6 +43,8 @@ enum ToolKind: String, CaseIterable, Identifiable, Hashable {
             (.compass, ["compass", "which way is north", "coordinates", "mgrs", "my location", "where am i"]),
             (.sun, ["sunset", "sunrise", "daylight", "dark"]),
             (.medicalID, ["medical id", "blood type"]),
+            (.antenna, ["antenna length", "dipole length", "quarter wave", "half wave", "how long should my antenna", "cut an antenna"]),
+            (.solarNode, ["solar node", "solar panel", "node battery", "battery last"]),
         ]
         return rules.first { _, words in words.contains { q.contains($0) } }?.0
     }
@@ -53,6 +59,8 @@ enum ToolKind: String, CaseIterable, Identifiable, Hashable {
         case .medicalID: MedicalIDView()
         case .checklists: ChecklistsView()
         case .sun: DaylightView()
+        case .antenna: AntennaCalcView()
+        case .solarNode: SolarNodeView()
         }
     }
 }

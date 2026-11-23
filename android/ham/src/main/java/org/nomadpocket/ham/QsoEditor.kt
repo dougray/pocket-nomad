@@ -4,6 +4,8 @@
 
 package org.nomadpocket.ham
 
+import org.nomadpocket.i18n.tr
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -64,7 +66,7 @@ fun QsoEditorDialog(initial: Qso, onDismiss: () -> Unit) {
                 f(park, { park = it }, "Park or summit (for example US-0001)", caps = true)
                 f(note, { note = it }, "Notes")
                 Text(if (initial.myCall.isEmpty()) "Set your callsign in Station settings." else "Your callsign: ${initial.myCall}", style = MaterialTheme.typography.bodySmall)
-                if (!isNew) TextButton(onClick = { store.remove(initial.id); onDismiss() }) { Text("Delete this contact", color = MaterialTheme.colorScheme.error) }
+                if (!isNew) TextButton(onClick = { store.remove(initial.id); onDismiss() }) { Text(tr("Delete this contact"), color = MaterialTheme.colorScheme.error) }
             }
         },
         confirmButton = {
@@ -74,7 +76,7 @@ fun QsoEditorDialog(initial: Qso, onDismiss: () -> Unit) {
                     grid = grid.uppercase(), myGrid = myGrid.uppercase(), watts = watts.replace(',', '.').toDoubleOrNull(), name = name, sigInfo = park.uppercase(), sig = sig, comment = note)
                 if (isNew) store.add(q) else store.update(q)
                 onDismiss()
-            }) { Text("Save") }
+            }) { Text(tr("Save")) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
+        dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Cancel")) } })
 }

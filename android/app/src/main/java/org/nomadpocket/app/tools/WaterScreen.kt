@@ -1,5 +1,7 @@
 package org.nomadpocket.app.tools
 
+import org.nomadpocket.i18n.tr
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -53,7 +55,7 @@ fun WaterScreen(modifier: Modifier, onOpenGuide: () -> Unit) {
     val altitude = location?.takeIf { it.hasAltitude() }?.altitude
 
     Column(modifier.verticalScroll(rememberScrollState())) {
-        FormSection("Water") {
+        FormSection(tr("Water")) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val unitName = if (amount == 1.0) unit.label.dropLast(1) else unit.label
                 Text("${WaterCalculator.formatAmount(amount)} $unitName", Modifier.weight(1f), fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
@@ -80,7 +82,7 @@ fun WaterScreen(modifier: Modifier, onOpenGuide: () -> Unit) {
                 }
             }
         }
-        FormSection("Add") {
+        FormSection(tr("Add")) {
             Column(Modifier.padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("$drops drops", fontSize = 44.sp, fontWeight = FontWeight.Bold)
                 Text(WaterCalculator.teaspoons(drops), color = MaterialTheme.colorScheme.onSurfaceVariant)

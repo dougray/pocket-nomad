@@ -10,6 +10,8 @@
 
 package org.nomadpocket.ham
 
+import org.nomadpocket.i18n.tr
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -222,15 +224,15 @@ private fun HamHome(open: (HamRoute) -> Unit, modifier: Modifier) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(when (val t = ham.tnc) {
-                            is HamService.TncState.Idle -> "No TNC connected"
-                            is HamService.TncState.Connecting -> "Connecting to ${t.name}…"
+                            is HamService.TncState.Idle -> tr("No TNC connected")
+                            is HamService.TncState.Connecting -> tr("Connecting to %s…").format(t.name)
                             is HamService.TncState.Connected -> t.name
-                            is HamService.TncState.Failed -> "TNC disconnected"
+                            is HamService.TncState.Failed -> tr("TNC disconnected")
                         }, fontWeight = FontWeight.Bold, fontSize = 17.sp)
                         Text(when (val t = ham.tnc) {
-                            is HamService.TncState.Idle -> "Pair a Bluetooth KISS TNC or radio"
-                            is HamService.TncState.Connecting -> "Turn on the radio's KISS/TNC mode"
-                            is HamService.TncState.Connected -> "${ham.packetsHeard} packets heard"
+                            is HamService.TncState.Idle -> tr("Pair a Bluetooth KISS TNC or radio")
+                            is HamService.TncState.Connecting -> tr("Turn on the radio's KISS/TNC mode")
+                            is HamService.TncState.Connected -> tr("%d packets heard").format(ham.packetsHeard)
                             is HamService.TncState.Failed -> t.reason
                         }, color = MeshColors.secondary, fontSize = 14.sp)
                     }
@@ -254,36 +256,55 @@ private fun HamHome(open: (HamRoute) -> Unit, modifier: Modifier) {
             ham.notice?.let { n ->
                 Section {
                     Text(n, modifier = Modifier.padding(16.dp))
-                    TextButton(onClick = { ham.notice = null }, modifier = Modifier.padding(start = 8.dp)) { Text("Dismiss") }
+                    TextButton(onClick = { ham.notice = null }, modifier = Modifier.padding(start = 8.dp)) { Text(tr("Dismiss")) }
                 }
             }
             Section("APRS") {
-                Row("Messages", badge = ham.unreadTotal) { open(HamRoute.Messages) }
-                Row("Stations heard", ham.stations.size.takeIf { it > 0 }?.toString()) { open(HamRoute.Stations) }
-                Row("Bulletins", ham.bulletins.size.takeIf { it > 0 }?.toString()) { open(HamRoute.Bulletins) }
-                if (s.canTransmit) Row("Send my position", ham.lastBeacon?.let { "last " + time(it) }, enabled = ham.tncConnected) { ham.beacon() }
+                Row(tr("Messages"), badge = ham.unreadTotal) { open(HamRoute.Messages) }
+                Row(tr("Stations heard"), ham.stations.size.takeIf { it > 0 }?.toString()) { open(HamRoute.Stations) }
+                Row(tr("Bulletins"), ham.bulletins.size.takeIf { it > 0 }?.toString()) { open(HamRoute.Bulletins) }
+                if (s.canTransmit) Row(tr("Send my position"), ham.lastBeacon?.let { "last " + time(it) }, enabled = ham.tncConnected) { ham.beacon() }
             }
-            Section("Winlink email", "Email over radio through a Winlink RMS packet gateway. No internet needed on your end.") {
-                Row("Mail", if (ham.outbox.isEmpty()) null else "${ham.outbox.size} to send", ham.unreadMail) { open(HamRoute.Mail) }
-                Row("Connect to a gateway", when (ham.winlink) {
+            Section(tr("Winlink email"), "Email over radio through a Winlink RMS packet gateway. No internet needed on your end.") {
+                Row(tr("Mail"), if (ham.outbox.isEmpty()) null else "${ham.outbox.size} to send", ham.unreadMail) { open(HamRoute.Mail) }
+                Row(tr("Connect to a gateway"), when (ham.winlink) {
                     is HamService.WinlinkState.Connecting -> "connecting…"; is HamService.WinlinkState.Exchanging -> "exchanging…"
                     is HamService.WinlinkState.Done -> "done"; is HamService.WinlinkState.Failed -> "failed"; else -> null
                 }) { open(HamRoute.Winlink) }
             }
-            Section("HF") {
-                Row("NVIS planner (short-range HF)") { open(HamRoute.Nvis) }
+            val audioOn by RadioAudioListener.running.collectAsState()
+            val audioLevel by RadioAudioListener.level.collectAsState()
+            val audioFrames by RadioAudioListener.frames.collectAsState()
+            val audioError by RadioAudioListener.error.collectAsState()
+            val micRequest = rememberPermissionRequest { if (it.values.all { g -> g }) RadioAudioListener.start(context) }
+            Section(tr("Radio audio"), tr("Plug the radio's speaker or headphone output into the phone's headset input with a cable made for it, and turn the radio's volume up until the bar is about half full. Receive only: nothing is sent and no sound is kept.")) {
+                Row(tr("Listen to radio audio"), if (audioOn) "${tr("on")}: $audioFrames ${tr("packets")}" else null) {
+                    if (audioOn) RadioAudioListener.stop()
+                    else if (RadioAudioListener.hasPermission(context)) RadioAudioListener.start(context)
+                    else micRequest(arrayOf(android.Manifest.permission.RECORD_AUDIO))
+                }
+                if (audioOn) androidx.compose.material3.LinearProgressIndicator(progress = { audioLevel.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp))
+                val ft8Lines by Ft8Heard.lines.collectAsState()
+                if (ft8Lines.isNotEmpty()) {
+                    Text("FT8 (${ft8Lines.size})", fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    ft8Lines.take(12).forEach { l -> Text("${l.snr} dB  ${l.text}", fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 1.dp)) }
+                }
+                audioError?.let { Text(tr(it), color = MeshColors.secondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
             }
-            Section("Contacts") {
-                Row("Contact log", QsoLogStore.get(LocalContext.current).log.size.takeIf { it > 0 }?.toString()) { open(HamRoute.Log) }
+            Section(tr("HF")) {
+                Row(tr("NVIS planner (short-range HF)")) { open(HamRoute.Nvis) }
             }
-            Section("BBS and nodes", "Connect to a packet BBS, node or another station and type to it.") {
-                Row("Packet terminal", ham.terminalPeer) { open(HamRoute.Terminal) }
+            Section(tr("Contacts")) {
+                Row(tr("Contact log"), QsoLogStore.get(LocalContext.current).log.size.takeIf { it > 0 }?.toString()) { open(HamRoute.Log) }
+            }
+            Section(tr("BBS and nodes"), "Connect to a packet BBS, node or another station and type to it.") {
+                Row(tr("Packet terminal"), ham.terminalPeer) { open(HamRoute.Terminal) }
             }
             Section {
-                Row("Packet monitor", if (ham.packetsHeard > 0) "${ham.packetsHeard} heard" else null) { open(HamRoute.Monitor) }
-                Row("Satellite passes") { open(HamRoute.Satellites) }
-                Row("Frequencies and reference") { open(HamRoute.Reference) }
-                Row("Station settings") { open(HamRoute.Settings) }
+                Row(tr("Packet monitor"), if (ham.packetsHeard > 0) "${ham.packetsHeard} heard" else null) { open(HamRoute.Monitor) }
+                Row(tr("Satellite passes")) { open(HamRoute.Satellites) }
+                Row(tr("Frequencies and reference")) { open(HamRoute.Reference) }
+                Row(tr("Station settings")) { open(HamRoute.Settings) }
             }
             Spacer(Modifier.size(24.dp))
         }
@@ -297,19 +318,19 @@ private fun TncPicker(back: () -> Unit) {
     HamScaffold("Connect a TNC", back) {
         LazyColumn {
             item {
-                Text("Bluetooth LE KISS TNCs (Mobilinkd TNC3/TNC4; BTech UV-Pro, Vero VR-N76, Radioddity GA-5WB with KISS TNC turned on) appear as they're found. Classic-Bluetooth TNCs such as the Kenwood TH-D74/D75 show here once paired in Android's Bluetooth settings.",
+                Text(tr("Bluetooth LE KISS TNCs (Mobilinkd TNC3/TNC4; BTech UV-Pro, Vero VR-N76, Radioddity GA-5WB with KISS TNC turned on) appear as they're found. Classic-Bluetooth TNCs such as the Kenwood TH-D74/D75 show here once paired in Android's Bluetooth settings."),
                     color = MeshColors.secondary, fontSize = 13.sp, modifier = Modifier.padding(16.dp))
             }
             item {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Show all Bluetooth devices")
-                        Text("If your radio isn't listed: tries any serial service it offers; the monitor lists what it found.", color = MeshColors.secondary, fontSize = 12.sp)
+                        Text(tr("Show all Bluetooth devices"))
+                        Text(tr("If your radio isn't listed: tries any serial service it offers; the monitor lists what it found."), color = MeshColors.secondary, fontSize = 12.sp)
                     }
                     Switch(ham.showAllDevices, { ham.showAllDevices = it; ham.startScan() })
                 }
             }
-            if (ham.devices.isEmpty()) item { Text("Looking for TNCs…", modifier = Modifier.padding(16.dp)) }
+            if (ham.devices.isEmpty()) item { Text(tr("Looking for TNCs…"), modifier = Modifier.padding(16.dp)) }
             items(ham.devices, key = { it.address }) { d ->
                 Row(d.name, if (d.classic) "classic (paired)" else if (d.rssi != 0) "${d.rssi} dBm" else null) { ham.connect(d); back() }
             }
@@ -323,7 +344,7 @@ private fun TncPicker(back: () -> Unit) {
 private fun MonitorScreen(back: () -> Unit) {
     val ham = Ham.service
     var filter by rememberSaveable { mutableStateOf(0) }
-    HamScaffold("Monitor", back, actions = { TextButton(onClick = { ham.clearMonitor() }) { Text("Clear") } }) {
+    HamScaffold("Monitor", back, actions = { TextButton(onClick = { ham.clearMonitor() }) { Text(tr("Clear")) } }) {
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
             listOf("All", "APRS", "Mine").forEachIndexed { i, l ->
                 SegmentedButton(selected = filter == i, onClick = { filter = i }, shape = SegmentedButtonDefaults.itemShape(i, 3)) { Text(l) }
@@ -361,11 +382,11 @@ private fun StationsScreen(back: () -> Unit, open: (HamRoute) -> Unit) {
     val ham = Ham.service
     var search by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(Unit) { ham.refreshPosition() }
-    HamScaffold("Stations", back, actions = { TextButton(onClick = { ham.forgetStations() }) { Text("Forget all") } }) {
+    HamScaffold("Stations", back, actions = { TextButton(onClick = { ham.forgetStations() }) { Text(tr("Forget all")) } }) {
         Field(search, { search = it }, "Callsign", caps = true)
         LazyColumn {
             val list = ham.stations.filter { search.isEmpty() || it.id.contains(search, true) }
-            if (list.isEmpty()) item { Text("APRS stations, objects and weather reports appear here as they're heard.", color = MeshColors.secondary, modifier = Modifier.padding(16.dp)) }
+            if (list.isEmpty()) item { Text(tr("APRS stations, objects and weather reports appear here as they're heard."), color = MeshColors.secondary, modifier = Modifier.padding(16.dp)) }
             items(list, key = { it.id }) { s ->
                 Row(Modifier.fillMaxWidth().clickable { open(HamRoute.Station(s.id)) }.padding(horizontal = 16.dp, vertical = 10.dp)) {
                     Column(Modifier.weight(1f)) {
@@ -392,8 +413,8 @@ private fun StationScreen(id: String, back: () -> Unit, open: (HamRoute) -> Unit
     val s = ham.stations.firstOrNull { it.id == id }
     HamScaffold(id, back) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
-            if (s == null) { Text("Not heard yet.", modifier = Modifier.padding(16.dp)); return@Column }
-            Section("Details") {
+            if (s == null) { Text(tr("Not heard yet."), modifier = Modifier.padding(16.dp)); return@Column }
+            Section(tr("Details")) {
                 @Composable fun kv(k: String, v: String) = Row(k, v)
                 if (s.latitude != null && s.longitude != null) {
                     kv("Position", "%.5f, %.5f".format(s.latitude, s.longitude))
@@ -435,7 +456,7 @@ private fun ConversationsScreen(back: () -> Unit, open: (HamRoute) -> Unit) {
     }) {
         LazyColumn {
             if (ham.conversations.isEmpty()) item {
-                Text("APRS messages to and from your callsign appear here. Anyone in range (or through a digipeater or iGate) can reach you.",
+                Text(tr("APRS messages to and from your callsign appear here. Anyone in range (or through a digipeater or iGate) can reach you."),
                     color = MeshColors.secondary, modifier = Modifier.padding(16.dp))
             }
             items(ham.conversations, key = { it.first }) { (peer, last) ->
@@ -445,10 +466,10 @@ private fun ConversationsScreen(back: () -> Unit, open: (HamRoute) -> Unit) {
         }
     }
     newPeer?.let { p ->
-        AlertDialog(onDismissRequest = { newPeer = null }, title = { Text("New message") },
-            text = { OutlinedTextField(p, { newPeer = it.uppercase() }, label = { Text("Callsign, e.g. KF0XYZ-7") }, singleLine = true) },
-            confirmButton = { TextButton(onClick = { newPeer = null; if (p.isNotBlank()) open(HamRoute.Thread(p.trim())) }) { Text("Write") } },
-            dismissButton = { TextButton(onClick = { newPeer = null }) { Text("Cancel") } })
+        AlertDialog(onDismissRequest = { newPeer = null }, title = { Text(tr("New message")) },
+            text = { OutlinedTextField(p, { newPeer = it.uppercase() }, label = { Text(tr("Callsign, e.g. KF0XYZ-7")) }, singleLine = true) },
+            confirmButton = { TextButton(onClick = { newPeer = null; if (p.isNotBlank()) open(HamRoute.Thread(p.trim())) }) { Text(tr("Write")) } },
+            dismissButton = { TextButton(onClick = { newPeer = null }) { Text(tr("Cancel")) } })
     }
 }
 
@@ -475,12 +496,12 @@ private fun ThreadScreen(peer: String, back: () -> Unit) {
         }
         if (ham.settings.canTransmit) {
             Row(Modifier.fillMaxWidth().imePadding().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(draft, { draft = it }, placeholder = { Text("Message (67 characters per packet)") }, modifier = Modifier.weight(1f))
+                OutlinedTextField(draft, { draft = it }, placeholder = { Text(tr("Message (67 characters per packet)")) }, modifier = Modifier.weight(1f))
                 IconButton(onClick = { ham.sendMessage(peer, draft); draft = "" }, enabled = draft.isNotBlank() && ham.tncConnected) {
                     Icon(Icons.AutoMirrored.Filled.Send, "Send", tint = MeshColors.accent)
                 }
             }
-        } else Text("Listen only: add your callsign in Station settings to reply.", color = MeshColors.secondary, fontSize = 13.sp, modifier = Modifier.padding(16.dp))
+        } else Text(tr("Listen only: add your callsign in Station settings to reply."), color = MeshColors.secondary, fontSize = 13.sp, modifier = Modifier.padding(16.dp))
     }
 }
 
@@ -490,7 +511,7 @@ private fun BulletinsScreen(back: () -> Unit) {
     HamScaffold("Bulletins", back) {
         LazyColumn {
             if (ham.bulletins.isEmpty()) item {
-                Text("Bulletins (BLN) and announcements heard on APRS: nets, weather alerts, emergency information.",
+                Text(tr("Bulletins (BLN) and announcements heard on APRS: nets, weather alerts, emergency information."),
                     color = MeshColors.secondary, modifier = Modifier.padding(16.dp))
             }
             items(ham.bulletins, key = { it.id }) { b ->
@@ -513,7 +534,7 @@ private fun MailScreen(back: () -> Unit, open: (HamRoute) -> Unit) {
     }) {
         Section(footer = "Messages wait in the Outbox until you connect. Your address is ${if (ham.settings.callsignValid) ham.settings.baseCall else "YOURCALL"}@winlink.org.") {
             for (f in WinlinkFolder.entries) Row(f.title, ham.messages(f).size.toString()) { open(HamRoute.Folder(f)) }
-            Row("Connect to a gateway to send and receive") { open(HamRoute.Winlink) }
+            Row(tr("Connect to a gateway to send and receive")) { open(HamRoute.Winlink) }
         }
     }
 }
@@ -524,7 +545,7 @@ private fun FolderScreen(folder: WinlinkFolder, back: () -> Unit, open: (HamRout
     HamScaffold(folder.title, back) {
         val msgs = ham.messages(folder)
         LazyColumn {
-            if (msgs.isEmpty()) item { Text("Nothing here.", color = MeshColors.secondary, modifier = Modifier.padding(16.dp)) }
+            if (msgs.isEmpty()) item { Text(tr("Nothing here."), color = MeshColors.secondary, modifier = Modifier.padding(16.dp)) }
             items(msgs, key = { it.mid }) { m ->
                 Column(Modifier.fillMaxWidth().clickable { open(HamRoute.Message(m.mid, folder)) }.padding(16.dp)) {
                     Row {
@@ -548,8 +569,8 @@ private fun MessageScreen(mid: String, folder: WinlinkFolder, back: () -> Unit, 
     val m = ham.messages(folder).firstOrNull { it.mid == mid }
     LaunchedEffect(mid) { if (folder == WinlinkFolder.INBOX) ham.markRead(mid) }
     HamScaffold(folder.title, back, actions = {
-        if (m != null && folder == WinlinkFolder.INBOX && ham.settings.callsignValid) TextButton(onClick = { open(HamRoute.Compose(mid)) }) { Text("Reply") }
-        if (m != null) TextButton(onClick = { ham.delete(m, folder); back() }) { Text("Delete") }
+        if (m != null && folder == WinlinkFolder.INBOX && ham.settings.callsignValid) TextButton(onClick = { open(HamRoute.Compose(mid)) }) { Text(tr("Reply")) }
+        if (m != null) TextButton(onClick = { ham.delete(m, folder); back() }) { Text(tr("Delete")) }
     }) {
         if (m == null) return@HamScaffold
         Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
@@ -575,14 +596,14 @@ private fun ComposeScreen(replyTo: String?, back: () -> Unit) {
     var body by rememberSaveable { mutableStateOf(r?.let { "\n\n--- ${WinlinkMessage.displayAddress(it.from)} wrote:\n" + it.body } ?: "") }
     fun split(s: String) = s.split(',', ';', ' ').filter { it.isNotBlank() }
     HamScaffold(if (r == null) "New message" else "Reply", back, actions = {
-        TextButton(enabled = to.isNotBlank() && subject.isNotBlank(), onClick = { if (ham.compose(split(to), split(cc), subject, body)) back() }) { Text("Outbox") }
+        TextButton(enabled = to.isNotBlank() && subject.isNotBlank(), onClick = { if (ham.compose(split(to), split(cc), subject, body)) back() }) { Text(tr("Outbox")) }
     }) {
         Column(Modifier.verticalScroll(rememberScrollState()).imePadding()) {
             Field(to, { to = it }, "To: callsign or email")
             Field(cc, { cc = it }, "Cc (optional)")
             Field(subject, { subject = it }, "Subject")
-            OutlinedTextField(body, { body = it }, label = { Text("Message") }, modifier = Modifier.fillMaxWidth().heightIn(min = 220.dp).padding(12.dp))
-            Text("Separate addresses with commas. Keep it short: packet is slow. No encryption or business use on amateur radio.",
+            OutlinedTextField(body, { body = it }, label = { Text(tr("Message")) }, modifier = Modifier.fillMaxWidth().heightIn(min = 220.dp).padding(12.dp))
+            Text(tr("Separate addresses with commas. Keep it short: packet is slow. No encryption or business use on amateur radio."),
                 color = MeshColors.secondary, fontSize = 13.sp, modifier = Modifier.padding(16.dp))
         }
     }
@@ -597,10 +618,10 @@ private fun WinlinkScreen(back: () -> Unit) {
     var note by rememberSaveable { mutableStateOf("") }
     HamScaffold("Winlink gateway", back) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
-            Section("Session", "${ham.outbox.size} message(s) in the Outbox." + if (s.hasWinlinkPassword) "" else " No Winlink password set: gateways that ask for it will refuse the login.") {
+            Section(tr("Session"), "${ham.outbox.size} message(s) in the Outbox." + if (s.hasWinlinkPassword) "" else " No Winlink password set: gateways that ask for it will refuse the login.") {
                 Column(Modifier.padding(16.dp)) {
                     when (val w = ham.winlink) {
-                        is HamService.WinlinkState.Idle -> Text("Choose a gateway below.", color = MeshColors.secondary)
+                        is HamService.WinlinkState.Idle -> Text(tr("Choose a gateway below."), color = MeshColors.secondary)
                         is HamService.WinlinkState.Connecting -> Text("Connecting to ${w.gw}…")
                         is HamService.WinlinkState.Exchanging -> {
                             Text("Exchanging mail with ${w.gw}")
@@ -609,25 +630,25 @@ private fun WinlinkScreen(back: () -> Unit) {
                         is HamService.WinlinkState.Done -> Text(w.summary, color = MeshColors.ok)
                         is HamService.WinlinkState.Failed -> Text(w.reason, color = MeshColors.danger)
                     }
-                    if (ham.winlink.busy) OutlinedButton(onClick = { ham.abortWinlink() }) { Text("Stop") }
+                    if (ham.winlink.busy) OutlinedButton(onClick = { ham.abortWinlink() }) { Text(tr("Stop")) }
                 }
             }
-            Section("Gateways", "Find packet RMS gateways near you at winlink.org/RMSChannels (save the list before you need it). Tune the radio to the gateway's frequency first.") {
+            Section(tr("Gateways"), "Find packet RMS gateways near you at winlink.org/RMSChannels (save the list before you need it). Tune the radio to the gateway's frequency first.") {
                 for (g in s.gateways) {
                     Row(g.call, listOf(if (g.path.isEmpty()) "direct" else "via " + g.path, g.note).filter { it.isNotEmpty() }.joinToString(" · "),
                         enabled = !ham.winlink.busy && ham.tncConnected && s.canTransmit) { ham.connectWinlink(g) }
                 }
-                if (s.gateways.isNotEmpty()) TextButton(onClick = { s.gateways = emptyList(); s.save() }, modifier = Modifier.padding(start = 8.dp)) { Text("Remove all gateways") }
+                if (s.gateways.isNotEmpty()) TextButton(onClick = { s.gateways = emptyList(); s.save() }, modifier = Modifier.padding(start = 8.dp)) { Text(tr("Remove all gateways")) }
             }
-            Section("Add a gateway") {
+            Section(tr("Add a gateway")) {
                 Field(call, { call = it.uppercase() }, "Gateway callsign, e.g. KF0RMS-10", caps = true)
                 Field(path, { path = it.uppercase() }, "Path (optional)", caps = true)
                 Field(note, { note = it }, "Note, e.g. 145.010 MHz")
                 TextButton(enabled = Ax25Address.parse(call) != null && Ax25Path.parse(path) != null, onClick = {
                     s.gateways = s.gateways + HamSavedStation(call = call, path = path, note = note); s.save(); call = ""; path = ""; note = ""
-                }, modifier = Modifier.padding(start = 8.dp)) { Text("Save gateway") }
+                }, modifier = Modifier.padding(start = 8.dp)) { Text(tr("Save gateway")) }
             }
-            if (ham.winlinkLog.isNotEmpty()) Section("Session log") {
+            if (ham.winlinkLog.isNotEmpty()) Section(tr("Session log")) {
                 Text(ham.winlinkLog.takeLast(60).joinToString("\n"), fontFamily = FontFamily.Monospace, fontSize = 11.sp, modifier = Modifier.padding(12.dp))
             }
         }
@@ -646,19 +667,19 @@ private fun TerminalScreen(back: () -> Unit) {
     val scroll = rememberScrollState()
     LaunchedEffect(ham.terminalText.length) { scroll.animateScrollTo(scroll.maxValue) }
     HamScaffold(ham.terminalPeer ?: "Terminal", back, actions = {
-        if (ham.terminalState == Ax25Link.State.CONNECTED || ham.terminalState == Ax25Link.State.CONNECTING) TextButton(onClick = { ham.disconnectTerminal() }) { Text("Disconnect") }
-        TextButton(onClick = { ham.clearTerminal() }) { Text("Clear") }
+        if (ham.terminalState == Ax25Link.State.CONNECTED || ham.terminalState == Ax25Link.State.CONNECTING) TextButton(onClick = { ham.disconnectTerminal() }) { Text(tr("Disconnect")) }
+        TextButton(onClick = { ham.clearTerminal() }) { Text(tr("Clear")) }
     }) {
         if (ham.terminalState == Ax25Link.State.DISCONNECTED) {
-            if (!s.canTransmit) Text("Listen only: connecting transmits, so it needs your callsign and licence in Station settings.", color = MeshColors.secondary, fontSize = 13.sp, modifier = Modifier.padding(16.dp))
+            if (!s.canTransmit) Text(tr("Listen only: connecting transmits, so it needs your callsign and licence in Station settings."), color = MeshColors.secondary, fontSize = 13.sp, modifier = Modifier.padding(16.dp))
             Row {
                 Box(Modifier.weight(1f)) { Field(call, { call = it.uppercase() }, "Callsign, e.g. KF0BBS-1", caps = true) }
                 Box(Modifier.weight(1f)) { Field(path, { path = it.uppercase() }, "via (optional)", caps = true) }
             }
             Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(enabled = Ax25Address.parse(call) != null && ham.tncConnected && s.canTransmit, onClick = { ham.connectTerminal(call, path) },
-                    colors = ButtonDefaults.buttonColors(containerColor = MeshColors.accent, contentColor = Color.Black)) { Text("Connect") }
-                if (Ax25Address.parse(call) != null) TextButton(onClick = { s.nodes = s.nodes + HamSavedStation(call = call, path = path); s.save() }) { Text("Save") }
+                    colors = ButtonDefaults.buttonColors(containerColor = MeshColors.accent, contentColor = Color.Black)) { Text(tr("Connect")) }
+                if (Ax25Address.parse(call) != null) TextButton(onClick = { s.nodes = s.nodes + HamSavedStation(call = call, path = path); s.save() }) { Text(tr("Save")) }
             }
             if (s.nodes.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp)) {
                 for (n in s.nodes) OutlinedButton(onClick = { call = n.call; path = n.path }, modifier = Modifier.padding(end = 6.dp)) {
@@ -670,11 +691,11 @@ private fun TerminalScreen(back: () -> Unit) {
             modifier = Modifier.weight(1f).fillMaxWidth().background(Color(0xFF0A0A0C)).verticalScroll(scroll).padding(10.dp))
         if (ham.terminalState == Ax25Link.State.CONNECTED) {
             Row(Modifier.imePadding().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(line, { line = it }, singleLine = true, placeholder = { Text("Command") }, modifier = Modifier.weight(1f),
+                OutlinedTextField(line, { line = it }, singleLine = true, placeholder = { Text(tr("Command")) }, modifier = Modifier.weight(1f),
                     textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = { ham.sendTerminal(line); line = "" }))
-                TextButton(onClick = { ham.sendTerminal(line); line = "" }) { Text("Send") }
+                TextButton(onClick = { ham.sendTerminal(line); line = "" }) { Text(tr("Send")) }
             }
         }
     }
@@ -701,19 +722,19 @@ private fun SettingsScreen(back: () -> Unit) {
         }
     HamScaffold("Station settings", back) {
         Column(Modifier.verticalScroll(rememberScrollState()).imePadding()) {
-            Section("Licence", "Listen only (no callsign) still decodes everything the radio hears: APRS stations, messages, bulletins, weather and the packet monitor. It never transmits.") {
-                Text("Sending on amateur radio bands needs an amateur radio licence. In the US that's an FCC licence, and the callsign is how you prove it. Winlink also needs a free account created with that callsign. Pocket Nomad doesn't check your licence: you are responsible for what your station sends.",
+            Section(tr("Licence"), "Listen only (no callsign) still decodes everything the radio hears: APRS stations, messages, bulletins, weather and the packet monitor. It never transmits.") {
+                Text(tr("Sending on amateur radio bands needs an amateur radio licence. In the US that's an FCC licence, and the callsign is how you prove it. Winlink also needs a free account created with that callsign. Pocket Nomad doesn't check your licence: you are responsible for what your station sends."),
                     color = MeshColors.warn, fontSize = 13.sp, modifier = Modifier.padding(16.dp))
                 Field(s.callsign, { s.callsign = it.uppercase(); if (!s.callsignValid) s.licensed = false }, "Callsign, e.g. KF0ABC", caps = true)
-                if (s.callsign.isNotEmpty() && !s.callsignValid) Text("That doesn't look like an amateur callsign.", color = MeshColors.danger, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp))
+                if (s.callsign.isNotEmpty() && !s.callsignValid) Text(tr("That doesn't look like an amateur callsign."), color = MeshColors.danger, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp))
                 toggle("I hold an amateur radio licence for this callsign", s.licensed, s.callsignValid) { s.licensed = it }
-                Row("Mode", if (s.canTransmit) "Licensed: sending on" else "Listen only")
+                Row(tr("Mode"), if (s.canTransmit) "Licensed: sending on" else "Listen only")
             }
-            Section("Winlink", "The password is encrypted on this phone and only used to answer the gateway's login challenge; it is never sent in the clear.") {
+            Section(tr("Winlink"), "The password is encrypted on this phone and only used to answer the gateway's login challenge; it is never sent in the clear.") {
                 Field(password, { password = it }, if (s.hasWinlinkPassword) "Password saved (type to change)" else "Winlink password", password = true)
                 Row(Modifier.padding(horizontal = 8.dp)) {
-                    TextButton(enabled = password.isNotEmpty(), onClick = { s.winlinkPassword = password; password = "" }) { Text("Save password") }
-                    if (s.hasWinlinkPassword) TextButton(onClick = { s.winlinkPassword = null }) { Text("Remove", color = MeshColors.danger) }
+                    TextButton(enabled = password.isNotEmpty(), onClick = { s.winlinkPassword = password; password = "" }) { Text(tr("Save password")) }
+                    if (s.hasWinlinkPassword) TextButton(onClick = { s.winlinkPassword = null }) { Text(tr("Remove"), color = MeshColors.danger) }
                 }
             }
             Section("APRS", "Path WIDE1-1,WIDE2-1 suits most areas; WIDE2-1 in busy cities; ARISS reaches the space station on 145.825 MHz. Position beacons share your location with everyone listening, and APRS-IS puts them on public websites.") {
@@ -728,25 +749,25 @@ private fun SettingsScreen(back: () -> Unit) {
                     { if (intervals[it] == 0) "when I tap" else "every ${intervals[it]} min" }) { s.beaconMinutes = intervals[it] }
                 toggle("Acknowledge messages to me", s.autoAck) { s.autoAck = it }
             }
-            Section(footer = "Lets another station connect to your callsign and chat in the packet terminal.") {
+            Section(footer = tr("Lets another station connect to your callsign and chat in the packet terminal.")) {
                 toggle("Accept incoming connections", s.acceptIncoming) { s.acceptIncoming = it }
             }
-            Section("TNC and link (advanced)") {
+            Section(tr("TNC and link (advanced)")) {
                 stepper("TX delay", s.txDelay, 5..100, 5, { "${it * 10} ms" }) { s.txDelay = it }
                 stepper("Persistence", s.persistence, 0..255, 16, { "$it" }) { s.persistence = it }
                 stepper("Slot time", s.slotTime, 1..50, 1, { "${it * 10} ms" }) { s.slotTime = it }
                 stepper("Window", s.window, 1..7, 1, { "$it frames" }) { s.window = it }
                 stepper("Packet length", s.paclen, 32..256, 32, { "$it bytes" }) { s.paclen = it }
             }
-            Section(footer = "Stations, APRS messages, bulletins and Winlink mail are stored only on this phone and are not backed up.") {
-                Row("Delete all ham data on this phone") { confirmDelete = true }
+            Section(footer = tr("Stations, APRS messages, bulletins and Winlink mail are stored only on this phone and are not backed up.")) {
+                Row(tr("Delete all ham data on this phone")) { confirmDelete = true }
             }
             Spacer(Modifier.size(24.dp))
         }
     }
-    if (confirmDelete) AlertDialog(onDismissRequest = { confirmDelete = false }, title = { Text("Delete all stations, messages and mail?") },
-        confirmButton = { TextButton(onClick = { ham.deleteAllData(); confirmDelete = false }) { Text("Delete", color = MeshColors.danger) } },
-        dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } })
+    if (confirmDelete) AlertDialog(onDismissRequest = { confirmDelete = false }, title = { Text(tr("Delete all stations, messages and mail?")) },
+        confirmButton = { TextButton(onClick = { ham.deleteAllData(); confirmDelete = false }) { Text(tr("Delete"), color = MeshColors.danger) } },
+        dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(tr("Cancel")) } })
 }
 
 @Composable
@@ -762,30 +783,30 @@ private fun ReferenceScreen(back: () -> Unit) {
         "QRX" to "Wait / stand by", "QSO" to "A contact", "QRP" to "Low power")
     HamScaffold("Reference", back) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
-            Section("Frequencies", "Local repeaters, nets and Winlink gateways vary: write yours down before an emergency. Band plans differ by country.") {
+            Section(tr("Frequencies"), "Local repeaters, nets and Winlink gateways vary: write yours down before an emergency. Band plans differ by country.") {
                 for ((f, d) in freqs) Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) { Text(f, fontWeight = FontWeight.Bold); Text(d, color = MeshColors.secondary, fontSize = 14.sp) }
             }
-            Section("JS8Call dial frequencies", "JS8 sends free-text messages that relay between stations, even with 5 watts. The same dial frequencies are shared by everyone, so you can find each other.") {
+            Section(tr("JS8Call dial frequencies"), "JS8 sends free-text messages that relay between stations, even with 5 watts. The same dial frequencies are shared by everyone, so you can find each other.") {
                 for ((f, b) in listOf("1.842" to "160 m", "3.578" to "80 m", "7.078" to "40 m", "10.130" to "30 m", "14.078" to "20 m", "18.104" to "17 m", "21.078" to "15 m", "28.078" to "10 m")) Row("$f MHz USB", "JS8Call, $b")
             }
-            Section("FT8 dial frequencies") {
+            Section(tr("FT8 dial frequencies")) {
                 for ((f, b) in listOf("1.840" to "160 m", "3.573" to "80 m", "5.357" to "60 m", "7.074" to "40 m", "10.136" to "30 m", "14.074" to "20 m", "18.100" to "17 m", "21.074" to "15 m", "28.074" to "10 m", "50.313" to "6 m")) Row("$f MHz USB", "FT8, $b")
             }
-            Section("NVIS: short-range HF") { Text("NVIS (short-range HF, about 0 to 300 miles) works best on 80 m or 40 m by day and 160 m or 80 m at night, with a horizontal wire hung low, a tenth to a quarter of a wavelength above ground. The NVIS planner (Ham tab) guesses the best band from the sun and the solar flux. 5 watts is enough for weak-signal digital modes such as JS8 and FT8.", modifier = Modifier.padding(16.dp)) }
-            Section("NOAA Weather Radio", "Receive only; most handhelds hear this band. The Conditions screen (Survive tab) lists the nearest transmitters once you've updated it.") {
+            Section(tr("NVIS: short-range HF")) { Text(tr("NVIS (short-range HF, about 0 to 300 miles) works best on 80 m or 40 m by day and 160 m or 80 m at night, with a horizontal wire hung low, a tenth to a quarter of a wavelength above ground. The NVIS planner (Ham tab) guesses the best band from the sun and the solar flux. 5 watts is enough for weak-signal digital modes such as JS8 and FT8."), modifier = Modifier.padding(16.dp)) }
+            Section(tr("NOAA Weather Radio"), "Receive only; most handhelds hear this band. The Conditions screen (Survive tab) lists the nearest transmitters once you've updated it.") {
                 for ((f, ch) in listOf("162.400" to "WX2", "162.425" to "WX4", "162.450" to "WX5", "162.475" to "WX3", "162.500" to "WX6", "162.525" to "WX7", "162.550" to "WX1"))
                     Row("$f MHz", "Channel $ch")
             }
-            Section("Getting on the air (US)") {
+            Section(tr("Getting on the air (US)")) {
                 Text("The entry-level Technician licence covers every amateur band above 50 MHz, which includes 2 m and 70 cm where APRS and packet live. The exam is 35 multiple-choice questions, no Morse code, run by volunteer examiners; the FCC charges a small fee.\n\nIdentify with your callsign at least every 10 minutes during a contact and at the end. No encryption, no business traffic, no music.",
                     modifier = Modifier.padding(16.dp))
             }
-            Section("Q codes") { for ((k, v) in q) Row(k, v) }
-            Section("Prosigns and shorthand") {
-                Row("CQ", "Calling anyone"); Row("DE", "From"); Row("73", "Best regards"); Row("K / over", "Your turn")
-                Row("SK / clear", "End of contact"); Row("Mayday", "Life at risk: others stand by")
+            Section(tr("Q codes")) { for ((k, v) in q) Row(k, v) }
+            Section(tr("Prosigns and shorthand")) {
+                Row("CQ", "Calling anyone"); Row("DE", "From"); Row("73", "Best regards"); Row(tr("K / over"), "Your turn")
+                Row(tr("SK / clear"), "End of contact"); Row(tr("Mayday"), "Life at risk: others stand by")
             }
-            Section("Phonetic alphabet") {
+            Section(tr("Phonetic alphabet")) {
                 Text("Alfa · Bravo · Charlie · Delta · Echo · Foxtrot · Golf · Hotel · India · Juliett · Kilo · Lima · Mike · November · Oscar · Papa · Quebec · Romeo · Sierra · Tango · Uniform · Victor · Whiskey · X-ray · Yankee · Zulu",
                     modifier = Modifier.padding(16.dp))
             }
@@ -836,33 +857,33 @@ private fun SatellitesScreen(back: () -> Unit) {
                         Text(if (s.updating) "Updating…" else (s.fetchedAtMillis?.let { "Orbit data ${SatelliteMath.age(it, now)}" } ?: "No orbit data yet"), fontWeight = FontWeight.Bold)
                         val days = SatelliteStore.orbitAgeDays(s)
                         if (days != null && days > 10) Text("Over ${days.toInt()} days old: passes may be off by minutes. Update when you can.", fontSize = 12.sp, color = MeshColors.warn)
-                        else Text("Needs a connection once; then it works with no signal.", fontSize = 12.sp, color = MeshColors.secondary)
+                        else Text(tr("Needs a connection once; then it works with no signal."), fontSize = 12.sp, color = MeshColors.secondary)
                     }
                     Button(onClick = { scope.launch { update() } }, enabled = !s.updating,
-                        colors = ButtonDefaults.buttonColors(containerColor = MeshColors.accent, contentColor = Color.Black)) { Text("Update") }
+                        colors = ButtonDefaults.buttonColors(containerColor = MeshColors.accent, contentColor = Color.Black)) { Text(tr("Update")) }
                 }
                 s.error?.let { Text(it, color = MeshColors.warn, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, bottom = 10.dp)) }
                 if (s.observer == null && s.satellites.isNotEmpty()) {
-                    TextButton(onClick = { askLocation(org.nomadpocket.mesh.ui.MeshPermissions.location) }) { Text("Allow location to work out passes where you are") }
+                    TextButton(onClick = { askLocation(org.nomadpocket.mesh.ui.MeshPermissions.location) }) { Text(tr("Allow location to work out passes where you are")) }
                 }
             }
-            if (s.iss != null) Section("International Space Station") {
+            if (s.iss != null) Section(tr("International Space Station")) {
                 val next = s.passes.firstOrNull { it.noradId == SatelliteStore.ISS_ID }
                 if (next != null) passRow(next)
                 else if (SatelliteStore.ISS_ID in s.favorites) Text(if (s.computing) "Working it out…" else "No passes above 10° in the next 48 hours.", color = MeshColors.secondary, modifier = Modifier.padding(16.dp))
-                else TextButton(onClick = { SatelliteStore.toggleFavorite(SatelliteStore.ISS_ID); scope.launch { SatelliteStore.computePasses() } }) { Text("Follow the space station") }
+                else TextButton(onClick = { SatelliteStore.toggleFavorite(SatelliteStore.ISS_ID); scope.launch { SatelliteStore.computePasses() } }) { Text(tr("Follow the space station")) }
                 Column(Modifier.padding(16.dp)) {
-                    Text("Ham radio on the ISS", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                    Text("Packet and APRS digipeater: 145.825 MHz FM, path ARISS, 1200 baud. Voice contacts and school events: 145.800 MHz FM down. Tune a few kHz higher as it rises and lower as it sets (Doppler). Crew activities often switch the radio off.",
+                    Text(tr("Ham radio on the ISS"), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text(tr("Packet and APRS digipeater: 145.825 MHz FM, path ARISS, 1200 baud. Voice contacts and school events: 145.800 MHz FM down. Tune a few kHz higher as it rises and lower as it sets (Doppler). Crew activities often switch the radio off."),
                         fontSize = 12.sp, color = MeshColors.secondary)
                 }
             }
-            Section("Next passes") {
-                if (s.favorites.isEmpty()) Text("Star satellites below to follow them.", color = MeshColors.secondary, modifier = Modifier.padding(16.dp))
+            Section(tr("Next passes")) {
+                if (s.favorites.isEmpty()) Text(tr("Star satellites below to follow them."), color = MeshColors.secondary, modifier = Modifier.padding(16.dp))
                 else if (s.passes.isEmpty()) Text(if (s.computing) "Working it out…" else "No passes above 10° in the next 48 hours.", color = MeshColors.secondary, modifier = Modifier.padding(16.dp))
                 s.passes.take(20).forEach { passRow(it); HorizontalDivider(color = MeshColors.card) }
             }
-            Section(footer = "Satellites in very high orbits (a day or more per orbit) aren't included.") {
+            Section(footer = tr("Satellites in very high orbits (a day or more per orbit) aren't included.")) {
                 Row("All satellites (${s.satellites.size})", if (showAll) "hide" else "show") { showAll = !showAll }
                 if (showAll) {
                     Field(search, { search = it }, "Search")
@@ -876,7 +897,7 @@ private fun SatellitesScreen(back: () -> Unit) {
                     }
                 }
             }
-            Text("Orbit data from CelesTrak, free with no account. Passes are worked out on this phone from your location, which never leaves it. Times assume a clear horizon: hills and buildings shorten passes. Passes below about 10° are left out because they're too low to hear well.",
+            Text(tr("Orbit data from CelesTrak, free with no account. Passes are worked out on this phone from your location, which never leaves it. Times assume a clear horizon: hills and buildings shorten passes. Passes below about 10° are left out because they're too low to hear well."),
                 color = MeshColors.secondary, fontSize = 12.sp, modifier = Modifier.padding(16.dp))
             Spacer(Modifier.size(24.dp))
         }
@@ -910,14 +931,14 @@ private fun QsoLogScreen(back: () -> Unit) {
     editing?.let { QsoEditorDialog(it) { editing = null; version++ } }
     HamScaffold("Contact log", back, actions = {
         IconButton(onClick = { editing = blankQso(myCall = Ham.service.settings.baseCall, myGrid = Ham.service.myPosition?.let { HamGeo.maidenhead(it.first, it.second) } ?: "") }) { Icon(Icons.Filled.Add, "New contact") }
-        if (store.log.isNotEmpty()) TextButton(onClick = ::share) { Text("Export") }
-        TextButton(onClick = { importer.launch("*/*") }) { Text("Import") }
+        if (store.log.isNotEmpty()) TextButton(onClick = ::share) { Text(tr("Export")) }
+        TextButton(onClick = { importer.launch("*/*") }) { Text(tr("Import")) }
     }) {
         val list = remember(version, search) { store.search(search) }
         androidx.compose.foundation.lazy.LazyColumn {
             item {
-                OutlinedTextField(search, { search = it }, Modifier.fillMaxWidth().padding(16.dp, 8.dp), singleLine = true, label = { Text("Call, name, park or grid") })
-                if (store.log.isEmpty()) Text("No contacts yet. Tap + after you make one. Everything stays on this phone; Export makes an ADIF file you can open in any logging program or upload to a logbook yourself.",
+                OutlinedTextField(search, { search = it }, Modifier.fillMaxWidth().padding(16.dp, 8.dp), singleLine = true, label = { Text(tr("Call, name, park or grid")) })
+                if (store.log.isEmpty()) Text(tr("No contacts yet. Tap + after you make one. Everything stays on this phone; Export makes an ADIF file you can open in any logging program or upload to a logbook yourself."),
                     color = MeshColors.secondary, modifier = Modifier.padding(16.dp))
                 if (note.isNotEmpty()) Text(note, color = MeshColors.secondary, modifier = Modifier.padding(horizontal = 16.dp))
             }
@@ -963,8 +984,8 @@ private fun NvisScreen(back: () -> Unit) {
     HamScaffold("NVIS planner", back) {
         androidx.compose.foundation.lazy.LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
-                Text("NVIS (near vertical incidence skywave) is HF radio aimed almost straight up, so the signal comes back down around you, roughly 0 to 300 miles. It keeps a region in touch when towers and internet are down, even with 5 watts and a wire.", color = MeshColors.secondary, fontSize = 13.sp)
-                Text("Right now", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                Text(tr("NVIS (near vertical incidence skywave) is HF radio aimed almost straight up, so the signal comes back down around you, roughly 0 to 300 miles. It keeps a region in touch when towers and internet are down, even with 5 watts and a wire."), color = MeshColors.secondary, fontSize = 13.sp)
+                Text(tr("Right now"), color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
                 Text("Sun: ${if (elevation > 6) "Daytime" else if (elevation < -6) "Night" else "Dawn or dusk"}", color = Color.White)
                 Text("Solar flux: ${if (flux == null && manual == 0.0) "100 (assumed)" else "%.0f".format(sfi)}", color = Color.White)
                 Text("Geomagnetic Kp: ${if (org.nomadpocket.ham.HamNvisHooks.kp == null) "2 (assumed)" else "%.1f".format(kp)}", color = Color.White)
@@ -993,26 +1014,26 @@ private fun NvisScreen(back: () -> Unit) {
                     }
                 }
                 error?.let { Text(it, color = Color(0xFFFF9500), fontSize = 13.sp) }
-                Text("Try this band", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                Text(tr("Try this band"), color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
                 Text(advice.summary, color = Color.White, fontWeight = FontWeight.SemiBold)
-                if (advice.stormed) Text("A geomagnetic storm lowers the usable frequencies. Expect weaker or no NVIS.", color = Color(0xFFFF9500), fontSize = 13.sp)
+                if (advice.stormed) Text(tr("A geomagnetic storm lowers the usable frequencies. Expect weaker or no NVIS."), color = Color(0xFFFF9500), fontSize = 13.sp)
                 listOfNotNull(advice.best, advice.alternate).forEach { b ->
                     Text(b.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                     Text("JS8Call %.3f MHz · FT8 %.3f MHz (USB)".format(b.js8mhz, b.ft8mhz), color = MeshColors.secondary, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, fontSize = 13.sp)
                 }
                 Text("Estimated critical frequency %.1f MHz. Best band: highest one below %.1f MHz and above %.1f MHz.".format(advice.foF2, advice.fot, advice.luf), color = MeshColors.secondary, fontSize = 12.sp)
                 androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
-                    Text("Show the 300-mile ring on the map", color = Color.White, modifier = Modifier.weight(1f))
+                    Text(tr("Show the 300-mile ring on the map"), color = Color.White, modifier = Modifier.weight(1f))
                     Switch(showRing, { showRing = it; context.getSharedPreferences("map", android.content.Context.MODE_PRIVATE).edit().putBoolean("showNvis", it).apply() })
                 }
-                Text("Wire for each band", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                Text(tr("Wire for each band"), color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
                 Nvis.bands.forEach { b ->
                     val a = Nvis.antenna(b)
                     Text(b.name, color = Color.White, fontWeight = FontWeight.SemiBold)
                     Text("Dipole %.0f ft (%.1f m) total, hung %.0f to %.0f ft up".format(a.dipoleFeet, a.dipoleMetres, a.heightMinMetres * 3.28084, a.heightMaxMetres * 3.28084), color = MeshColors.secondary, fontSize = 13.sp)
                 }
-                Text("A half-wave dipole or an end-fed half-wave wire (the same length). Lay it horizontal and low: a tenth to a quarter of a wavelength above ground sends the signal up instead of out. Cut a little long and trim for the best match.", color = Color.White, fontSize = 13.sp)
-                Text("This is a rule of thumb, not a propagation forecast: it guesses from the time of day, the solar flux and the Kp index. Real conditions vary. If a band is quiet, try the neighbour, and always listen first.", color = MeshColors.secondary, fontSize = 12.sp)
+                Text(tr("A half-wave dipole or an end-fed half-wave wire (the same length). Lay it horizontal and low: a tenth to a quarter of a wavelength above ground sends the signal up instead of out. Cut a little long and trim for the best match."), color = Color.White, fontSize = 13.sp)
+                Text(tr("This is a rule of thumb, not a propagation forecast: it guesses from the time of day, the solar flux and the Kp index. Real conditions vary. If a band is quiet, try the neighbour, and always listen first."), color = MeshColors.secondary, fontSize = 12.sp)
             }
         }
     }

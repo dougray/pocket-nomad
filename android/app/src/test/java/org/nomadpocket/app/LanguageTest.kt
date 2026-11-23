@@ -2,9 +2,9 @@ package org.nomadpocket.app
 
 import org.junit.Assert.*
 import org.junit.Test
-import org.nomadpocket.app.i18n.AppLanguage
-import org.nomadpocket.app.i18n.GeneratedTranslations
-import org.nomadpocket.app.i18n.Language
+import org.nomadpocket.i18n.AppLanguage
+import org.nomadpocket.i18n.GeneratedTranslations
+import org.nomadpocket.i18n.Language
 
 class LanguageTest {
     @Test fun parsesCodes() {

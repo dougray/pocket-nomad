@@ -70,8 +70,8 @@ android {
         applicationId = "org.nomadpocket.app"
         minSdk = 24
         targetSdk = 37
-        versionCode = 12
-        versionName = "0.9.1-beta"
+        versionCode = 16
+        versionName = "0.9.5-beta"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

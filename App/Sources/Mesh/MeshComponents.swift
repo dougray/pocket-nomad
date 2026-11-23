@@ -50,7 +50,7 @@ struct MeshInfoCard<Actions: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label {
-                Text(title).font(.headline)
+                Text(LocalizedStringKey(title)).font(.headline)
             } icon: {
                 Image(systemName: symbol).foregroundStyle(tint)
             }
@@ -89,8 +89,8 @@ struct MeshStatusCard: View {
                     .frame(width: 44)
                     .symbolEffect(.pulse, isActive: isBusy)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.title3.weight(.bold)).foregroundStyle(.primary)
-                    Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+                    Text(LocalizedStringKey(title)).font(.title3.weight(.bold)).foregroundStyle(.primary)
+                    Text(LocalizedStringKey(subtitle)).font(.subheadline).foregroundStyle(.secondary)
                         .multilineTextAlignment(.leading)
                 }
                 Spacer(minLength: 0)

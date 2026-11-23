@@ -241,10 +241,10 @@ struct MeshView: View {
                 .frame(width: 40)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(title).font(.title3.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
+                    Text(LocalizedStringKey(title)).font(.title3.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
                     if let network { MeshNetworkBadge(network: network) }
                 }
-                Text(subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                Text(LocalizedStringKey(subtitle)).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
             unreadBadge(badge)

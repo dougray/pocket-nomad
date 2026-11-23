@@ -9,7 +9,7 @@
 
 package org.nomadpocket.app.conditions
 
-import org.nomadpocket.app.i18n.tr
+import org.nomadpocket.i18n.tr
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -92,7 +92,7 @@ fun ConditionsCard(onClick: () -> Unit) {
             if (active.isNotEmpty()) {
                 Text(active[0].event + if (active.size > 1) " (+${active.size - 1})" else "", fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
                     color = if (active[0].rank <= 1) danger else warn)
-            } else if (s.alerts != null) Text("No active weather alerts", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else if (s.alerts != null) Text(tr("No active weather alerts"), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             s.forecast?.value?.let { f ->
                 val next = ConditionsParsers.upcoming(f, now, 24)
                 if (next.isNotEmpty()) {
@@ -135,7 +135,7 @@ fun ConditionsScreen(onBack: () -> Unit) {
                         onClick = { val all = listOf(100, 250, 500, 1000, 2500); ConditionsStore.quakeRadiusKm = all[(all.indexOf(ConditionsStore.quakeRadiusKm) + 1) % all.size] })
                     DropdownMenuItem(text = { Text("Smallest earthquake: M${"%.1f".format(ConditionsStore.quakeMinMagnitude)}") },
                         onClick = { val all = listOf(2.5, 3.0, 4.0, 5.0); ConditionsStore.quakeMinMagnitude = all[(all.indexOf(ConditionsStore.quakeMinMagnitude).coerceAtLeast(0) + 1) % all.size] })
-                    DropdownMenuItem(text = { Text("Delete saved conditions", color = danger) }, onClick = { ConditionsStore.deleteAll(); menu = false })
+                    DropdownMenuItem(text = { Text(tr("Delete saved conditions"), color = danger) }, onClick = { ConditionsStore.deleteAll(); menu = false })
                 }
             },
         )
@@ -146,14 +146,14 @@ fun ConditionsScreen(onBack: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(if (s.updating) "Updating…" else (s.oldestUpdate?.let { "Updated ${ConditionsParsers.age(it, now)}" } ?: "Not updated yet"), fontWeight = FontWeight.Bold)
-                        Text("Needs a connection. After that it reads with no signal.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(tr("Needs a connection. After that it reads with no signal."), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Button(onClick = { scope.launch { ConditionsStore.refresh(force = true) } }, enabled = !s.updating) {
                         if (s.updating) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text(tr("Update"))
                     }
                 }
                 if (s.needsLocation) {
-                    TextButton(onClick = { askLocation(MeshPermissions.location) }) { Text("Allow location for alerts and a forecast where you are") }
+                    TextButton(onClick = { askLocation(MeshPermissions.location) }) { Text(tr("Allow location for alerts and a forecast where you are")) }
                 }
                 s.errors.forEach { (k, v) -> Text("$k: $v", fontSize = 12.sp, color = warn) }
             }
@@ -164,17 +164,17 @@ fun ConditionsScreen(onBack: () -> Unit) {
                 Header(if (receivedSim) "Weather radio (simulated)" else "Weather radio (received)")
                 Box2 {
                     received.take(5).forEach { a -> Text(a.text, fontWeight = FontWeight.SemiBold); Muted("%.3f MHz".format(a.mhz)) }
-                    Muted("Heard directly by your SDR box. Check the official source when you can.")
+                    Muted(tr("Heard directly by your SDR box. Check the official source when you can."))
                 }
             }
-            Header("Weather alerts")
+            Header(tr("Weather alerts"))
             Box2 {
                 val active = ConditionsStore.activeAlerts(s)
                 when {
-                    s.alertsUnavailableHere -> Muted("The National Weather Service covers the US and its territories. Alerts aren't available for this location yet.")
-                    s.alerts == null -> Muted("Update to see active watches and warnings.")
+                    s.alertsUnavailableHere -> Muted(tr("The National Weather Service covers the US and its territories. Alerts aren't available for this location yet."))
+                    s.alerts == null -> Muted(tr("Update to see active watches and warnings."))
                     else -> {
-                        if (active.isEmpty()) Text("No active alerts for your area", color = ok, fontWeight = FontWeight.SemiBold)
+                        if (active.isEmpty()) Text(tr("No active alerts for your area"), color = ok, fontWeight = FontWeight.SemiBold)
                         active.forEach { AlertRow(it, false) }
                         val ended = ConditionsStore.expiredAlerts(s)
                         if (ended.isNotEmpty()) {
@@ -186,10 +186,10 @@ fun ConditionsScreen(onBack: () -> Unit) {
                 }
             }
 
-            Header("Forecast")
+            Header(tr("Forecast"))
             Box2 {
                 val snap = s.forecast
-                if (snap == null) Muted("Update to see wind and rain for the next seven days.") else {
+                if (snap == null) Muted(tr("Update to see wind and rain for the next seven days.")) else {
                     val next = ConditionsParsers.upcoming(snap.value, now, 24)
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         next.forEach { h ->
@@ -216,10 +216,10 @@ fun ConditionsScreen(onBack: () -> Unit) {
                 }
             }
 
-            Header("Earthquakes")
+            Header(tr("Earthquakes"))
             Box2 {
                 val snap = s.quakes
-                if (snap == null) Muted("Update to see recent earthquakes near you.") else {
+                if (snap == null) Muted(tr("Update to see recent earthquakes near you.")) else {
                     val list = ConditionsStore.nearbyQuakes(s)
                     if (list.isEmpty()) Muted("None of M${"%.1f".format(ConditionsStore.quakeMinMagnitude)} or more within ${fmt.radius(ConditionsStore.quakeRadiusKm)} in the past week.")
                     list.take(25).forEach { q ->
@@ -242,10 +242,10 @@ fun ConditionsScreen(onBack: () -> Unit) {
                 }
             }
 
-            Header("Space weather")
+            Header(tr("Space weather"))
             Box2 {
                 val snap = s.space
-                if (snap == null) Muted("Update to see how solar activity affects HF radio and GPS.") else {
+                if (snap == null) Muted(tr("Update to see how solar activity affects HF radio and GPS.")) else {
                     val w = snap.value
                     Row(Modifier.fillMaxWidth().height(68.dp), horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.Bottom) {
                         w.kp.takeLast(24).forEach { p ->
@@ -261,7 +261,7 @@ fun ConditionsScreen(onBack: () -> Unit) {
                 }
             }
 
-            Header("NOAA Weather Radio")
+            Header(tr("NOAA Weather Radio"))
             Box2 {
                 val near = ConditionsStore.nearestRadio(3, s)
                 if (near.isEmpty()) Muted(if (s.radio == null) "Update once to save the list of transmitters." else "Update with location on to find the nearest transmitters.")
@@ -274,9 +274,9 @@ fun ConditionsScreen(onBack: () -> Unit) {
                         Text(fmt.distance(km), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                Muted("Tune a radio that receives the weather band (most handhelds do) to one of the seven channels, 162.400 to 162.550 MHz. Strong signals reach about 40 miles; use a better antenna or higher ground for more.")
+                Muted(tr("Tune a radio that receives the weather band (most handhelds do) to one of the seven channels, 162.400 to 162.550 MHz. Strong signals reach about 40 miles; use a better antenna or higher ground for more."))
             }
-            Muted("Sources: USGS (earthquakes), US National Weather Service (alerts), Open-Meteo (forecast, CC BY 4.0), NOAA Space Weather Prediction Center and NOAA Weather Radio. All free, no accounts. Alerts and the forecast are asked for your position rounded to about 7 miles; the rest download whole regions and are filtered on this phone.")
+            Muted(tr("Sources: USGS (earthquakes), US National Weather Service (alerts), Open-Meteo (forecast, CC BY 4.0), NOAA Space Weather Prediction Center and NOAA Weather Radio. All free, no accounts. Alerts and the forecast are asked for your position rounded to about 7 miles; the rest download whole regions and are filtered on this phone."))
             androidx.compose.foundation.layout.Spacer(Modifier.height(24.dp))
         }
     }

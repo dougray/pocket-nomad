@@ -1,5 +1,7 @@
 package org.nomadpocket.app.tools
 
+import org.nomadpocket.i18n.tr
+
 import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -144,7 +146,7 @@ fun ChecklistDetailScreen(modifier: Modifier, list: Checklist) {
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
             Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(newItem, { newItem = it }, Modifier.weight(1f), label = { Text("Add your own item") }, singleLine = true)
-                TextButton(onClick = ::add, enabled = newItem.isNotBlank()) { Text("Add") }
+                TextButton(onClick = ::add, enabled = newItem.isNotBlank()) { Text(tr("Add")) }
             }
             TextButton(onClick = { update(state.cleared(list.id)) }, modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
                 Text("Uncheck everything", color = Brand.danger)

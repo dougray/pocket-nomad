@@ -7,6 +7,8 @@
 
 package org.nomadpocket.mesh.ui
 
+import org.nomadpocket.i18n.tr
+
 import android.text.format.DateFormat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -106,7 +108,7 @@ fun MeshChatScreen(conversation: MeshConversation, svc: MeshService = Mesh.servi
             verticalArrangement = Arrangement.spacedBy(6.dp)) {
             if (!connection.isConnected) Text("Connect a radio to send.", color = MeshColors.warn, fontWeight = FontWeight.SemiBold)
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(draft, { draft = it }, Modifier.weight(1f), placeholder = { Text("Message") },
+                OutlinedTextField(draft, { draft = it }, Modifier.weight(1f), placeholder = { Text(tr("Message")) },
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 19.sp), maxLines = 5,
                     isError = tooLong, shape = RoundedCornerShape(14.dp),
                     colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = MeshColors.background, unfocusedContainerColor = MeshColors.background))
@@ -135,9 +137,9 @@ fun BlockConfirmation(node: MeshNode?, svc: MeshService = Mesh.service, dismiss:
     AlertDialog(
         onDismissRequest = dismiss,
         title = { Text("Block ${node.displayName}?") },
-        text = { Text("Its messages are deleted from this phone and new ones are ignored. The other person isn't told. You can unblock it from the Nodes list.") },
-        confirmButton = { TextButton(onClick = { svc.block(node.num); dismiss() }) { Text("Block", color = MeshColors.danger) } },
-        dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } },
+        text = { Text(tr("Its messages are deleted from this phone and new ones are ignored. The other person isn't told. You can unblock it from the Nodes list.")) },
+        confirmButton = { TextButton(onClick = { svc.block(node.num); dismiss() }) { Text(tr("Block"), color = MeshColors.danger) } },
+        dismissButton = { TextButton(onClick = dismiss) { Text(tr("Cancel")) } },
         containerColor = MeshColors.card,
     )
 }

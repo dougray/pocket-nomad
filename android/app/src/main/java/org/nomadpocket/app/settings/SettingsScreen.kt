@@ -1,6 +1,6 @@
 package org.nomadpocket.app.settings
 
-import org.nomadpocket.app.i18n.tr
+import org.nomadpocket.i18n.tr
 
 import android.content.Intent
 import android.net.Uri
@@ -70,7 +70,7 @@ fun SettingsScreen(
     fun open(url: String) = runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
 
     Column(modifier.verticalScroll(rememberScrollState())) {
-        FormSection(footer = "On phones with OLED screens, black pixels use almost no power.") {
+        FormSection(footer = tr("On phones with OLED screens, black pixels use almost no power.")) {
             ToggleRow(tr("Always dark (saves battery)"), forceDark, onChange = onForceDark)
         }
         val worksPrefs = remember { context.getSharedPreferences("worksWith", android.content.Context.MODE_PRIVATE) }
@@ -79,45 +79,45 @@ fun SettingsScreen(
         val usesRadio = org.nomadpocket.ham.Ham.isInitialized && org.nomadpocket.ham.Ham.service.stations.isNotEmpty()
         if (org.nomadpocket.app.WorksWith.showWarWalker(usesMap, usesRadio, warWalkerDismissed)) {
             FormSection(tr("Works with")) {
-                Footnote("WarWalker turns your runs and walks into a game: it maps the Wi-Fi and Bluetooth around you, and it uses Pocket Nomad's targets and coverage hexagons. Free and open source.")
+                Footnote(tr("WarWalker turns your runs and walks into a game: it maps the Wi-Fi and Bluetooth around you, and it uses Pocket Nomad's targets and coverage hexagons. Free and open source."))
                 LinkRow(tr("WarWalker on GitHub"), external = true) { open(org.nomadpocket.app.WorksWith.WARWALKER_URL) }
                 TextButton(onClick = { warWalkerDismissed = true; worksPrefs.edit().putBoolean("warwalker.dismissed", true).apply() }) { Text(tr("Not interested")) }
             }
         }
         run {
             val context = LocalContext.current
-            val current = org.nomadpocket.app.i18n.Language.current
+            val current = org.nomadpocket.i18n.Language.current
             FormSection(footer = tr("Menus and screens are translated (first-pass translations, still being reviewed). Guides and books stay in English for now: first-aid and survival text needs a qualified human translator.")) {
                 Text(tr("Language"), style = MaterialTheme.typography.titleSmall)
                 androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    org.nomadpocket.app.i18n.AppLanguage.entries.forEach { l ->
-                        androidx.compose.material3.FilterChip(selected = current == l, onClick = { org.nomadpocket.app.i18n.Language.set(context, l) },
-                            label = { Text(if (l == org.nomadpocket.app.i18n.AppLanguage.SYSTEM) tr("System default") else l.nativeName) })
+                    org.nomadpocket.i18n.AppLanguage.entries.forEach { l ->
+                        androidx.compose.material3.FilterChip(selected = current == l, onClick = { org.nomadpocket.i18n.Language.set(context, l) },
+                            label = { Text(if (l == org.nomadpocket.i18n.AppLanguage.SYSTEM) tr("System default") else l.nativeName) })
                     }
                 }
             }
         }
         FormSection(tr("Battery tips")) {
-            Footnote("Turn on Battery Saver. Lower screen brightness. Use Airplane mode with Bluetooth on to keep mesh messaging while saving power. Keep the phone warm in cold weather; cold batteries die fast.")
+            Footnote(tr("Turn on Battery Saver. Lower screen brightness. Use Airplane mode with Bluetooth on to keep mesh messaging while saving power. Keep the phone warm in cold weather; cold batteries die fast."))
         }
         FormSection(tr("Privacy"), footer = tr("No accounts, analytics or tracking. Nothing leaves this phone unless you send it: a mesh message, an SOS, or a file you export.")) {
             LinkRow(tr("How Pocket Nomad handles your data"), onClick = onPrivacy)
             LinkRow(tr("Coverage map settings…"), onClick = onCoverage)
-            LinkRow("Privacy policy", external = true) { open(PRIVACY_URL) }
+            LinkRow(tr("Privacy policy"), external = true) { open(PRIVACY_URL) }
         }
         FormSection(tr("About")) {
             // Always on black: the logo's white lettering vanishes on a light background.
             Box(Modifier.fillMaxWidth().background(Color.Black, RoundedCornerShape(16.dp)).padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
-                Image(painterResource(R.drawable.logo), contentDescription = "Pocket Nomad", modifier = Modifier.widthIn(max = 220.dp).size(220.dp),
+                Image(painterResource(R.drawable.logo), contentDescription = tr("Pocket Nomad"), modifier = Modifier.widthIn(max = 220.dp).size(220.dp),
                     contentScale = ContentScale.Fit)
             }
             LabeledRow(tr("Version"), BuildConfig.VERSION_NAME)
             Text(tr("Pocket Nomad is free, open-source software (Apache 2.0). It is an independent project, inspired by Project NOMAD, and not affiliated with it."),
                 style = MaterialTheme.typography.bodySmall)
-            LinkRow("Source code", external = true) { open(SOURCE_URL) }
-            Footnote("Guides in this app don't replace first-aid training. Call emergency services whenever you can.")
+            LinkRow(tr("Source code"), external = true) { open(SOURCE_URL) }
+            Footnote(tr("Guides in this app don't replace first-aid training. Call emergency services whenever you can."))
         }
-        FormSection("Licenses") {
+        FormSection(tr("Licenses")) {
             License("Pocket Nomad", "Apache License 2.0. The Pocket Nomad name, logo and app icon are reserved and not covered by it.")
             License("OpenStreetMap", "Map data © OpenStreetMap contributors, under the Open Database License (ODbL). Tiles and style by OpenFreeMap.")
             License("MapLibre Native", "BSD 2-Clause License. © MapLibre contributors.")
@@ -184,7 +184,7 @@ fun PrivacySummaryScreen(modifier: Modifier) {
             }
         }
         item {
-            Footnote("Effective November 4, 2026. The full policy is in the project's source code, docs/PRIVACY.md, and at pocketnomad.us.",
+            Footnote(tr("Effective November 4, 2026. The full policy is in the project's source code, docs/PRIVACY.md, and at pocketnomad.us."),
                 Modifier.padding(vertical = 16.dp))
         }
     }

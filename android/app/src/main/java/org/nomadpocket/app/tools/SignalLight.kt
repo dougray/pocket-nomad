@@ -1,5 +1,7 @@
 package org.nomadpocket.app.tools
 
+import org.nomadpocket.i18n.tr
+
 import android.app.Activity
 import android.content.Context
 import android.hardware.camera2.CameraCharacteristics
@@ -222,7 +224,7 @@ fun SignalLightScreen(initialText: String, title: String, onBack: () -> Unit) {
             Modifier.fillMaxSize().background(if (player.isOn) Color.White else Color.Black).clickable { player.stop() },
             contentAlignment = Alignment.BottomCenter,
         ) {
-            Text("Tap to stop", color = Color.Gray, modifier = Modifier.navigationBarsPadding().padding(bottom = 40.dp))
+            Text(tr("Tap to stop"), color = Color.Gray, modifier = Modifier.navigationBarsPadding().padding(bottom = 40.dp))
         }
         return
     }
@@ -246,24 +248,24 @@ fun SignalLightScreen(initialText: String, title: String, onBack: () -> Unit) {
                     Box(Modifier.size(28.dp).background(if (player.isOn) accent else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f), CircleShape))
                 }
             }
-            FormSection("Message") {
+            FormSection(tr("Message")) {
                 OutlinedTextField(
-                    value = text, onValueChange = { text = it }, label = { Text("Text to send") }, singleLine = true,
+                    value = text, onValueChange = { text = it }, label = { Text(tr("Text to send")) }, singleLine = true,
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, autoCorrectEnabled = false),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(Morse.encode(text), fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                ToggleRow("Repeat until stopped", repeating) { repeating = it }
+                ToggleRow(tr("Repeat until stopped"), repeating) { repeating = it }
             }
-            FormSection("Signal with") {
-                ToggleRow("Flashlight", player.useTorch && player.hasTorch, enabled = player.hasTorch) { player.useTorch = it }
-                ToggleRow("Whole screen (white flash)", player.useScreen) { player.useScreen = it }
-                ToggleRow("Sound", player.useSound) { player.useSound = it }
+            FormSection(tr("Signal with")) {
+                ToggleRow(tr("Flashlight"), player.useTorch && player.hasTorch, enabled = player.hasTorch) { player.useTorch = it }
+                ToggleRow(tr("Whole screen (white flash)"), player.useScreen) { player.useScreen = it }
+                ToggleRow(tr("Sound"), player.useSound) { player.useSound = it }
                 Text("Speed: ${player.wpm.toInt()} words per minute")
                 Slider(value = player.wpm.toFloat(), onValueChange = { player.wpm = it.toInt().toDouble() }, valueRange = 4f..20f, steps = 15)
             }
             FormSection {
-                Footnote("SOS is three short, three long, three short (· · · — — — · · ·), repeated. Any signal in threes (flashes, whistle blasts, fires) means distress.")
+                Footnote(tr("SOS is three short, three long, three short (· · · — — — · · ·), repeated. Any signal in threes (flashes, whistle blasts, fires) means distress."))
             }
         }
     }
@@ -283,7 +285,7 @@ fun MorseScreen(modifier: Modifier, onSend: () -> Unit) {
     LazyColumn(modifier) {
         item {
             ListItem(
-                headlineContent = { Text("Send a message by light or sound", color = accent) },
+                headlineContent = { Text(tr("Send a message by light or sound"), color = accent) },
                 modifier = Modifier.clickable(onClick = onSend),
             )
             HorizontalDivider()

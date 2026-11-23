@@ -1,0 +1,73 @@
+<h2>Do this now</h2>
+<ol>
+<li><strong>Connect the antenna before you power the radio.</strong> Many LoRa boards can be damaged if they transmit with no antenna.</li>
+<li>Set the radio's region to match where you are (US for 915 MHz) before you deploy it.</li>
+<li>Put the node as high as you safely can with a clear view. Height is the best range upgrade you can make.</li>
+<li>Test it indoors on the bench first, then outdoors, before you leave it somewhere.</li>
+</ol>
+<h2>The idea</h2>
+<p>A temporary mesh node is a radio, a battery and a small solar panel in a weatherproof box, placed high to extend the mesh for an event, a trip or a test. A garden or flood solar light makes a good starting point, because it already has a weatherproof housing, a solar cell and a battery. A printed case on a pole top works too. Read "Using a solar light's own battery and panel" below before you wire anything.</p>
+<h2>Antenna</h2>
+<ul>
+<li>LoRa in the US is about 915 MHz. A quarter wave is about 8 cm.</li>
+<li><strong>Stock stubby (about 2 dBi):</strong> fine inside a case for a pole or a short test.</li>
+<li><strong>Omni fibreglass collinear (about 5 to 6 dBi):</strong> better range on flat ground. It squeezes the signal flatter, so it is worse from a hilltop to a valley below.</li>
+<li><strong>Yagi (9 to 12 dBi):</strong> a point-to-point link between two fixed nodes, not for a general mesh.</li>
+<li>Keep the antenna <strong>upright</strong> and several centimetres away from metal: the back of the solar panel, the battery, screws and brackets.</li>
+<li>An antenna inside a plastic housing loses a little signal. Out the top with a sealed connector is better.</li>
+<li>Do not use very high gain antennas without checking the rules for your region.</li>
+</ul>
+<h2>Cable</h2>
+<ul>
+<li>At 915 MHz, thin RG-174 loses roughly 0.8 dB per metre. LMR-400 loses roughly a quarter of that.</li>
+<li>The best cable is no cable. Putting the radio at the top of the pole, next to the antenna, avoids the loss.</li>
+<li>If you must use cable, use the shortest low-loss run and seal every connector.</li>
+</ul>
+<h2>Power</h2>
+<ul>
+<li><strong>Panel:</strong> use a regulated 5 V USB solar panel, or a panel plus a charge board or 5 V regulator (see the section above). Many LoRa boards accept only 4.7 to 6 V on the solar input. Do not connect a raw "6 V" or "12 V" panel. Check your board's datasheet.</li>
+<li><strong>Battery:</strong> one cell or cells in parallel (1S2P) of protected Li-ion 18650, or the battery the board is designed for. Do not mix old and new cells.</li>
+<li><strong>Cold:</strong> do not charge lithium cells below freezing. <strong>Heat:</strong> a sealed box in full sun gets very hot and ages cells quickly. Use shade, a white or light box and a vent membrane.</li>
+<li><strong>Size it with arithmetic.</strong> Example: a board that draws about 75 mA while listening at 3.7 V uses about 0.28 W, or about 7 Wh a day. Two 2500 mAh cells hold about 18 Wh, so about 2.5 days with no sun. A 2 W panel gives roughly 6 to 8 Wh a day with 3 to 4 hours of good sun, and much less in winter or shade. Measure your own board before you trust these numbers.</li>
+</ul>
+<h2>Using a solar light's own battery and panel</h2>
+<p>Most solar lights already charge a battery from a solar cell, which is what a node needs. Whether the parts you have are enough depends on three numbers. Read them off the light (usually printed on the panel back, the battery, or the box).</p>
+<ol>
+<li><strong>Battery.</strong> A node needs 3.7 V lithium: one 18650 or a flat Li-ion or LiFePO4 pack. Small garden lights often hold one 1.2 V NiMH AA. A 1.2 V cell cannot run a radio on its own, so replace it or add a boost board.</li>
+<li><strong>Panel.</strong> Look for the watts and volts. Small garden light panels are about 2 V and well under 1 W. A node that listens all day uses about 7 Wh, and a 0.5 W panel makes about 1.5 to 2 Wh on a good day. That is not enough. A solar flood light or street light panel (5 W or more, usually 5 to 6 V with a lithium battery) is much more likely to work.</li>
+<li><strong>Charge controller.</strong> The light's own circuit board charges the battery and also switches the lamp on at dusk. Remove or disable the lamp output, or it will drain the battery every night. If the board has no battery protection, add a protected cell or a charge board with protection.</li>
+</ol>
+<ul>
+<li><strong>Check the real panel voltage.</strong> A "6 V" panel can read 7 to 9 V with nothing connected in full sun. Many LoRa boards accept only about 4.7 to 6 V on the solar input. If the panel can go higher, put a 5 V buck regulator or a proper solar charge board between them. Measure with a multimeter in sun before you connect.</li>
+<li><strong>Do the sum.</strong> Panel watts times 3 to 4 sun hours is roughly what you make in a day; battery volts times amp hours is what you store. Compare both with about 7 Wh a day for a listening node. If the panel gives less than the node uses, the node will run down.</li>
+<li><strong>Wire polarity carefully.</strong> A reversed battery or panel can destroy the board. Fit a fuse or a protected battery holder, and check with a multimeter before you connect the radio.</li>
+<li>Test the whole thing on the bench in full sun for a day, with the radio running, before you leave it outdoors.</li>
+</ul>
+<h2>Settings</h2>
+<ul>
+<li>Set the role to <strong>Router</strong> (Meshtastic) or <strong>Repeater</strong> (MeshCore) only for a node that is high and has a good view. Too many routers make the mesh worse.</li>
+<li>Name the node so you can find it (for example POLE-1).</li>
+<li>Turn off anything you do not need (screen, GPS fix on a fixed node) to save power.</li>
+</ul>
+<h2>Weatherproofing</h2>
+<ul>
+<li>Use a gasket under the lid and screws that clamp it evenly.</li>
+<li>Put cables through a gland. Add a drip loop so water runs off the cable before it reaches the case.</li>
+<li>Seal antenna connectors with self-amalgamating tape.</li>
+<li>Add a breather vent or a small desiccant pack so condensation does not collect inside.</li>
+</ul>
+<h2>Placing it</h2>
+<ul>
+<li>Use the Map's radio path tool and the coverage map to pick a spot with a clear view.</li>
+<li>Get permission to use the site. Anchor the pole or mount so wind cannot knock it over.</li>
+<li>Keep well away from power lines. Do not raise or climb a mast in a storm.</li>
+<li>Mark it and write down where it is so you can take it down.</li>
+</ul>
+<div class="callout warn">Lithium cells can catch fire if they are shorted, crushed or charged wrong. Use protected cells, keep them in a holder away from metal, and do not leave a damaged cell in a node.</div>
+<h3>Sources</h3>
+<ul>
+<li>Meshtastic documentation (meshtastic.org), hardware, antennas and device roles</li>
+<li>MeshCore documentation (meshcore.co.uk)</li>
+<li>Manufacturer datasheet for your board (solar input and battery limits)</li>
+<li>Standard coax loss tables (RG-174, LMR-400)</li>
+</ul>

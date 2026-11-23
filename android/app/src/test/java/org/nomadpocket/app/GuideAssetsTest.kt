@@ -17,7 +17,7 @@ class GuideAssetsTest {
     @Test fun guidesAreInTheAssets() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val library = GuideLibrary.get(context)
-        assertEquals(69, library.allGuides.size)
+        assertEquals(71, library.allGuides.size)
         assertEquals(8, library.checklists.size)
         val cpr = library.guideById("cpr")!!
         val html = GuideLibrary.html(context, cpr)

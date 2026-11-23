@@ -11,6 +11,8 @@
 
 package org.nomadpocket.mesh.ui
 
+import org.nomadpocket.i18n.tr
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -141,7 +143,7 @@ private fun MeshCoreSettings(link: MeshService, apply: RadioApplyState, connecte
     Text(current?.summary ?: "Waiting for the radio to report its settings.", fontSize = 17.sp)
     radio.txPowerDbm?.let { Text("Transmit power $it dBm" + (radio.maxTxPowerDbm?.let { m -> " (this radio allows up to $m)" } ?: ""), color = MeshColors.secondary) }
     if (current != null && MeshCorePresets.matching(current) == null && current.sameAs(MeshCoreRadioParams.FIRMWARE_DEFAULT)) {
-        Text("These are MeshCore's out-of-the-box settings, which most areas do not use.", color = MeshColors.warn)
+        Text(tr("These are MeshCore's out-of-the-box settings, which most areas do not use."), color = MeshColors.warn)
     }
 
     SectionTitle("Choose")
@@ -156,10 +158,10 @@ private fun MeshCoreSettings(link: MeshService, apply: RadioApplyState, connecte
                     Text(match.text + " (from the downloaded community map).", color = MeshColors.secondary)
                 }
                 nearby.downloaded && nearby.params.isEmpty() ->
-                    Text("No MeshCore radios were found near where you downloaded.", color = MeshColors.secondary)
+                    Text(tr("No MeshCore radios were found near where you downloaded."), color = MeshColors.secondary)
                 nearby.downloaded ->
-                    Text("The downloaded radios have no settings saved. Download again to get them.", color = MeshColors.secondary)
-                else -> Text("Download the radios near you once (needs internet). After that this works offline.", color = MeshColors.secondary)
+                    Text(tr("The downloaded radios have no settings saved. Download again to get them."), color = MeshColors.secondary)
+                else -> Text(tr("Download the radios near you once (needs internet). After that this works offline."), color = MeshColors.secondary)
             }
             if (match == null || downloading) {
                 MeshBigButton(if (downloading) "Downloading…" else "Download radios near you", {
@@ -179,22 +181,22 @@ private fun MeshCoreSettings(link: MeshService, apply: RadioApplyState, connecte
                 presetTitle = t
                 MeshCorePresets.official.firstOrNull { it.title == t }?.let { fill(it.params) }
             }
-            Text("Suggested by the MeshCore community. USA: 910.525 MHz, 62.5 kHz, SF7, CR5.", color = MeshColors.secondary, fontSize = 14.sp)
+            Text(tr("Suggested by the MeshCore community. USA: 910.525 MHz, 62.5 kHz, SF7, CR5."), color = MeshColors.secondary, fontSize = 14.sp)
         }
     }
     Choice("Custom", source == CoreSource.CUSTOM) { source = CoreSource.CUSTOM }
 
     SectionTitle("Settings to send")
     val editable = source == CoreSource.CUSTOM
-    OutlinedTextField(freqText, { freqText = it; source = CoreSource.CUSTOM }, label = { Text("Frequency (MHz)") },
+    OutlinedTextField(freqText, { freqText = it; source = CoreSource.CUSTOM }, label = { Text(tr("Frequency (MHz)")) },
         singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
     LabeledPicker("Bandwidth", MeshCoreRadioParams.formatKHz(bw), MeshCoreRadioLimits.BANDWIDTHS.map { it to MeshCoreRadioParams.formatKHz(it) }) {
         bw = it; source = CoreSource.CUSTOM
     }
     LabeledPicker("Spreading factor", "SF$sf", MeshCoreRadioLimits.SPREADING_FACTORS.map { it to "SF$it" }) { sf = it; source = CoreSource.CUSTOM }
     LabeledPicker("Coding rate", "CR$cr (4/$cr)", MeshCoreRadioLimits.CODING_RATES.map { it to "CR$it (4/$it)" }) { cr = it; source = CoreSource.CUSTOM }
-    if (!editable) Text("Change any value to make it custom.", color = MeshColors.secondary, fontSize = 14.sp)
-    OutlinedTextField(txText, { txText = it.filter { c -> c.isDigit() || c == '-' }.take(3) }, label = { Text("Transmit power (dBm)") },
+    if (!editable) Text(tr("Change any value to make it custom."), color = MeshColors.secondary, fontSize = 14.sp)
+    OutlinedTextField(txText, { txText = it.filter { c -> c.isDigit() || c == '-' }.take(3) }, label = { Text(tr("Transmit power (dBm)")) },
         supportingText = { Text("Leave as is unless you know you need less." + (radio.maxTxPowerDbm?.let { " Up to $it dBm." } ?: "")) },
         singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
 
@@ -206,24 +208,24 @@ private fun MeshCoreSettings(link: MeshService, apply: RadioApplyState, connecte
         else MeshCoreRadioLimits.problems(params, tx.takeIf { txChanged }, radio.maxTxPowerDbm ?: 22)
     problems.forEach { Text(it, color = MeshColors.danger) }
     val unchanged = current != null && freq != null && current.sameAs(params.normalized()) && !txChanged
-    if (unchanged) Text("The radio already uses these settings.", color = MeshColors.ok)
+    if (unchanged) Text(tr("The radio already uses these settings."), color = MeshColors.ok)
 
     MeshBigButton("Apply", { confirm = true }, enabled = connected && problems.isEmpty() && !unchanged && !apply.isBusy)
 
     if (confirm) {
         AlertDialog(
             onDismissRequest = { confirm = false },
-            title = { Text("Change this radio's settings?") },
+            title = { Text(tr("Change this radio's settings?")) },
             text = {
                 Text("New: ${params.normalized().summary}" + (if (txChanged) ", $tx dBm" else "") +
                     "\n\nIt will only hear radios that use the same settings. Make sure these are legal where you are.")
             },
             confirmButton = {
                 TextButton(onClick = { confirm = false; link.applyMeshCore(params, tx.takeIf { txChanged }) }) {
-                    Text("Apply", fontWeight = FontWeight.Bold)
+                    Text(tr("Apply"), fontWeight = FontWeight.Bold)
                 }
             },
-            dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { confirm = false }) { Text(tr("Cancel")) } },
             containerColor = MeshColors.card,
         )
     }
@@ -244,7 +246,7 @@ private fun MeshtasticSettings(link: MeshService, apply: RadioApplyState, connec
     if (radio.region == MeshtasticRegions.UNSET) {
         MeshInfoCard(Icons.Filled.Error, "No region set", "This radio will not transmit until it has a region. Pick yours below.", MeshColors.danger)
     } else if (radio.txEnabled == false) {
-        Text("Transmit is turned off on this radio, so it only listens. Turn it on in the Meshtastic app if you need to send.", color = MeshColors.warn)
+        Text(tr("Transmit is turned off on this radio, so it only listens. Turn it on in the Meshtastic app if you need to send."), color = MeshColors.warn)
     }
 
     SectionTitle("Region")
@@ -255,33 +257,33 @@ private fun MeshtasticSettings(link: MeshService, apply: RadioApplyState, connec
     SectionTitle("Modem preset")
     Picker(MeshtasticModemPresets.name(preset).let { if (preset == MeshtasticModemPresets.LONG_FAST) "$it (default)" else it },
         MeshtasticModemPresets.all.map { it.code to it.name }) { preset = it }
-    Text("Most Meshtastic radios use Long Fast. Everyone in your group needs the same preset.", color = MeshColors.secondary, fontSize = 14.sp)
+    Text(tr("Most Meshtastic radios use Long Fast. Everyone in your group needs the same preset."), color = MeshColors.secondary, fontSize = 14.sp)
     if (radio.usePreset == false) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(usePreset, { usePreset = it })
-            Text("Use the preset instead of this radio's custom modem settings")
+            Text(tr("Use the preset instead of this radio's custom modem settings"))
         }
     }
-    Text("The radio restarts to use new settings. The app reconnects by itself, usually within a minute.",
+    Text(tr("The radio restarts to use new settings. The app reconnects by itself, usually within a minute."),
         color = MeshColors.secondary, fontSize = 14.sp)
 
     val r = region
     val unchanged = r != null && r == radio.region && preset == (radio.modemPreset ?: 0) && usePreset == (radio.usePreset ?: false)
-    if (unchanged) Text("The radio already uses these settings.", color = MeshColors.ok)
+    if (unchanged) Text(tr("The radio already uses these settings."), color = MeshColors.ok)
     MeshBigButton("Apply", { confirm = true }, enabled = connected && r != null && !unchanged && !apply.isBusy)
 
     if (confirm && r != null) {
         AlertDialog(
             onDismissRequest = { confirm = false },
-            title = { Text("Change this radio's settings?") },
+            title = { Text(tr("Change this radio's settings?")) },
             text = {
                 Text("Region: ${MeshtasticRegions.of(r)?.label}\nPreset: ${MeshtasticModemPresets.name(preset)}" +
                     "\n\nThe radio restarts. Make sure this region is right for where you are.")
             },
             confirmButton = {
-                TextButton(onClick = { confirm = false; link.applyMeshtastic(r, preset, usePreset) }) { Text("Apply", fontWeight = FontWeight.Bold) }
+                TextButton(onClick = { confirm = false; link.applyMeshtastic(r, preset, usePreset) }) { Text(tr("Apply"), fontWeight = FontWeight.Bold) }
             },
-            dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { confirm = false }) { Text(tr("Cancel")) } },
             containerColor = MeshColors.card,
         )
     }

@@ -1,6 +1,6 @@
 package org.nomadpocket.app.map
 
-import org.nomadpocket.app.i18n.tr
+import org.nomadpocket.i18n.tr
 
 import android.content.Context
 import android.graphics.RectF
@@ -406,15 +406,15 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
                 followMode = next
             }
             MapButton(Icons.Filled.Search, "Search and favorites") { showSearch = true }
-            MapButton(Icons.AutoMirrored.Filled.List, "Places") { showPlaces = true }
+            MapButton(Icons.AutoMirrored.Filled.List, tr("Places")) { showPlaces = true }
             MapButton(Icons.Filled.Straighten, if (measuring) "Stop measuring" else "Measure and draw") { measuring = !measuring }
             Box {
-                MapButton(Icons.Filled.Layers, "Map layers") { showLayers = true }
+                MapButton(Icons.Filled.Layers, tr("Map layers")) { showLayers = true }
                 DropdownMenu(expanded = showLayers, onDismissRequest = { showLayers = false }) {
                     CheckItem(tr("Radios heard directly"), Icons.Filled.SettingsInputAntenna, showNodes) {
                         showNodes = !showNodes; prefs.edit().putBoolean("showNodes", showNodes).apply()
                     }
-                    CheckItem("Known on the mesh", Icons.Filled.Hub, showMeshKnown) {
+                    CheckItem(tr("Known on the mesh"), Icons.Filled.Hub, showMeshKnown) {
                         showMeshKnown = !showMeshKnown; prefs.edit().putBoolean("showMeshKnown", showMeshKnown).apply()
                     }
                     CheckItem(tr("Known radios (community maps)"), Icons.Filled.Contactless, showKnown) {
@@ -455,7 +455,7 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
                     DropdownMenuItem(text = { Text(tr("Download streets around me…")) }, leadingIcon = { Icon(Icons.Filled.Map, null) },
                         onClick = { showLayers = false; showStreets = true })
                     HorizontalDivider()
-                    Text("Coverage", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium,
+                    Text(tr("Coverage"), Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     CoverageLayer.entries.forEach { mode ->
                         DropdownMenuItem(
@@ -465,7 +465,7 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
                         )
                     }
                     if (coverageMode != CoverageLayer.OFF) {
-                        Text("Network", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium,
+                        Text(tr("Network"), Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         CoverageNetwork.entries.forEach { net ->
                             DropdownMenuItem(
@@ -479,7 +479,7 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
                     DropdownMenuItem(text = { Text(tr("Coverage settings…")) }, leadingIcon = { Icon(Icons.Filled.Settings, null) },
                         onClick = { showLayers = false; onCoverageSettings() })
                     HorizontalDivider()
-                    DropdownMenuItem(text = { Text("Offline maps…") }, leadingIcon = { Icon(Icons.Filled.Map, null) },
+                    DropdownMenuItem(text = { Text(tr("Offline maps…")) }, leadingIcon = { Icon(Icons.Filled.Map, null) },
                         onClick = { showLayers = false; showOffline = true })
                 }
             }
@@ -517,7 +517,7 @@ fun MapScreen(onCoverageSettings: () -> Unit) {
             }
             if (regions.isEmpty()) {
                 Panel(Modifier.clickable { showOffline = true }) {
-                    Footnote("Online map. To use it with no signal, save this area in Layers › Offline maps.")
+                    Footnote(tr("Online map. To use it with no signal, save this area in Layers › Offline maps."))
                 }
             }
         }
@@ -921,7 +921,7 @@ private fun CoverageLegend(all: CoverageData, coverage: CoverageData, mode: Cove
             Text(if (shared) "Would be shared" else "Where I drove (private)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 CoverageColors.stops.forEach { (_, c) -> Box(Modifier.size(10.dp).background(c, CircleShape)) }
-                Text("weak → strong", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(tr("weak → strong"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             // The ring (or hexagon outline) says which network: shown once both have data, or when filtered.
             if (bothNetworks || network != CoverageNetwork.BOTH) {
@@ -941,7 +941,7 @@ private fun CoverageLegend(all: CoverageData, coverage: CoverageData, mode: Cove
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (!shared && coverage.pings.isNotEmpty()) {
-                Text("Drive-test pings (best per hexagon)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 2.dp))
+                Text(tr("Drive-test pings (best per hexagon)"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 2.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     LegendDot(PingColors.reached, "Answered")
                     LegendDot(PingColors.relayed, "Repeated")
@@ -970,7 +970,7 @@ private fun RingDot(ring: Color, label: String) {
 private fun RadioLegend(heard: String?, unidentified: List<UnidentifiedRepeater>, showsMeshKnown: Boolean) {
     Panel {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Mesh radios", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            Text(tr("Mesh radios"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
             heard?.let { Text("$it directly", style = MaterialTheme.typography.labelSmall) }
             // Heard as the last hop, but no known radio with that hash is in range: named, never placed.
             if (unidentified.isNotEmpty()) {
@@ -985,13 +985,13 @@ private fun RadioLegend(heard: String?, unidentified: List<UnidentifiedRepeater>
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Box(Modifier.size(12.dp).background(Color.Gray, CircleShape).border(2.dp, Color.White, CircleShape))
-                Text("Repeater or router", style = MaterialTheme.typography.labelSmall)
+                Text(tr("Repeater or router"), style = MaterialTheme.typography.labelSmall)
                 Box(Modifier.size(7.dp).background(Color.Gray, CircleShape))
-                Text("Other", style = MaterialTheme.typography.labelSmall)
+                Text(tr("Other"), style = MaterialTheme.typography.labelSmall)
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Box(Modifier.size(12.dp).background(Color.Gray, CircleShape).border(2.dp, Color.Black, CircleShape))
-                Text("Heard by your radios", style = MaterialTheme.typography.labelSmall)
+                Text(tr("Heard by your radios"), style = MaterialTheme.typography.labelSmall)
             }
             if (showsMeshKnown) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Box(Modifier.size(7.dp).background(Color.Gray.copy(alpha = 0.55f), CircleShape))

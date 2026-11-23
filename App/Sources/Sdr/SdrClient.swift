@@ -21,7 +21,13 @@ final class SdrClient {
     }
 
     private(set) var link: Link = .idle
-    private(set) var mode: String?
+    /// Which dongle the picker is working on (0 is the first). Only matters when the box has more than one.
+    var dongle = 0
+    var dongleCount: Int { max(1, state.hello?.dongles ?? 1) }
+    /// What the chosen dongle is listening to.
+    var mode: String? { state.active[min(dongle, dongleCount - 1)] }
+    /// True when any dongle is listening to this mode.
+    func listening(_ m: String) -> Bool { state.active.values.contains(m) }
     var host = UserDefaults.standard.string(forKey: "sdr.host") ?? "" { didSet { UserDefaults.standard.set(host, forKey: "sdr.host") } }
     var port = UserDefaults.standard.object(forKey: "sdr.port") as? Int ?? 8731 { didSet { UserDefaults.standard.set(port, forKey: "sdr.port") } }
 
@@ -30,6 +36,11 @@ final class SdrClient {
         get { SdrToken.load() }
         set { SdrToken.save(newValue) }
     }
+
+    /// How the box is reached: over Wi-Fi (an address) or over Bluetooth LE.
+    var useBluetooth = UserDefaults.standard.bool(forKey: "sdr.bluetooth") { didSet { UserDefaults.standard.set(useBluetooth, forKey: "sdr.bluetooth") } }
+    private(set) var bleDevices: [SdrBleDevice] = []
+    private var ble: SdrBle?
 
     private var connection: NWConnection?
     private var reader = SdrLineReader()
@@ -61,20 +72,71 @@ final class SdrClient {
         c.start(queue: .main)
     }
 
+    // MARK: Bluetooth
+
+    func scanBluetooth() {
+        let b = ble ?? SdrBle()
+        ble = b
+        b.onDevices = { [weak self] d in self?.bleDevices = d }
+        b.onData = { [weak self] d in self?.received(d) }
+        b.onState = { [weak self] s in
+            guard let self else { return }
+            self.link = s
+            if s == .connected { self.send(["cmd": "auth", "token": self.token]) }
+        }
+        bleDevices = []
+        b.startScan()
+    }
+
+    func connectBluetooth(_ device: SdrBleDevice) {
+        state.reset(); reader = SdrLineReader()
+        ble?.connect(device)
+    }
+
     func disconnect() {
+        ble?.disconnect(); ble?.stopScan()
         connection?.cancel()
         connection = nil
-        mode = nil
+        state.setActive(0, nil); dongle = 0
         link = .idle
     }
 
-    func start(mode m: String) { send(["cmd": "start", "mode": m]); mode = m }
-    func stop() { send(["cmd": "stop"]); mode = nil }
+    /// With one dongle the commands are exactly what older boxes expect; with several they name the dongle.
+    func start(mode m: String) {
+        let d = min(dongle, dongleCount - 1)
+        send(dongleCount > 1 ? ["cmd": "start", "mode": m, "dongle": d] : ["cmd": "start", "mode": m]); state.setActive(d, m)
+    }
+    func stop() {
+        let d = min(dongle, dongleCount - 1)
+        send(dongleCount > 1 ? ["cmd": "stop", "dongle": d] : ["cmd": "stop"]); state.setActive(d, nil)
+    }
+
+    /// Fetch a weather picture from the box over HTTP (Wi-Fi only: the pictures are too big for Bluetooth).
+    /// Choose the band the spectrum view sweeps (MHz). The box checks the range.
+    func sendSpectrumRange(lowMHz: Double, highMHz: Double) {
+        send(["cmd": "settings", "spectrum_lo_mhz": lowMHz, "spectrum_hi_mhz": highMHz])
+        state.resetPeak()
+    }
+
+    func fetchImage(_ image: SdrImage) async -> Data? {
+        let h = host.trimmingCharacters(in: .whitespaces)
+        guard !useBluetooth, !h.isEmpty, let url = URL(string: "http://\(h):8732\(image.url)") else { return nil }
+        var req = URLRequest(url: url); req.timeoutInterval = 30
+        if !token.isEmpty { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        guard let (data, resp) = try? await URLSession.shared.data(for: req), (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        return data
+    }
+
+    /// Tell the box roughly where you are (rounded to 0.1 degree, kept only on the box) so it knows when satellites pass.
+    func sendArea(latitude: Double, longitude: Double) {
+        send(["cmd": "settings", "lat": (latitude * 10).rounded() / 10, "lon": (longitude * 10).rounded() / 10])
+    }
 
     private func send(_ cmd: [String: Any]) {
-        guard let c = connection, link == .connected, var data = try? JSONSerialization.data(withJSONObject: cmd) else { return }
+        guard link == .connected, var data = try? JSONSerialization.data(withJSONObject: cmd) else { return }
         data.append(0x0A)
-        c.send(content: data, completion: .contentProcessed { _ in })
+        if useBluetooth { ble?.write(data); return }
+        connection?.send(content: data, completion: .contentProcessed { _ in })
     }
 
     private func receiveLoop(_ c: NWConnection) {

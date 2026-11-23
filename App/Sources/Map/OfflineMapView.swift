@@ -593,14 +593,14 @@ struct OfflineMapView: View {
             } else {
                 Circle().strokeBorder(Color(uiColor: color), lineWidth: 2.5).frame(width: 12, height: 12)
             }
-            Text(label).font(.caption2)
+            Text(LocalizedStringKey(label)).font(.caption2)
         }
     }
 
     private func legendDot(_ color: UIColor, _ label: String) -> some View {
         HStack(spacing: 4) {
             Circle().fill(Color(uiColor: color)).frame(width: 10, height: 10)
-            Text(label).font(.caption2)
+            Text(LocalizedStringKey(label)).font(.caption2)
         }
     }
 

@@ -1,5 +1,7 @@
 package org.nomadpocket.app.tools
 
+import org.nomadpocket.i18n.tr
+
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -96,8 +98,8 @@ fun CompassScreen(modifier: Modifier) {
                 Text(if (lockedBearing == null) "Lock this bearing" else "Clear bearing")
             }
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                SegmentedButton(useTrueNorth, { useTrueNorth = true }, SegmentedButtonDefaults.itemShape(0, 2)) { Text("True north") }
-                SegmentedButton(!useTrueNorth, { useTrueNorth = false }, SegmentedButtonDefaults.itemShape(1, 2)) { Text("Magnetic") }
+                SegmentedButton(useTrueNorth, { useTrueNorth = true }, SegmentedButtonDefaults.itemShape(0, 2)) { Text(tr("True north")) }
+                SegmentedButton(!useTrueNorth, { useTrueNorth = false }, SegmentedButtonDefaults.itemShape(1, 2)) { Text(tr("Magnetic")) }
             }
         } else {
             Text(
@@ -110,7 +112,7 @@ fun CompassScreen(modifier: Modifier) {
             Modifier.fillMaxWidth().background(cardColor, RoundedCornerShape(14.dp)).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("Your position", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(tr("Your position"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             if (location != null) {
                 val lat = location.latitude
                 val lon = location.longitude
@@ -131,14 +133,14 @@ fun CompassScreen(modifier: Modifier) {
                     cm.setPrimaryClip(ClipData.newPlainText("Position", text))
                     copied = true
                 }) { Text(if (copied) "Copied" else "Copy coordinates") }
-                Footnote("Read these to rescuers over a radio or phone. GPS works with no cell service; it needs a view of the sky.")
+                Footnote(tr("Read these to rescuers over a radio or phone. GPS works with no cell service; it needs a view of the sky."))
             } else if (!permitted) {
                 Text(
                     "Location is off for Pocket Nomad. Turn it on in Settings › Apps › Pocket Nomad › Permissions.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
-                Text("Getting a GPS fix… go outside or near a window.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(tr("Getting a GPS fix… go outside or near a window."), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

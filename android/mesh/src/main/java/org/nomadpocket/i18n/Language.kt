@@ -6,7 +6,7 @@
 // and menus are translated; the guides and books stay in English until a qualified person can translate
 // first-aid and survival text. Strings use their English text as the key (see i18n/strings.json).
 
-package org.nomadpocket.app.i18n
+package org.nomadpocket.i18n
 
 import android.content.Context
 import androidx.compose.runtime.Composable

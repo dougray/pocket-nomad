@@ -24,11 +24,21 @@ class NomadApp : Application() {
         super.onCreate()
         // No API key: the map style and tiles come from OpenFreeMap.
         MapLibre.getInstance(this)
-        org.nomadpocket.app.i18n.Language.load(this)
+        org.nomadpocket.i18n.Language.load(this)
         // The NVIS planner (Ham module) reads the latest geomagnetic Kp from Conditions when it has one.
         org.nomadpocket.ham.HamNvisHooks.kp = { org.nomadpocket.app.conditions.ConditionsStore.state.value.space?.value?.kpNow ?: 2.0 }
         Mesh.init(this)
         org.nomadpocket.ham.Ham.init(this)
+        // A weather alert heard on a radio's audio shows with the other weather radio alerts.
+        org.nomadpocket.ham.RadioAudioListener.onFt8 = { list ->
+            val now = System.currentTimeMillis()
+            for (m in list) org.nomadpocket.ham.ft8Spot(m.text)?.let { (call, grid) ->
+                org.nomadpocket.app.map.Coordinates.fromMaidenhead(grid)?.let { c ->
+                    org.nomadpocket.app.sdr.SdrState.apply(org.nomadpocket.app.sdr.SdrEvent.Spot(org.nomadpocket.app.sdr.SdrSpot("ft8", call, grid, m.snr.toInt(), 0.0, c.first, c.second, now)))
+                }
+            }
+        }
+        org.nomadpocket.ham.RadioAudioListener.onAlert = { a -> org.nomadpocket.app.sdr.SdrState.apply(org.nomadpocket.app.sdr.SdrEvent.Alert(org.nomadpocket.app.sdr.SdrAlert("audio", 0.0, a.header, a.text, System.currentTimeMillis()))) }
         org.nomadpocket.ham.HamPlaceHook.content = { name, lat, lon -> org.nomadpocket.app.map.PlaceActions(name, lat, lon) }
         org.nomadpocket.app.conditions.ConditionsStore.init(this)
         KnownRadioStore.init(this)

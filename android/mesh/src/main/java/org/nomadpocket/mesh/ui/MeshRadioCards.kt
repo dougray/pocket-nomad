@@ -8,6 +8,8 @@
 
 package org.nomadpocket.mesh.ui
 
+import org.nomadpocket.i18n.tr
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -99,22 +101,22 @@ fun MeshRadioCard(firmware: Firmware, link: MeshService, onDisconnect: () -> Uni
             }
             Text(radioStateWord(connection), color = tint, fontSize = 15.sp)
             radio.settingsSummary?.let { Text(it, fontSize = 15.sp, color = MeshColors.secondary) }
-            if (noRegion) Text("No region set: this radio won't transmit. Open Radio settings to pick yours.", fontSize = 15.sp, color = MeshColors.danger)
+            if (noRegion) Text(tr("No region set: this radio won't transmit. Open Radio settings to pick yours."), fontSize = 15.sp, color = MeshColors.danger)
             hint?.let { Text(it, fontSize = 15.sp, color = MeshColors.warn) }
             // Left at home today: stop looking for it until Connect or the next launch (auto-reconnect stays on).
             if (trying && link.lastDeviceID != null) {
-                TextButton(onClick = { link.notWithMeToday() }) { Text("Not with me today", color = MeshColors.accent) }
+                TextButton(onClick = { link.notWithMeToday() }) { Text(tr("Not with me today"), color = MeshColors.accent) }
             }
             Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 when (connection) {
                     MeshConnectionState.Idle, is MeshConnectionState.Failed ->
-                        TextButton(onClick = onReconnect) { Text("Reconnect", color = MeshColors.accent) }
+                        TextButton(onClick = onReconnect) { Text(tr("Reconnect"), color = MeshColors.accent) }
                     is MeshConnectionState.NotWithMe ->
-                        TextButton(onClick = onReconnect) { Text("Connect", color = MeshColors.accent) }
-                    else -> TextButton(onClick = onDisconnect) { Text("Disconnect", color = MeshColors.danger) }
+                        TextButton(onClick = onReconnect) { Text(tr("Connect"), color = MeshColors.accent) }
+                    else -> TextButton(onClick = onDisconnect) { Text(tr("Disconnect"), color = MeshColors.danger) }
                 }
-                TextButton(onClick = onSettings) { Text("Radio settings…", color = MeshColors.accent) }
-                TextButton(onClick = onForget) { Text("Forget", color = MeshColors.secondary) }
+                TextButton(onClick = onSettings) { Text(tr("Radio settings…"), color = MeshColors.accent) }
+                TextButton(onClick = onForget) { Text(tr("Forget"), color = MeshColors.secondary) }
             }
         }
     }

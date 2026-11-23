@@ -36,7 +36,7 @@ struct MeshInfoView: View {
 
     private func section(_ title: String, symbol: String, _ text: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(title, systemImage: symbol)
+            Label(LocalizedStringKey(title), systemImage: symbol)
                 .font(.title3.weight(.bold))
                 .foregroundStyle(Theme.accent)
             Text(text)

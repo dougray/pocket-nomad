@@ -1,5 +1,7 @@
 package org.nomadpocket.app.library
 
+import org.nomadpocket.i18n.tr
+
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -125,7 +127,7 @@ fun LibraryScreen(onBook: (String) -> Unit, onHit: (SourceRef) -> Unit, onGetCon
 
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Library", Modifier.weight(1f), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+            Text(tr("Library"), Modifier.weight(1f), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
             IconButton(onClick = onGetContent) { Icon(Icons.Filled.Download, contentDescription = "Get content") }
         }
         LibrarySearchField(query, { query = it }, "Search every book")
@@ -221,8 +223,8 @@ private fun BookRow(book: Book, indexProgress: Double?, onOpen: () -> Unit, onDe
             onDismissRequest = { confirm = false },
             title = { Text("Delete ${book.title}?") },
             text = { Text("This frees ${byteString(book.size)}. You can download it again later.") },
-            confirmButton = { TextButton(onClick = { confirm = false; onDelete() }) { Text("Delete", color = Brand.danger) } },
-            dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
+            confirmButton = { TextButton(onClick = { confirm = false; onDelete() }) { Text(tr("Delete"), color = Brand.danger) } },
+            dismissButton = { TextButton(onClick = { confirm = false }) { Text(tr("Cancel")) } },
         )
     }
 }

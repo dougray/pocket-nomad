@@ -1,0 +1,16 @@
+[
+ {
+  "file": "same-48000-clean.pcm",
+  "rate": 48000,
+  "headers": [
+   "ZCZC-WXR-TOR-048453+0030-3201530-KEWX/NWS-"
+  ]
+ },
+ {
+  "file": "same-44100-noisy.pcm",
+  "rate": 44100,
+  "headers": [
+   "ZCZC-WXR-SVR-048021-048055+0045-3201545-KAUS/NWS-"
+  ]
+ }
+]

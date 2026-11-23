@@ -85,7 +85,7 @@ class LibraryTest {
     /** The guides' full-text index is built from the bundled guides and searched with the same FTS5 code as books. */
     @Test fun guideFullTextSearch() {
         val index = GuideIndex.get(context)!!
-        assertEquals("69", index.meta("articles"))
+        assertEquals("71", index.meta("articles"))
         val hits = LibrarySearch.articles(context, "how do I purify water", limit = 5)
         assertTrue(hits.isNotEmpty())
         val top = hits.first()

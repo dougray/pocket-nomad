@@ -1,5 +1,7 @@
 package org.nomadpocket.app.ask
 
+import org.nomadpocket.i18n.tr
+
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -72,8 +74,8 @@ fun ModelsScreen(modifier: Modifier, onDeleted: () -> Unit) {
                 }
                 when {
                     installed != null -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("On this phone", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                        TextButton(onClick = { onDeleted(); ModelStore.delete(item.id) }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                        Text(tr("On this phone"), Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                        TextButton(onClick = { onDeleted(); ModelStore.delete(item.id) }) { Text(tr("Delete"), color = MaterialTheme.colorScheme.error) }
                     }
                     t != null -> TransferRow(t, onResume = { ModelStore.download(item) }, onRetry = { ModelStore.download(item) })
                     else -> Button(onClick = { ModelStore.download(item) }) { Text("Download (${gb(item.size)})") }
@@ -93,7 +95,7 @@ fun ModelsScreen(modifier: Modifier, onDeleted: () -> Unit) {
                         Text(m.displayName, fontWeight = FontWeight.SemiBold)
                         Text(gb(m.size), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    TextButton(onClick = { onDeleted(); ModelStore.delete(m.name) }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                    TextButton(onClick = { onDeleted(); ModelStore.delete(m.name) }) { Text(tr("Delete"), color = MaterialTheme.colorScheme.error) }
                 }
             }
             otherTransfers.forEach { TransferRow(it, onResume = {}, onRetry = null) }
@@ -117,13 +119,13 @@ private fun TransferRow(t: Transfer, onResume: () -> Unit, onRetry: (() -> Unit)
             Transfer.State.PAUSED -> Row(Modifier.fillMaxWidth()) {
                 Text("Paused at $amount", Modifier.weight(1f))
                 TextButton(onClick = onResume) { Text("Resume") }
-                TextButton(onClick = { ModelStore.delete(t.name) }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                TextButton(onClick = { ModelStore.delete(t.name) }) { Text(tr("Delete"), color = MaterialTheme.colorScheme.error) }
             }
             Transfer.State.FAILED -> Column {
                 Text(t.error ?: "The download stopped.", color = MaterialTheme.colorScheme.error)
                 Row {
                     if (onRetry != null) TextButton(onClick = onRetry) { Text("Try again") }
-                    TextButton(onClick = { ModelStore.dismiss(t.name) }) { Text("Dismiss") }
+                    TextButton(onClick = { ModelStore.dismiss(t.name) }) { Text(tr("Dismiss")) }
                 }
             }
         }

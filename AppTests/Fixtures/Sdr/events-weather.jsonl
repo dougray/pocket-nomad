@@ -1,0 +1,4 @@
+{"t":"hello","seq":0,"proto":1,"fw":"0.1.0","model":"simulator","dongle":"Simulated RTL-SDR","modes":["adsb","aprs","nwr","spectrum"],"gps":false,"sim":true}
+{"t":"pass","seq":1,"ts":1793975400000,"sat":"NOAA 19","aos":1793976000000,"los":1793976600000,"elev":62}
+{"t":"image","seq":2,"ts":1793975500000,"id":"1793975500-NOAA_19","sat":"NOAA 19","w":160,"h":220,"kb":34,"url":"/img/1793975500-NOAA_19.png"}
+{"t":"image","seq":3,"ts":1793975900000,"id":"1793975900-NOAA_19","sat":"NOAA 19","w":160,"h":220,"kb":36,"url":"/img/1793975900-NOAA_19.png"}

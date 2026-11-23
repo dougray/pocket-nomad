@@ -10,6 +10,8 @@
 
 package org.nomadpocket.mesh.ui
 
+import org.nomadpocket.i18n.tr
+
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
@@ -113,7 +115,7 @@ fun MeshDevicesScreen(onConnected: () -> Unit) {
 
         if (inUse.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Your radios", fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+                Text(tr("Your radios"), fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
                 for ((fw, link) in inUse) {
                     val radio by link.radioFlow.collectAsStateWithLifecycle()
                     val hint by link.pairingHintFlow.collectAsStateWithLifecycle()
@@ -160,8 +162,8 @@ fun MeshDevicesScreen(onConnected: () -> Unit) {
         AlertDialog(onDismissRequest = { confirm = null },
             title = { Text("Replace $name?") },
             text = { Text("Pocket Nomad connects one ${d.firmware.displayName} radio at a time. Connecting ${d.name} disconnects $name and forgets it; its messages stay on this phone.") },
-            confirmButton = { TextButton(onClick = { waitingFor.value = d.id; radios.connect(d); confirm = null }) { Text("Replace", color = MeshColors.danger) } },
-            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
+            confirmButton = { TextButton(onClick = { waitingFor.value = d.id; radios.connect(d); confirm = null }) { Text(tr("Replace"), color = MeshColors.danger) } },
+            dismissButton = { TextButton(onClick = { confirm = null }) { Text(tr("Cancel")) } },
             containerColor = MeshColors.card)
     }
 }

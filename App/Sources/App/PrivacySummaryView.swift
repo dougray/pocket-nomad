@@ -28,7 +28,7 @@ struct PrivacySummaryView: View {
             ForEach(points, id: \.1) { symbol, title, text in
                 Label {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(title).font(.headline)
+                        Text(LocalizedStringKey(title)).font(.headline)
                         Text(text).font(.subheadline).foregroundStyle(.secondary)
                     }
                 } icon: {

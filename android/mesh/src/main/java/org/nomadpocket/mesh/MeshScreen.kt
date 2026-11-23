@@ -13,6 +13,8 @@
 
 package org.nomadpocket.mesh
 
+import org.nomadpocket.i18n.tr
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -128,7 +130,7 @@ fun MeshScreen(modifier: Modifier = Modifier) {
             }
             MeshRoute.Info -> MeshScaffold("What is a mesh radio?", back, modifier) { MeshInfoScreen() }
             MeshRoute.Devices -> MeshScaffold("Radios", back, modifier, actions = {
-                TextButton(onClick = back) { Text("Done", fontWeight = FontWeight.Bold) }
+                TextButton(onClick = back) { Text(tr("Done"), fontWeight = FontWeight.Bold) }
             }) { MeshDevicesScreen(onConnected = back) }
         }
     }
@@ -220,7 +222,7 @@ private fun MeshHome(open: (MeshRoute) -> Unit) {
         }
         if (inUse.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Radios", fontWeight = FontWeight.SemiBold, fontSize = 17.sp, color = MeshColors.secondary)
+                Text(tr("Radios"), fontWeight = FontWeight.SemiBold, fontSize = 17.sp, color = MeshColors.secondary)
                 for ((fw, link) in inUse) {
                     MeshRadioCard(fw, link, onDisconnect = { link.disconnect() }, onForget = { link.forgetDevice() },
                         onReconnect = { link.reconnectLast() }, onSettings = { open(MeshRoute.RadioSettings(fw)) })
@@ -256,7 +258,7 @@ private fun MeshHome(open: (MeshRoute) -> Unit) {
             .sortedByDescending { it.third.second.dateMillis }
         if (threads.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Direct messages", fontWeight = FontWeight.SemiBold, fontSize = 17.sp, color = MeshColors.secondary)
+                Text(tr("Direct messages"), fontWeight = FontWeight.SemiBold, fontSize = 17.sp, color = MeshColors.secondary)
                 for ((fw, link, thread) in threads) {
                     val (node, last) = thread
                     MeshCard(onClick = { open(MeshRoute.Chat(MeshConversation.Direct(node.num), fw)) }) {
@@ -291,7 +293,7 @@ private fun MeshHome(open: (MeshRoute) -> Unit) {
             Spacer(Modifier.width(12.dp))
             Text(if (sendingSOS) "Getting location..." else "SOS", fontSize = 30.sp, fontWeight = FontWeight.Black)
         }
-        if (!canSend) Text("Connect a radio to send an SOS.", color = MeshColors.secondary, fontSize = 14.sp)
+        if (!canSend) Text(tr("Connect a radio to send an SOS."), color = MeshColors.secondary, fontSize = 14.sp)
 
         MeshBigButton("What is a mesh radio?", { open(MeshRoute.Info) }, icon = Icons.AutoMirrored.Filled.HelpOutline, filled = false)
     }
@@ -300,7 +302,7 @@ private fun MeshHome(open: (MeshRoute) -> Unit) {
         val connectedCount = radios.connected.size
         AlertDialog(
             onDismissRequest = { askSOS = false },
-            title = { Text("Send SOS to everyone on the mesh?") },
+            title = { Text(tr("Send SOS to everyone on the mesh?")) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text((if (connectedCount > 1) "This message goes out on both your radios (Meshtastic and MeshCore), to every radio in range on each primary channel:"
@@ -314,7 +316,7 @@ private fun MeshHome(open: (MeshRoute) -> Unit) {
                 }
             },
             confirmButton = {},
-            dismissButton = { TextButton(onClick = { askSOS = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { askSOS = false }) { Text(tr("Cancel")) } },
             containerColor = MeshColors.card,
         )
     }

@@ -18,7 +18,7 @@ class GuideIndexTest {
     @Test fun guidesLoadAndFilesExist() {
         assertFalse(library.categories.isEmpty())
         assertFalse(library.urgent.isEmpty())
-        assertEquals(69, library.allGuides.size)
+        assertEquals(71, library.allGuides.size)
         assertEquals(8, library.checklists.size)
         for (guide in library.allGuides) assertTrue(guide.file, File(root, guide.file).exists())
         assertTrue(library.checklists.all { it.items.isNotEmpty() })

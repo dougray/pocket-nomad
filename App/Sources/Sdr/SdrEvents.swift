@@ -17,6 +17,8 @@ struct SdrHello: Equatable, Sendable {
     var modes: [String]
     /// True when the box is a simulator: its data is invented and must never be mixed into real logs.
     var simulated: Bool
+    /// How many dongles the box has (1 when it does not say).
+    var dongles: Int = 1
 }
 
 struct SdrAircraft: Equatable, Identifiable, Sendable {
@@ -65,7 +67,48 @@ struct SdrSonde: Equatable, Identifiable, Sendable {
     var heardAt: Date
 }
 
+/// A weather-satellite picture the box has ready: fetch it over HTTP (Wi-Fi) from the box.
+struct SdrImage: Equatable, Identifiable, Sendable {
+    var id: String
+    var sat: String
+    var width: Int
+    var height: Int
+    var kb: Int
+    var url: String
+    var heardAt: Date
+}
+
+/// A satellite pass the box plans to record.
+struct SdrPass: Equatable, Identifiable, Sendable {
+    var id: String { "\(sat)|\(aos.timeIntervalSince1970)" }
+    var sat: String
+    var aos: Date
+    var los: Date
+    var elevation: Int
+}
+
 /// A station heard on HF (FT8 or WSPR). The position is the middle of its grid square.
+/// One JS8 message heard on HF (receive only). Kind: "msg" (directed), "hb" (heartbeat) or "cq".
+struct SdrJs8: Equatable, Identifiable, Sendable {
+    var id: String { "\(Int(heardAt.timeIntervalSince1970))|\(from)|\(to)|\(text)" }
+    var from: String
+    var to: String
+    var text: String
+    var snr: Int
+    var mhz: Double
+    var kind: String
+    var heardAt: Date
+}
+
+/// One sweep across a frequency range: dB values from `lowHz` in steps of `stepHz`.
+struct SdrSpectrumFrame: Equatable, Sendable {
+    var lowHz: Int
+    var stepHz: Int
+    var db: [Int]
+    var highHz: Int { lowHz + stepHz * max(0, db.count - 1) }
+    func hz(at index: Int) -> Int { lowHz + stepHz * index }
+}
+
 struct SdrSpot: Equatable, Identifiable, Sendable {
     var id: String { "\(mode)|\(call)" }
     var mode: String
@@ -80,18 +123,21 @@ struct SdrSpot: Equatable, Identifiable, Sendable {
 
 enum SdrEvent: Equatable, Sendable {
     case hello(SdrHello)
-    case status(mode: String, decoded: Int, dongle: Bool)
+    case status(mode: String, decoded: Int, dongle: Bool, active: [Int: String])
     case aircraft(SdrAircraft)
     /// A raw AX.25 frame (no KISS framing): hand it to the Ham APRS decoder.
     case aprs(frame: [UInt8], date: Date)
     case alert(SdrAlert)
     case weatherChannels([SdrChannel])
     case spectrum(lowHz: Int, stepHz: Int, db: [Int])
+    case js8(SdrJs8)
     /// The box refused us: "auth" (wrong or missing token) or "blocked" (too many wrong tries).
     case error(code: String)
     case ship(SdrShip)
     case sonde(SdrSonde)
     case spot(SdrSpot)
+    case image(SdrImage)
+    case satPass(SdrPass)
 }
 
 /// Collects Bluetooth chunks into complete protocol lines.
@@ -131,9 +177,12 @@ enum SdrParser {
         case "hello":
             guard let proto = int("proto"), proto == 1 else { return nil }
             return .hello(SdrHello(proto: proto, firmware: j["fw"] as? String ?? "", model: j["model"] as? String ?? "", dongle: j["dongle"] as? String ?? "",
-                                   modes: j["modes"] as? [String] ?? [], simulated: j["sim"] as? Bool == true))
+                                   modes: j["modes"] as? [String] ?? [], simulated: j["sim"] as? Bool == true, dongles: max(1, min(8, int("dongles") ?? 1))))
         case "status":
-            return .status(mode: j["mode"] as? String ?? "", decoded: int("decoded") ?? 0, dongle: j["dongle"] as? Bool ?? true)
+            var active: [Int: String] = [:]
+            if let a = j["active"] as? [String: String] { for (k, v) in a { if let i = Int(k), (0..<8).contains(i) { active[i] = v } } }
+            else if let m = j["mode"] as? String, !m.isEmpty, m != "idle" { active[0] = m }
+            return .status(mode: j["mode"] as? String ?? "", decoded: int("decoded") ?? 0, dongle: j["dongle"] as? Bool ?? true, active: active)
         case "aircraft":
             guard let icao = j["icao"] as? String, let lat = dbl("lat"), let lon = dbl("lon"), (-90...90).contains(lat), (-180...180).contains(lon) else { return nil }
             return .aircraft(SdrAircraft(icao: icao.uppercased(), callsign: (j["call"] as? String ?? "").trimmingCharacters(in: .whitespaces), latitude: lat, longitude: lon,
@@ -161,11 +210,22 @@ enum SdrParser {
         case "spot":
             guard let call = j["call"] as? String, let grid = j["grid"] as? String, let c = Coordinates.fromMaidenhead(grid) else { return nil }
             return .spot(SdrSpot(mode: j["mode"] as? String ?? "", call: call, grid: grid, snr: int("snr") ?? 0, mhz: dbl("mhz") ?? 0, latitude: c.latitude, longitude: c.longitude, heardAt: date))
+        case "image":
+            guard let id = j["id"] as? String, let url = j["url"] as? String, url.hasPrefix("/img/") else { return nil }
+            return .image(SdrImage(id: id, sat: j["sat"] as? String ?? "", width: int("w") ?? 0, height: int("h") ?? 0, kb: int("kb") ?? 0, url: url, heardAt: date))
+        case "pass":
+            guard let sat = j["sat"] as? String, let a = int("aos"), let l = int("los") else { return nil }
+            return .satPass(SdrPass(sat: sat, aos: Date(timeIntervalSince1970: Double(a) / 1000), los: Date(timeIntervalSince1970: Double(l) / 1000), elevation: int("elev") ?? 0))
         case "error":
             return .error(code: j["code"] as? String ?? "unknown")
         case "spectrum":
-            guard let lo = int("lo"), let step = int("step"), let db = j["db"] as? [NSNumber] else { return nil }
-            return .spectrum(lowHz: lo, stepHz: step, db: db.map(\.intValue))
+            guard let lo = int("lo"), let step = int("step"), lo > 0, step > 0, let db = j["db"] as? [NSNumber], (2...1000).contains(db.count) else { return nil }
+            return .spectrum(lowHz: lo, stepHz: step, db: db.map { max(-200, min(50, $0.intValue)) })
+        case "js8":
+            guard let from = j["from"] as? String, !from.isEmpty, from.count <= 16 else { return nil }
+            let kind = ["msg", "hb", "cq"].contains(j["kind"] as? String ?? "") ? (j["kind"] as? String ?? "msg") : "msg"
+            return .js8(SdrJs8(from: from, to: String((j["to"] as? String ?? "").prefix(16)), text: String((j["text"] as? String ?? "").prefix(160)), snr: int("snr") ?? 0,
+                               mhz: dbl("mhz") ?? 0, kind: kind, heardAt: date))
         default:
             return nil
         }
@@ -178,12 +238,21 @@ enum SdrParser {
 final class SdrState {
     static let shared = SdrState()
     private(set) var hello: SdrHello?
+    /// What each dongle is listening to (dongle number to mode); the box reports it in every status.
+    private(set) var active: [Int: String] = [:]
+    /// The latest spectrum sweep and the highest value seen in each bin since the range last changed (peak hold).
+    private(set) var spectrum: SdrSpectrumFrame?
+    private(set) var peak: [Int] = []
+    /// JS8 messages heard, newest first.
+    private(set) var js8: [SdrJs8] = []
     private(set) var aircraft: [String: SdrAircraft] = [:]
     private(set) var alerts: [SdrAlert] = []
     private(set) var channels: [SdrChannel] = []
     private(set) var ships: [Int: SdrShip] = [:]
     private(set) var sondes: [String: SdrSonde] = [:]
     private(set) var spots: [String: SdrSpot] = [:]
+    private(set) var images: [SdrImage] = []
+    private(set) var passes: [SdrPass] = []
     private(set) var decoded = 0
     /// Set once any hello says sim:true; the whole run then counts as invented.
     private(set) var simulated = false
@@ -193,14 +262,21 @@ final class SdrState {
     func apply(_ e: SdrEvent) {
         switch e {
         case .hello(let h): hello = h; if h.simulated { simulated = true }
-        case .status(_, let d, _): decoded = d
+        case .status(_, let d, _, let a): decoded = d; active = a
         case .aircraft(let a): aircraft[a.icao] = a
         case .alert(let a): alerts.insert(a, at: 0); alerts = Array(alerts.prefix(50))
         case .weatherChannels(let c): channels = c
         case .ship(let s): ships[s.mmsi] = s
         case .sonde(let s): sondes[s.id] = s
         case .spot(let s): spots[s.id] = s
-        case .aprs, .spectrum, .error: break
+        case .image(let i): if !images.contains(where: { $0.id == i.id }) { images.insert(i, at: 0); images = Array(images.prefix(40)) }
+        case .satPass(let p): passes.removeAll { $0.id == p.id }; passes.append(p); passes.sort { $0.aos < $1.aos }; passes = Array(passes.suffix(6))
+        case .spectrum(let lo, let step, let db):
+            let f = SdrSpectrumFrame(lowHz: lo, stepHz: step, db: db)
+            if let old = spectrum, old.lowHz == lo, old.stepHz == step, peak.count == db.count { peak = zip(peak, db).map { max($0, $1) } } else { peak = db }
+            spectrum = f
+        case .js8(let m): if !js8.contains(where: { $0.id == m.id }) { js8.insert(m, at: 0); js8 = Array(js8.prefix(200)) }
+        case .aprs, .error: break
         }
     }
 
@@ -221,5 +297,7 @@ final class SdrState {
     func visibleSondes(now: Date) -> [SdrSonde] { sondes.values.filter { now.timeIntervalSince($0.heardAt) <= Self.sondeLifetime }.sorted { $0.id < $1.id } }
     func visibleSpots(now: Date) -> [SdrSpot] { spots.values.filter { now.timeIntervalSince($0.heardAt) <= Self.spotLifetime }.sorted { $0.heardAt > $1.heardAt } }
 
-    func reset() { hello = nil; aircraft = [:]; ships = [:]; sondes = [:]; spots = [:]; alerts = []; channels = []; decoded = 0; simulated = false }
+    func setActive(_ dongle: Int, _ mode: String?) { active[dongle] = mode }
+    func resetPeak() { peak = spectrum?.db ?? [] }
+    func reset() { hello = nil; active = [:]; spectrum = nil; peak = []; js8 = []; aircraft = [:]; ships = [:]; sondes = [:]; spots = [:]; images = []; passes = []; alerts = []; channels = []; decoded = 0; simulated = false }
 }

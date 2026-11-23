@@ -87,7 +87,7 @@ struct HamStationRow: View {
                     Text(station.id).font(.headline)
                     if station.emergency { Text("EMERGENCY").font(.caption.bold()).foregroundStyle(Theme.danger) }
                 }
-                Text(subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                Text(LocalizedStringKey(subtitle)).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {

@@ -31,6 +31,13 @@ android {
     }
 }
 
+// The FT8 test recordings are shared with the iOS tests: one copy, in AppTests/Fixtures/Ft8.
+androidComponents {
+    onVariants { variant ->
+        (variant as? com.android.build.api.variant.HasUnitTest)?.unitTest?.sources?.resources?.addStaticSourceDirectory(rootProject.layout.projectDirectory.dir("../AppTests/Fixtures/Ft8").asFile.path)
+    }
+}
+
 dependencies {
     coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(project(":mesh"))

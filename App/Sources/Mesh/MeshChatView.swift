@@ -66,7 +66,7 @@ struct MeshChatView: View {
             if labelNetwork {
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: 2) {
-                        Text(title).font(.headline).lineLimit(1)
+                        Text(LocalizedStringKey(title)).font(.headline).lineLimit(1)
                         MeshNetworkBadge(network: net)
                     }
                     .accessibilityElement(children: .combine)
@@ -168,7 +168,7 @@ struct MeshBubble: View {
             VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 4) {
                 // MeshCore channel messages carry a name even when the sender isn't a contact.
                 if !message.isOutgoing, showSender, let label = message.senderName ?? sender?.displayName {
-                    Text(label).font(.caption.weight(.bold)).foregroundStyle(.secondary)
+                    Text(LocalizedStringKey(label)).font(.caption.weight(.bold)).foregroundStyle(.secondary)
                 }
                 Text(message.text)
                     .font(.title3)

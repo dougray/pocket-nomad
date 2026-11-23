@@ -1,0 +1,24 @@
+[
+ {
+  "type": 1,
+  "mmsi": 366999000,
+  "lat": 30.2672,
+  "lon": -97.7431,
+  "speed": 12.3,
+  "course": 90.0
+ },
+ {
+  "type": 5,
+  "mmsi": 338087471,
+  "shipname": "SIM FERRY",
+  "shiptype": 60
+ },
+ {
+  "type": 18,
+  "mmsi": 367123456,
+  "lat": 29.3013,
+  "lon": -94.7977,
+  "speed": 5.5,
+  "course": 270.0
+ }
+]

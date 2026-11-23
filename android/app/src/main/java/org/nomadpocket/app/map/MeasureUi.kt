@@ -7,6 +7,8 @@
 
 package org.nomadpocket.app.map
 
+import org.nomadpocket.i18n.tr
+
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.background
@@ -126,7 +128,7 @@ fun MeasurePanel(
     Panel {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             if (pts.isEmpty()) {
-                Text("Tap the map to add points. Measure a route or close it to measure an area.", fontSize = 14.sp)
+                Text(tr("Tap the map to add points. Measure a route or close it to measure an area."), fontSize = 14.sp)
             } else {
                 Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(ShapeMath.distanceText(ShapeMath.length(pts, isArea), metric), fontSize = 22.sp, fontWeight = FontWeight.Bold)
@@ -140,14 +142,14 @@ fun MeasurePanel(
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onUndo, enabled = draft.isNotEmpty()) { Text("Undo") }
-                TextButton(onClick = onClear, enabled = draft.isNotEmpty()) { Text("Clear") }
-                FilterChip(selected = closed, onClick = { onClosed(!closed) }, enabled = draft.size >= 3, label = { Text("Area") })
+                TextButton(onClick = onUndo, enabled = draft.isNotEmpty()) { Text(tr("Undo")) }
+                TextButton(onClick = onClear, enabled = draft.isNotEmpty()) { Text(tr("Clear")) }
+                FilterChip(selected = closed, onClick = { onClosed(!closed) }, enabled = draft.size >= 3, label = { Text(tr("Area")) })
                 Row(Modifier.weight(1f)) {}
-                Button(onClick = onSave, enabled = draft.size >= 2) { Text("Save") }
-                TextButton(onClick = onDone) { Text("Done") }
+                Button(onClick = onSave, enabled = draft.size >= 2) { Text(tr("Save")) }
+                TextButton(onClick = onDone) { Text(tr("Done")) }
             }
-            TextButton(onClick = onList) { Text("My drawings…", fontSize = 12.sp) }
+            TextButton(onClick = onList) { Text(tr("My drawings…"), fontSize = 12.sp) }
         }
     }
 }
@@ -156,15 +158,15 @@ fun MeasurePanel(
 fun SaveShapeDialog(isArea: Boolean, onCancel: () -> Unit, onSave: (String) -> Unit) {
     var name by remember { mutableStateOf("") }
     AlertDialog(
-        onDismissRequest = onCancel, title = { Text("Save drawing") },
+        onDismissRequest = onCancel, title = { Text(tr("Save drawing")) },
         text = {
             Column {
-                OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true)
+                OutlinedTextField(name, { name = it }, label = { Text(tr("Name")) }, singleLine = true)
                 Text(if (isArea) "Saved as an area." else "Saved as a line.", fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(name.trim()) }) { Text("Save") } },
-        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { onSave(name.trim()) }) { Text(tr("Save")) } },
+        dismissButton = { TextButton(onClick = onCancel) { Text(tr("Cancel")) } },
     )
 }
 
@@ -189,10 +191,10 @@ fun ShapesDialog(
     var status by remember { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("My drawings") },
+        title = { Text(tr("My drawings")) },
         text = {
             LazyColumn(Modifier.heightIn(max = 420.dp)) {
-                if (shapes.isEmpty()) item { Text("Nothing drawn yet. Tap the ruler on the map, tap some points and save.") }
+                if (shapes.isEmpty()) item { Text(tr("Nothing drawn yet. Tap the ruler on the map, tap some points and save.")) }
                 items(shapes, key = { it.id }) { s ->
                     Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -202,14 +204,14 @@ fun ShapesDialog(
                         Text(if (s.isArea) "${ShapeMath.areaText(ShapeMath.area(s.points), metric)} · ${ShapeMath.distanceText(ShapeMath.length(s.points, true), metric)} around · ${s.points.size} points"
                              else "${ShapeMath.distanceText(ShapeMath.length(s.points, false), metric)} · ${s.points.size} points", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row(horizontalArrangement = Arrangement.spacedBy(0.dp)) {
-                            TextButton(onClick = { renaming = s; newName = s.name }) { Text("Rename", fontSize = 12.sp) }
-                            TextButton(onClick = { onRecolor(s) }) { Text("Colour", fontSize = 12.sp) }
-                            TextButton(onClick = { shareFile(context, s.name, ShapeMath.geoJson(listOf(s)), "geojson", "application/geo+json") }) { Text("GeoJSON", fontSize = 12.sp) }
+                            TextButton(onClick = { renaming = s; newName = s.name }) { Text(tr("Rename"), fontSize = 12.sp) }
+                            TextButton(onClick = { onRecolor(s) }) { Text(tr("Colour"), fontSize = 12.sp) }
+                            TextButton(onClick = { shareFile(context, s.name, ShapeMath.geoJson(listOf(s)), "geojson", "application/geo+json") }) { Text(tr("GeoJSON"), fontSize = 12.sp) }
                             TextButton(onClick = { shareFile(context, s.name, ShapeMath.gpx(listOf(s)), "gpx", "application/gpx+xml") }) { Text("GPX", fontSize = 12.sp) }
                         }
                         Row {
-                            TextButton(onClick = { sending = s }) { Text("Send to mesh", fontSize = 12.sp) }
-                            TextButton(onClick = { onDelete(s) }) { Text("Delete", fontSize = 12.sp, color = Color(0xFFE5484D)) }
+                            TextButton(onClick = { sending = s }) { Text(tr("Send to mesh"), fontSize = 12.sp) }
+                            TextButton(onClick = { onDelete(s) }) { Text(tr("Delete"), fontSize = 12.sp, color = Color(0xFFE5484D)) }
                         }
                     }
                     HorizontalDivider()
@@ -217,26 +219,26 @@ fun ShapesDialog(
                 status?.let { item { Text(it, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp)) } }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
-        dismissButton = if (shapes.isNotEmpty()) ({ TextButton(onClick = { shareFile(context, "Pocket Nomad drawings", ShapeMath.geoJson(shapes), "geojson", "application/geo+json") }) { Text("Share all") } }) else null,
+        confirmButton = { TextButton(onClick = onDismiss) { Text(tr("Done")) } },
+        dismissButton = if (shapes.isNotEmpty()) ({ TextButton(onClick = { shareFile(context, "Pocket Nomad drawings", ShapeMath.geoJson(shapes), "geojson", "application/geo+json") }) { Text(tr("Share all")) } }) else null,
     )
     renaming?.let { r ->
-        AlertDialog(onDismissRequest = { renaming = null }, title = { Text("Rename") },
+        AlertDialog(onDismissRequest = { renaming = null }, title = { Text(tr("Rename")) },
             text = { OutlinedTextField(newName, { newName = it }, singleLine = true) },
-            confirmButton = { TextButton(onClick = { onRename(r, newName.trim().ifEmpty { r.name }); renaming = null }) { Text("Save") } },
-            dismissButton = { TextButton(onClick = { renaming = null }) { Text("Cancel") } })
+            confirmButton = { TextButton(onClick = { onRename(r, newName.trim().ifEmpty { r.name }); renaming = null }) { Text(tr("Save")) } },
+            dismissButton = { TextButton(onClick = { renaming = null }) { Text(tr("Cancel")) } })
     }
     sending?.let { s ->
-        AlertDialog(onDismissRequest = { sending = null }, title = { Text("Send to the public mesh channel?") },
-            text = { Text("Everyone on the default channel can read a name, size and centre point.") },
+        AlertDialog(onDismissRequest = { sending = null }, title = { Text(tr("Send to the public mesh channel?")) },
+            text = { Text(tr("Everyone on the default channel can read a name, size and centre point.")) },
             confirmButton = {
                 TextButton(onClick = {
                     val svc = Mesh.service
                     val text = ShapeMath.meshSummary(s, metric, svc.maxTextBytes)
                     status = if (svc.send(text, MeshConversation.Channel(0))) "Sent: $text" else "Couldn't send: connect a radio first."
                     sending = null
-                }) { Text("Send") }
+                }) { Text(tr("Send")) }
             },
-            dismissButton = { TextButton(onClick = { sending = null }) { Text("Cancel") } })
+            dismissButton = { TextButton(onClick = { sending = null }) { Text(tr("Cancel")) } })
     }
 }

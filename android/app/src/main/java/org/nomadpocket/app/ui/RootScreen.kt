@@ -1,5 +1,7 @@
 package org.nomadpocket.app.ui
 
+import org.nomadpocket.i18n.tr
+
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -83,6 +85,8 @@ import org.nomadpocket.app.tools.MorseScreen
 import org.nomadpocket.app.tools.SignalLightScreen
 import org.nomadpocket.app.tools.ToolKind
 import org.nomadpocket.app.tools.WaterScreen
+import org.nomadpocket.app.tools.AntennaCalcScreen
+import org.nomadpocket.app.tools.SolarNodeScreen
 import org.nomadpocket.mesh.CoverageScreen
 import org.nomadpocket.mesh.MeshScreen
 
@@ -128,7 +132,7 @@ fun RootScreen(forceDark: Boolean, onForceDark: (Boolean) -> Unit, launchScreen:
                                     }
                                 },
                                 icon = { Icon(tab.icon, contentDescription = null) },
-                                label = { Text(org.nomadpocket.app.i18n.tr(tab.title)) },
+                                label = { Text(org.nomadpocket.i18n.tr(tab.title)) },
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = MaterialTheme.colorScheme.primary,
                                     selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -185,7 +189,7 @@ private fun NavGraph(nav: NavHostController, forceDark: Boolean, onForceDark: (B
                 val guide = library.guideById(entry.arguments?.getString("id") ?: "")
                 // The page has its own large heading, so the bar stays empty.
                 SubScreen("", back) { m ->
-                    if (guide != null) GuideReader(m, guide) else Text("Guide not found", Modifier.padding(24.dp))
+                    if (guide != null) GuideReader(m, guide) else Text(tr("Guide not found"), Modifier.padding(24.dp))
                 }
             }
             composable("tool/{id}") { entry ->
@@ -199,6 +203,8 @@ private fun NavGraph(nav: NavHostController, forceDark: Boolean, onForceDark: (B
                     ToolKind.MEDICAL_ID -> MedicalIDScreen(back)
                     ToolKind.CHECKLISTS -> SubScreen("Checklists", back) { m -> ChecklistsScreen(m) { nav.navigate("checklist/$it") } }
                     ToolKind.SUN -> SubScreen("Daylight", back) { DaylightScreen(it) }
+                    ToolKind.ANTENNA -> SubScreen("Antenna Lengths", back) { AntennaCalcScreen(it) }
+                    ToolKind.SOLAR_NODE -> SubScreen("Solar Node Power", back) { SolarNodeScreen(it) }
                     null -> SubScreen("Tool", back) { }
                 }
             }
@@ -237,7 +243,7 @@ private fun NavGraph(nav: NavHostController, forceDark: Boolean, onForceDark: (B
             composable("ask/guide/{id}") { entry ->
                 val guide = library.guideById(entry.arguments?.getString("id") ?: "")
                 SubScreen("", back) { m ->
-                    if (guide != null) GuideReader(m, guide) else Text("Guide not found", Modifier.padding(24.dp))
+                    if (guide != null) GuideReader(m, guide) else Text(tr("Guide not found"), Modifier.padding(24.dp))
                 }
             }
             composable("ask/models") { entry ->
@@ -332,7 +338,7 @@ fun RadioScreen(launchScreen: String? = null) {
                     selected = section == id,
                     onClick = { section = id; prefs.edit().putString("section", id).putBoolean("ham", id == "ham").apply() },
                     shape = SegmentedButtonDefaults.itemShape(i, 3),
-                ) { Text(org.nomadpocket.app.i18n.tr(label)) }
+                ) { Text(org.nomadpocket.i18n.tr(label)) }
             }
         }
         // The switch already sits below the status bar; the screens' top bars must not add it again.

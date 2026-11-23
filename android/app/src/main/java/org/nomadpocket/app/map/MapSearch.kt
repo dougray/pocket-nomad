@@ -6,7 +6,7 @@
 
 package org.nomadpocket.app.map
 
-import org.nomadpocket.app.i18n.tr
+import org.nomadpocket.i18n.tr
 
 import android.content.Context
 import android.hardware.Sensor
@@ -98,7 +98,7 @@ fun MapSearchSheet(
                 }
             }
             OutlinedTextField(text, { text = it }, Modifier.fillMaxWidth(), singleLine = true,
-                placeholder = { Text("Coordinates, grid, or a saved place") },
+                placeholder = { Text(tr("Coordinates, grid, or a saved place")) },
                 leadingIcon = { Icon(Icons.Filled.Search, null) },
                 trailingIcon = { IconButton(onClick = { clipboard.getText()?.let { text = it.text } }) { Icon(Icons.Filled.ContentPaste, "Paste") } })
             Text("Try 39.7392, -104.9903 or 39°44'21\"N 104°59'25\"W or 13S 500831 4398811 or DM79mr.", style = MaterialTheme.typography.bodySmall,
@@ -114,10 +114,10 @@ fun MapSearchSheet(
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    OutlinedButton(onClick = { fly(p.latitude, p.longitude) }, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Show") }
+                    OutlinedButton(onClick = { fly(p.latitude, p.longitude) }, contentPadding = PaddingValues(horizontal = 10.dp)) { Text(tr("Show")) }
                     OutlinedButton(onClick = { go("Position", p.latitude, p.longitude) }, contentPadding = PaddingValues(horizontal = 10.dp)) { Text(tr("Go to")) }
                     OutlinedButton(onClick = { routeTo = p }, contentPadding = PaddingValues(horizontal = 10.dp)) { Text(tr("Route")) }
-                    OutlinedButton(onClick = { onDropPin(p.latitude, p.longitude); onDismiss() }, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Pin") }
+                    OutlinedButton(onClick = { onDropPin(p.latitude, p.longitude); onDismiss() }, contentPadding = PaddingValues(horizontal = 10.dp)) { Text(tr("Pin")) }
                     OutlinedButton(onClick = { nameText = ""; naming = p }, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("★") }
                 }
             }
@@ -142,9 +142,9 @@ fun MapSearchSheet(
                                 }
                                 DropdownMenuItem(text = { Text(if (spot == null) "Set to where I am" else "Move to where I am") }, enabled = here != null,
                                     onClick = { menu = false; here?.let { store.add(kind.label, kind, it.first, it.second); favorites = store.favorites } })
-                                DropdownMenuItem(text = { Text("Set to the map centre") }, enabled = centre != null,
+                                DropdownMenuItem(text = { Text(tr("Set to the map centre")) }, enabled = centre != null,
                                     onClick = { menu = false; centre?.let { store.add(kind.label, kind, it.first, it.second); favorites = store.favorites } })
-                                if (spot != null) DropdownMenuItem(text = { Text("Clear") }, onClick = { menu = false; store.remove(spot.id); favorites = store.favorites })
+                                if (spot != null) DropdownMenuItem(text = { Text(tr("Clear")) }, onClick = { menu = false; store.remove(spot.id); favorites = store.favorites })
                             }
                         }
                     }
@@ -168,7 +168,7 @@ fun MapSearchSheet(
             }
             if (q.isNotEmpty()) {
                 val matches = pins.filter { it.name.contains(q, true) || it.kind.label.contains(q, true) }
-                if (matches.isNotEmpty()) Text("Places", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 10.dp))
+                if (matches.isNotEmpty()) Text(tr("Places"), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 10.dp))
                 matches.forEach { pin ->
                     Row(Modifier.fillMaxWidth().clickable { fly(pin.latitude, pin.longitude) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(pin.name, Modifier.weight(1f))
@@ -177,19 +177,19 @@ fun MapSearchSheet(
                     }
                 }
                 val drawn = shapes.filter { it.name.contains(q, true) }
-                if (drawn.isNotEmpty()) Text("Drawings", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 10.dp))
+                if (drawn.isNotEmpty()) Text(tr("Drawings"), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 10.dp))
                 drawn.forEach { s ->
                     Text("Go along ${s.name}", Modifier.fillMaxWidth().clickable { NavigationState.start(s); onDismiss() }.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.primary)
                 }
                 if (parsed == null && matches.isEmpty() && drawn.isEmpty() && store.search(q).isEmpty())
-                    Text("That doesn't look like a position, and no saved place matches.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(tr("That doesn't look like a position, and no saved place matches."), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
     routeTo?.let { p -> DirectionsDialog("Position", p.latitude, p.longitude, here?.let { ShapePoint(it.first, it.second) }) { routeTo = null } }
     naming?.let { p ->
-        AlertDialog(onDismissRequest = { naming = null }, title = { Text("Save favorite") },
-            text = { OutlinedTextField(nameText, { nameText = it }, singleLine = true, placeholder = { Text("Name") }) },
+        AlertDialog(onDismissRequest = { naming = null }, title = { Text(tr("Save favorite")) },
+            text = { OutlinedTextField(nameText, { nameText = it }, singleLine = true, placeholder = { Text(tr("Name")) }) },
             confirmButton = { TextButton(onClick = { store.add(nameText, latitude = p.latitude, longitude = p.longitude); favorites = store.favorites; naming = null }) { Text(tr("Save")) } },
             dismissButton = { TextButton(onClick = { naming = null }) { Text(tr("Cancel")) } })
     }
@@ -238,8 +238,8 @@ fun GoToPanel(target: GoToTarget, arrived: Boolean, here: ShapePoint?, heading: 
                 TextButton(onClick = { NavigationState.stop() }) { Text(tr("Stop"), color = MaterialTheme.colorScheme.error) }
             }
             when {
-                arrived -> Text("You've arrived", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
-                here == null -> Text("Waiting for GPS…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                arrived -> Text(tr("You've arrived"), style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+                here == null -> Text(tr("Waiting for GPS…"), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 else -> {
                     val (distance, bearing) = GoToMath.leg(here, target.current)
                     val total = GoToMath.remaining(target, here)
@@ -250,7 +250,7 @@ fun GoToPanel(target: GoToTarget, arrived: Boolean, here: ShapePoint?, heading: 
                             Text(ShapeMath.distanceText(distance, metric), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                             Text("Heading ${ShapeMath.bearingText(bearing)} · ${GoToMath.etaText(GoToMath.eta(total))} on foot", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             if (target.isRoute) Text("${ShapeMath.distanceText(total, metric)} left on the route", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (heading == null) Text("No compass: the arrow points from north", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (heading == null) Text(tr("No compass: the arrow points from north"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -267,7 +267,7 @@ fun TerrainDialog(store: TerrainStore, state: TerrainStore.State, centre: Pair<D
     AlertDialog(onDismissRequest = onDismiss, title = { Text(tr("Elevation")) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Elevation data lets the map shade hills (Layers > Look) and lets Pocket Nomad check a radio path for hills in the way. Download an area once and it works with no signal.", style = MaterialTheme.typography.bodySmall)
+                Text(tr("Elevation data lets the map shade hills (Layers > Look) and lets Pocket Nomad check a radio path for hills in the way. Download an area once and it works with no signal."), style = MaterialTheme.typography.bodySmall)
                 if (centre != null) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf(25.0, 50.0, 100.0).forEach { r -> FilterChip(selected = radius == r, onClick = { radius = r }, label = { Text("${r.toInt()} km") }) }
@@ -280,8 +280,8 @@ fun TerrainDialog(store: TerrainStore, state: TerrainStore.State, centre: Pair<D
                 }
                 if (state.message.isNotEmpty()) Text(state.message, style = MaterialTheme.typography.bodySmall)
                 Text(if (state.tileCount > 0) "${state.tileCount} tiles on this phone." else "Nothing saved. Hills load live when you have signal.")
-                if (state.tileCount > 0) TextButton(onClick = { store.deleteAll() }) { Text("Delete saved elevation", color = MaterialTheme.colorScheme.error) }
-                Text("Elevation: Mapzen terrain tiles from AWS Open Data (SRTM, USGS, and others).", style = MaterialTheme.typography.labelSmall)
+                if (state.tileCount > 0) TextButton(onClick = { store.deleteAll() }) { Text(tr("Delete saved elevation"), color = MaterialTheme.colorScheme.error) }
+                Text(tr("Elevation: Mapzen terrain tiles from AWS Open Data (SRTM, USGS, and others)."), style = MaterialTheme.typography.labelSmall)
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text(tr("Done")) } })
@@ -324,7 +324,7 @@ fun DirectionsDialog(name: String, latitude: Double, longitude: Double, here: Sh
                     }
                 }
                 if (state.cellCount == 0) {
-                    Text("Directions work with no signal once the roads around you are saved. Download them while you have signal.", style = MaterialTheme.typography.bodySmall)
+                    Text(tr("Directions work with no signal once the roads around you are saved. Download them while you have signal."), style = MaterialTheme.typography.bodySmall)
                     if (here != null) {
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf(10.0, 25.0).forEach { r -> FilterChip(selected = radius == r, onClick = { radius = r }, label = { Text("${r.toInt()} km") }) }
@@ -336,7 +336,7 @@ fun DirectionsDialog(name: String, latitude: Double, longitude: Double, here: Sh
                         }
                         if (state.downloading) LinearProgressIndicator(progress = { state.progress }, Modifier.fillMaxWidth())
                         if (state.message.isNotEmpty()) Text(state.message, style = MaterialTheme.typography.bodySmall)
-                    } else Text("Waiting for GPS…", style = MaterialTheme.typography.bodySmall)
+                    } else Text(tr("Waiting for GPS…"), style = MaterialTheme.typography.bodySmall)
                 } else {
                     Button(enabled = !planning && here != null, onClick = {
                         planning = true; note = ""
@@ -346,7 +346,7 @@ fun DirectionsDialog(name: String, latitude: Double, longitude: Double, here: Sh
                             planning = false
                         }
                     }) { Text(if (planning) "Planning…" else "Plan route from where I am") }
-                    if (here == null) Text("Waiting for GPS…", style = MaterialTheme.typography.bodySmall)
+                    if (here == null) Text(tr("Waiting for GPS…"), style = MaterialTheme.typography.bodySmall)
                     if (note.isNotEmpty()) Text(note, style = MaterialTheme.typography.bodySmall)
                 }
                 route?.let { r ->
@@ -362,9 +362,9 @@ fun DirectionsDialog(name: String, latitude: Double, longitude: Double, here: Sh
                 }
                 if (state.cellCount > 0) {
                     Text("${state.cellCount} squares (each about 5 km) saved on this phone.", style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = { store.deleteAll(); route = null }) { Text("Delete saved roads", color = MaterialTheme.colorScheme.error) }
+                    TextButton(onClick = { store.deleteAll(); route = null }) { Text(tr("Delete saved roads"), color = MaterialTheme.colorScheme.error) }
                 }
-                Text("Roads and paths: OpenStreetMap contributors (ODbL), downloaded through the Overpass service. Routes are estimates: check conditions, closures and private land yourself.",
+                Text(tr("Roads and paths: OpenStreetMap contributors (ODbL), downloaded through the Overpass service. Routes are estimates: check conditions, closures and private land yourself."),
                     style = MaterialTheme.typography.labelSmall)
             }
         },
@@ -399,7 +399,7 @@ fun RadioPathDialog(name: String, latitude: Double, longitude: Double, here: Sha
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Radio path to $name") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Path from", style = MaterialTheme.typography.labelMedium)
+                Text(tr("Path from"), style = MaterialTheme.typography.labelMedium)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf("me" to "Where I am", "centre" to "Middle of the map").plus(favs.map { it.id to it.name }).forEach { (id, label) ->
                         FilterChip(selected = fromChoice == id, onClick = { fromChoice = id; prefs.edit().putString("pathFrom", id).apply() }, label = { Text(label) })
@@ -420,10 +420,10 @@ fun RadioPathDialog(name: String, latitude: Double, longitude: Double, here: Sha
                 }
                 when {
                     tstate.tileCount == 0 -> {
-                        Text("A path check needs elevation data for the area. Download it once and it works with no signal.", style = MaterialTheme.typography.bodySmall)
-                        Button(onClick = { showTerrain = true }) { Text("Download elevation…") }
+                        Text(tr("A path check needs elevation data for the area. Download it once and it works with no signal."), style = MaterialTheme.typography.bodySmall)
+                        Button(onClick = { showTerrain = true }) { Text(tr("Download elevation…")) }
                     }
-                    start == null -> Text("Waiting for GPS…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    start == null -> Text(tr("Waiting for GPS…"), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     result != null -> {
                         val r = result
                         Text("${r.verdict.label} · ${ShapeMath.distanceText(r.distance, metric)}", style = MaterialTheme.typography.titleMedium,
@@ -444,10 +444,10 @@ fun RadioPathDialog(name: String, latitude: Double, longitude: Double, here: Sha
                                 onDismiss()
                             }) { Text(tr("Show on map")) }
                         }
-                        if (r.missing > 0) Text("Elevation is missing for part of this path (outside the saved area), so the result is a guess.", style = MaterialTheme.typography.bodySmall, color = androidx.compose.ui.graphics.Color(0xFFFF9500))
+                        if (r.missing > 0) Text(tr("Elevation is missing for part of this path (outside the saved area), so the result is a guess."), style = MaterialTheme.typography.bodySmall, color = androidx.compose.ui.graphics.Color(0xFFFF9500))
                     }
                 }
-                Text("Terrain only. Trees, buildings and weather are not in the data, so Clear means possible, not guaranteed. Elevation: Mapzen terrain tiles (AWS Open Data).", style = MaterialTheme.typography.labelSmall)
+                Text(tr("Terrain only. Trees, buildings and weather are not in the data, so Clear means possible, not guaranteed. Elevation: Mapzen terrain tiles (AWS Open Data)."), style = MaterialTheme.typography.labelSmall)
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text(tr("Done")) } })

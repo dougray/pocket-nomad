@@ -97,7 +97,7 @@ struct DaylightView: View {
 
     private func big(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading) {
-            Text(label).foregroundStyle(.secondary)
+            Text(LocalizedStringKey(label)).foregroundStyle(.secondary)
             Text(value).font(.system(size: 40, weight: .bold, design: .rounded))
         }
         .padding(.vertical, 6)

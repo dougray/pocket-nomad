@@ -11,6 +11,8 @@
 
 package org.nomadpocket.mesh
 
+import org.nomadpocket.i18n.tr
+
 import android.content.Intent
 import android.provider.DocumentsContract
 import android.text.format.DateUtils
@@ -89,7 +91,7 @@ fun CoverageScreen(onDone: () -> Unit) {
     if (!Mesh.isInitialized) Mesh.init(context)
     MeshTheme {
         MeshScaffold("Coverage map", onBack = null, actions = {
-            TextButton(onClick = onDone) { Text("Done", fontWeight = FontWeight.Bold) }
+            TextButton(onClick = onDone) { Text(tr("Done"), fontWeight = FontWeight.Bold) }
         }) { CoverageContent() }
     }
 }
@@ -155,19 +157,19 @@ private fun CoverageContent() {
         permissionNote?.let { Text(it, color = MeshColors.warn) }
 
         // Drive mode
-        FormSection("Drive mode",
+        FormSection(tr("Drive mode"),
             footer = "Keeps recording while the screen is off or you're in another app, until you turn it off. " +
                 "The ping test sends a tiny test message every 300 m (at most every 45 s) and colours that map hexagon (about 300 m) by the best result there: green if the radio you chose answered, " +
                 "yellow if another radio only repeated it, or red if nothing heard it. " +
                 (if (meshCore) "On MeshCore the ping is a trace to the repeater heard most recently (or one you pick), which repeaters answer on their own; a person's radio gets a short direct message instead. " else "") +
                 (if (radios.size > 1) "With two radios, each pings on its own network, a few seconds apart, and the map shows which network each result is from. " else "") +
                 "Uses battery and GPS: keep the phone on a charger.") {
-            SwitchRow("Drive mode", driveState.active) { on ->
+            SwitchRow(tr("Drive mode"), driveState.active) { on ->
                 if (!on) drive.stop()
                 else if (MeshPermissions.granted(context, MeshPermissions.drive)) drive.start()
                 else askForDrive(MeshPermissions.drive)
             }
-            SwitchRow("Ping test", pinging) { drive.pinging = it }
+            SwitchRow(tr("Ping test"), pinging) { drive.pinging = it }
             if (pinging) {
                 for ((fw, link) in radios) {
                     val nodes by link.nodesFlow.collectAsStateWithLifecycle()
@@ -182,7 +184,7 @@ private fun CoverageContent() {
                         choices.firstOrNull { it.first == target }?.second ?: choices.first().second, choices) { drive.setTarget(fw, it) }
                 }
             }
-            SwitchRow("Keep screen on", keepScreenOn) { drive.keepScreenOn = it }
+            SwitchRow(tr("Keep screen on"), keepScreenOn) { drive.keepScreenOn = it }
             if (driveState.active) {
                 Column(Modifier.padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     val note = driveState.pingNote
@@ -206,9 +208,9 @@ private fun CoverageContent() {
         }
 
         // Coverage scanner
-        FormSection("Coverage scanner",
-            footer = "While Pocket Nomad is open (or in drive mode) and connected to a radio, it notes where your phone was each time the radio hears another node, and how strong the signal was. With a Meshtastic and a MeshCore radio connected, it records from both at once and notes which network heard what. It stays on this phone.") {
-            SwitchRow("Record coverage", recording) { on ->
+        FormSection(tr("Coverage scanner"),
+            footer = tr("While Pocket Nomad is open (or in drive mode) and connected to a radio, it notes where your phone was each time the radio hears another node, and how strong the signal was. With a Meshtastic and a MeshCore radio connected, it records from both at once and notes which network heard what. It stays on this phone.")) {
+            SwitchRow(tr("Record coverage"), recording) { on ->
                 if (!on) store.recording = false
                 else if (MeshPermissions.hasLocation(context)) store.recording = true
                 else askForRecording(MeshPermissions.location)
@@ -217,32 +219,32 @@ private fun CoverageContent() {
             val heard by Mesh.repository.nodes.collectAsStateWithLifecycle()
             Text(RadiosHeard.summary(heard) ?: "No radios with a position heard yet.", fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold)
-            ValueRow("Recordings", "${samples.size}")
+            ValueRow(tr("Recordings"), "${samples.size}")
             if (samples.isEmpty() && pings.isEmpty()) {
                 TextButton(onClick = { restore() }) {
                     Icon(Icons.Filled.Restore, null)
                     Spacer(Modifier.width(6.dp))
-                    Text("Restore from a backup")
+                    Text(tr("Restore from a backup"))
                 }
             }
             if (samples.any { it.firmware == Firmware.MESHCORE } && samples.any { it.firmware == Firmware.MESHTASTIC }) {
                 ValueRow("  Meshtastic · MeshCore",
                     "${samples.count { it.firmware == Firmware.MESHTASTIC }} · ${samples.count { it.firmware == Firmware.MESHCORE }}")
             }
-            if (pings.isNotEmpty()) ValueRow("Drive-test pings", "${pings.size}")
-            Text("Keep for", fontSize = 17.sp, modifier = Modifier.padding(top = 8.dp))
+            if (pings.isNotEmpty()) ValueRow(tr("Drive-test pings"), "${pings.size}")
+            Text(tr("Keep for"), fontSize = 17.sp, modifier = Modifier.padding(top = 8.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 for (days in RETENTION_CHOICES) {
                     FilterChip(selected = retention == days, onClick = { store.retentionDays = days }, label = { Text("$days days") })
                 }
             }
             TextButton(onClick = { confirmDelete = true }, enabled = samples.isNotEmpty() || pings.isNotEmpty()) {
-                Text("Delete all coverage data", color = if (samples.isNotEmpty() || pings.isNotEmpty()) MeshColors.danger else MeshColors.secondary)
+                Text(tr("Delete all coverage data"), color = if (samples.isNotEmpty() || pings.isNotEmpty()) MeshColors.danger else MeshColors.secondary)
             }
         }
 
         // Private zones
-        FormSection("Private zones",
+        FormSection(tr("Private zones"),
             footer = if (!hasGPS) "Waiting for GPS. Private zones are added at your current location."
             else "Nothing in or near these places is ever shared, including whole map hexagons that touch them. Add your home first, then anywhere else you'd rather keep private.") {
             for (z in zones) {
@@ -260,24 +262,24 @@ private fun CoverageContent() {
         }
 
         // Hidden from the map: the user's own phones and repeaters
-        FormSection("Hidden from the map",
+        FormSection(tr("Hidden from the map"),
             footer = "Your own phones and repeaters. They are never mapped, never credited with coverage and never shared. " +
                 "To hide one, tap it on the map or long-press it in the node list.") {
             if (hiddenRadios.isEmpty()) {
-                Text("None hidden yet.", fontSize = 15.sp, color = MeshColors.secondary, modifier = Modifier.padding(vertical = 10.dp))
+                Text(tr("None hidden yet."), fontSize = 15.sp, color = MeshColors.secondary, modifier = Modifier.padding(vertical = 10.dp))
             }
             for (h in hiddenRadios) {
                 Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
                     FirmwareBadge(h.firmware, compact = true)
                     Spacer(Modifier.width(8.dp))
                     Text(h.name.ifBlank { MeshNode.hexID(h.num) }, fontSize = 17.sp, modifier = Modifier.weight(1f), maxLines = 1)
-                    TextButton(onClick = { Mesh.radios.unhide(h.num, h.firmware) }) { Text("Show") }
+                    TextButton(onClick = { Mesh.radios.unhide(h.num, h.firmware) }) { Text(tr("Show")) }
                 }
             }
         }
 
         // Backup
-        FormSection("Backup",
+        FormSection(tr("Backup"),
             footer = "Backups stay on this phone, in a folder you choose outside the app, so they survive uninstalling and reinstalling Pocket Nomad. " +
                 "They contain your location history; nothing is uploaded. " +
                 "Pick Documents › Pocket Nomad Backups on this phone (make the folder in the picker). Pocket Nomad rewrites one file there, " +
@@ -304,27 +306,27 @@ private fun CoverageContent() {
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = { exportBackup.launch(CoverageBackup.FILE_NAME) }) {
-                    Icon(Icons.Filled.SaveAlt, null); Spacer(Modifier.width(6.dp)); Text("Export a copy…")
+                    Icon(Icons.Filled.SaveAlt, null); Spacer(Modifier.width(6.dp)); Text(tr("Export a copy…"))
                 }
                 TextButton(onClick = { restore() }) {
-                    Icon(Icons.Filled.Restore, null); Spacer(Modifier.width(6.dp)); Text("Restore")
+                    Icon(Icons.Filled.Restore, null); Spacer(Modifier.width(6.dp)); Text(tr("Restore"))
                 }
                 if (backupStatus.on) {
-                    TextButton(onClick = { backup.turnOff() }) { Text("Turn off", color = MeshColors.danger) }
+                    TextButton(onClick = { backup.turnOff() }) { Text(tr("Turn off"), color = MeshColors.danger) }
                 }
             }
         }
 
         // Sharing
-        FormSection("Sharing (off by default)",
+        FormSection(tr("Sharing (off by default)"),
             footer = if (zones.isEmpty()) "Add a private zone first. Sharing never happens on its own: you export a file and choose where it goes, such as the community coverage map."
             else "Sharing never happens on its own: you export a file and choose where it goes. Preview it on the map's coverage layer.") {
-            SwitchRow("Share coverage", sharing, enabled = zones.isNotEmpty()) { store.sharing = it }
+            SwitchRow(tr("Share coverage"), sharing, enabled = zones.isNotEmpty()) { store.sharing = it }
             if (sharing) {
                 val cells = remember(samples, pings, zones, hiddenRadios) { store.sharedCells }
                 val hidden = samples.count { s -> zones.any { it.contains(s.latitude, s.longitude) } }
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("What a file would contain", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                    Text(tr("What a file would contain"), fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                     Bullet(Icons.Filled.Hexagon, "${cells.size} hexagons of about 350 m, each with only its best signal and a count")
                     Bullet(Icons.Filled.WrongLocation, "$hidden recordings in private zones left out, plus hexagons that touch them")
                     Bullet(Icons.Filled.VisibilityOff, "No node names or IDs, no exact positions, dates only to the month")
@@ -337,9 +339,9 @@ private fun CoverageContent() {
     if (confirmDelete) {
         AlertDialog(onDismissRequest = { confirmDelete = false },
             title = { Text("Delete all ${samples.size} coverage recordings?") },
-            text = { Text("Drive-test pings are deleted too. This can't be undone.") },
-            confirmButton = { TextButton(onClick = { store.deleteAll(); confirmDelete = false }) { Text("Delete all", color = MeshColors.danger) } },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+            text = { Text(tr("Drive-test pings are deleted too. This can't be undone.")) },
+            confirmButton = { TextButton(onClick = { store.deleteAll(); confirmDelete = false }) { Text(tr("Delete all"), color = MeshColors.danger) } },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(tr("Cancel")) } },
             containerColor = MeshColors.card)
     }
     if (addingZone) {
@@ -371,21 +373,21 @@ private fun ZoneEditor(defaultName: String, onCancel: () -> Unit, onAdd: (String
     var radius by remember { mutableDoubleStateOf(500.0) }
     AlertDialog(
         onDismissRequest = onCancel,
-        title = { Text("Private zone") },
+        title = { Text(tr("Private zone")) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true)
-                Text("Radius")
+                OutlinedTextField(name, { name = it }, label = { Text(tr("Name")) }, singleLine = true)
+                Text(tr("Radius"))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     for (r in listOf(300.0, 500.0, 1000.0, 2000.0)) {
                         FilterChip(selected = radius == r, onClick = { radius = r }, label = { Text("${r.toInt()} m") })
                     }
                 }
-                Text("Centred on where you are now.", fontSize = 13.sp, color = MeshColors.secondary)
+                Text(tr("Centred on where you are now."), fontSize = 13.sp, color = MeshColors.secondary)
             }
         },
-        confirmButton = { TextButton(onClick = { onAdd(name, radius) }) { Text("Add") } },
-        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { onAdd(name, radius) }) { Text(tr("Add")) } },
+        dismissButton = { TextButton(onClick = onCancel) { Text(tr("Cancel")) } },
         containerColor = MeshColors.card,
     )
 }

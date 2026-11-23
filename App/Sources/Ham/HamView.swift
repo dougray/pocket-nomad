@@ -39,6 +39,8 @@ struct HamView: View {
     @State private var ham = HamService.shared
     @State private var path: [HamRoute] = []
     @State private var showTNC = false
+    @State private var audio = RadioAudioListener.shared
+    @State private var ft8 = Ft8Heard.shared
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -49,6 +51,19 @@ struct HamView: View {
                         Label(notice, systemImage: "info.circle.fill").foregroundStyle(.primary)
                         Button("Dismiss") { ham.notice = nil }
                     }
+                }
+                Section {
+                    Button { audio.toggle() } label: {
+                        row("Listen to radio audio", "waveform", detail: audio.running ? "on: \(audio.frames) packets" : nil)
+                    }
+                    if audio.running { ProgressView(value: Double(min(1, max(0, audio.level)))).tint(.orange) }
+                    if let e = audio.error { Text(e).font(.footnote).foregroundStyle(.secondary) }
+                    if !ft8.lines.isEmpty {
+                        Text("FT8 (\(ft8.lines.count))").font(.headline)
+                        ForEach(ft8.lines.prefix(12)) { l in Text("\(l.snr) dB  \(l.text)").font(.footnote.monospaced()) }
+                    }
+                } header: { Text("Radio audio") } footer: {
+                    Text("Plug the radio's speaker or headphone output into the phone's headset input with a cable made for it, and turn the radio's volume up until the bar is about half full. Receive only: nothing is sent and no sound is kept.")
                 }
                 Section("HF") {
                     NavigationLink(value: HamRoute.nvis) { row("NVIS planner (short-range HF)", "dot.radiowaves.up.forward") }
@@ -142,21 +157,21 @@ struct HamView: View {
         .padding(.vertical, 4)
     }
 
-    private var tncTitle: String {
+    private var tncTitle: LocalizedStringKey {
         switch ham.tnc {
         case .idle: "No TNC connected"
         case .connecting(let n): "Connecting to \(n)…"
-        case .connected(let n): n
+        case .connected(let n): LocalizedStringKey(n)
         case .failed: "TNC disconnected"
         }
     }
 
-    private var tncDetail: String {
+    private var tncDetail: LocalizedStringKey {
         switch ham.tnc {
         case .idle: "Pair a Bluetooth KISS TNC or radio"
         case .connecting: "Turn on the radio's KISS/TNC mode"
         case .connected: "\(ham.packetsHeard) packets heard"
-        case .failed(let why): why
+        case .failed(let why): LocalizedStringKey(why)
         }
     }
 
@@ -171,7 +186,7 @@ struct HamView: View {
 
     private func row(_ title: String, _ symbol: String, badge: Int = 0, detail: String? = nil) -> some View {
         HStack {
-            Label(title, systemImage: symbol)
+            Label(LocalizedStringKey(title), systemImage: symbol)
             Spacer()
             if let detail { Text(detail).foregroundStyle(.secondary).font(.subheadline) }
             if badge > 0 {

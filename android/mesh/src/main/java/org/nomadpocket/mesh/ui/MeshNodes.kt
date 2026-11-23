@@ -8,6 +8,8 @@
 
 package org.nomadpocket.mesh.ui
 
+import org.nomadpocket.i18n.tr
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -91,23 +93,23 @@ fun MeshNodeListScreen(onMessage: (Firmware, Long) -> Unit) {
                             if (isHidden) radios.unhide(node.num, fw) else radios.hide(node.num, fw, node.displayName)
                         })
                     DropdownMenuItem(
-                        text = { Text("Block", color = MeshColors.danger) },
+                        text = { Text(tr("Block"), color = MeshColors.danger) },
                         leadingIcon = { Icon(Icons.Filled.Block, null, tint = MeshColors.danger) },
                         onClick = { menuFor = null; blocking = fw to node })
                 }
             }
         }
         if (sorted.isNotEmpty()) item {
-            Text("Touch and hold a radio to block it, or to hide it from the map if it is yours.", fontSize = 13.sp, color = MeshColors.secondary)
+            Text(tr("Touch and hold a radio to block it, or to hide it from the map if it is yours."), fontSize = 13.sp, color = MeshColors.secondary)
         }
         if (blockedNodes.isNotEmpty()) {
-            item { Text("Blocked", fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.padding(top = 12.dp)) }
+            item { Text(tr("Blocked"), fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.padding(top = 12.dp)) }
             items(blockedNodes, key = { "b${it.first.rawValue}${it.second.num}" }) { (fw, node) ->
                 MeshCard {
                     Row(Modifier.padding(horizontal = 14.dp).heightIn(min = MeshUI.minTap), verticalAlignment = Alignment.CenterVertically) {
                         Text(node.displayName, color = MeshColors.secondary, modifier = Modifier.weight(1f))
                         if (two) FirmwareBadge(fw, compact = true)
-                        TextButton(onClick = { radios.link(fw).unblock(node.num) }) { Text("Unblock") }
+                        TextButton(onClick = { radios.link(fw).unblock(node.num) }) { Text(tr("Unblock")) }
                     }
                 }
             }

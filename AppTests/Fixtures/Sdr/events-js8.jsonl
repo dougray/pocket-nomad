@@ -1,0 +1,5 @@
+{"t":"js8","seq":300,"ts":1793975400000,"from":"K5SIM","to":"@HB","text":"HEARTBEAT EM10","snr":-9,"mhz":14.078999999999999,"kind":"hb"}
+{"t":"js8","seq":301,"ts":1793975415000,"from":"W1TEST","to":"@ALLCALL","text":"CQ CQ CQ FN31","snr":-15,"mhz":14.079137,"kind":"cq"}
+{"t":"js8","seq":302,"ts":1793975430000,"from":"N0DEMO","to":"K5SIM","text":"SNR -12","snr":-12,"mhz":14.079274,"kind":"msg"}
+{"t":"js8","seq":303,"ts":1793975445000,"from":"K5SIM","to":"N0DEMO","text":"ACK","snr":-7,"mhz":14.079410999999999,"kind":"msg"}
+{"t":"js8","seq":304,"ts":1793975460000,"from":"VE3FAKE","to":"@ALLCALL","text":"NET TONIGHT 0100Z","snr":-18,"mhz":14.079547999999999,"kind":"msg"}

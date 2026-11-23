@@ -4,7 +4,7 @@
 
 package org.nomadpocket.app.map
 
-import org.nomadpocket.app.i18n.tr
+import org.nomadpocket.i18n.tr
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -39,10 +39,10 @@ fun PotaDialog(onDismiss: () -> Unit) {
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(enabled = !state.busy && here != null, onClick = { scope.launch { store.refresh(here!!.latitude, here.longitude, force = true) } }) { Text(if (state.busy) "Updating…" else "Update") }
-                if (here == null) Text("Waiting for your position…", style = MaterialTheme.typography.bodySmall)
+                if (here == null) Text(tr("Waiting for your position…"), style = MaterialTheme.typography.bodySmall)
                 state.snapshot?.let { Text("Updated ${PotaParsers.ageText(it.fetchedMillis, now)}", style = MaterialTheme.typography.bodySmall) }
                 state.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-                Text("Parks on the Air (POTA) is an amateur radio award programme: operators go to parks and make contacts. Download once with signal; the last copy stays readable with no signal.",
+                Text(tr("Parks on the Air (POTA) is an amateur radio award programme: operators go to parks and make contacts. Download once with signal; the last copy stays readable with no signal."),
                     style = MaterialTheme.typography.labelSmall)
                 Text("On the air now (${spots.size})", style = MaterialTheme.typography.titleMedium)
                 if (spots.isEmpty()) Text(if (state.snapshot == null) "Tap Update." else "No fresh spots in the last 45 minutes.", style = MaterialTheme.typography.bodySmall)
@@ -64,7 +64,7 @@ fun PotaDialog(onDismiss: () -> Unit) {
                 parks.take(40).forEach { p ->
                     Column { Text(p.name); Text(p.reference, style = MaterialTheme.typography.labelSmall); PlaceActions(p.name, p.latitude, p.longitude, onDismiss) }
                 }
-                Text("Data: POTA (pota.app), a free public service. Positions come from the park list; activations are spots posted by operators and the Reverse Beacon Network.", style = MaterialTheme.typography.labelSmall)
+                Text(tr("Data: POTA (pota.app), a free public service. Positions come from the park list; activations are spots posted by operators and the Reverse Beacon Network."), style = MaterialTheme.typography.labelSmall)
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text(tr("Done")) } })

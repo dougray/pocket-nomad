@@ -125,7 +125,7 @@ struct SurviveHome: View {
 
     private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.title3.bold())
+            Text(LocalizedStringKey(title)).font(.title3.bold())
             content()
         }
     }

@@ -3,6 +3,7 @@ package org.nomadpocket.app.ui
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Backpack
+import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Explore
@@ -42,6 +43,7 @@ object Symbols {
         "heart.text.square.fill" -> Icons.Filled.LocalHospital
         "checklist" -> Icons.Filled.Checklist
         "sun.horizon.fill" -> Icons.Filled.WbTwilight
+        "battery.100.bolt" -> Icons.Filled.BatteryChargingFull
         "shippingbox.fill" -> Icons.Filled.Inventory2
         else -> Icons.Filled.Description
     }

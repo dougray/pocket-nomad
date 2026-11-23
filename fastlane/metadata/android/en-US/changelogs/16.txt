@@ -1,0 +1,1 @@
+New: listen to a radio's audio in the Ham tab (APRS, weather radio alerts and FT8), and on Android ships (AIS), APRS and weather radio from a dongle in your phone. Plus the antenna and solar node tools and guides. Beta: tell us what breaks.

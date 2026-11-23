@@ -1,6 +1,6 @@
 package org.nomadpocket.app.guides
 
-import org.nomadpocket.app.i18n.tr
+import org.nomadpocket.i18n.tr
 
 import android.annotation.SuppressLint
 import android.content.Intent
@@ -85,7 +85,7 @@ fun SurviveScreen(
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(tr("Survive"), Modifier.weight(1f), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-            IconButton(onClick = onSettings) { Icon(Icons.Filled.Settings, contentDescription = "Settings") }
+            IconButton(onClick = onSettings) { Icon(Icons.Filled.Settings, contentDescription = tr("Settings")) }
         }
         OutlinedTextField(
             value = query,
@@ -121,7 +121,7 @@ fun SurviveScreen(
                 val more = fullText ?: emptyList()
                 if (more.isNotEmpty()) {
                     item {
-                        Text("Full text", Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
+                        Text(tr("Full text"), Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
                             style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     }
                 }
@@ -175,7 +175,7 @@ private fun SurviveHome(library: GuideLibrary, onGuide: (Guide) -> Unit, onCateg
                 }
             }
         }
-        Section("Guides") {
+        Section(tr("Guides")) {
             library.categories.forEach { c ->
                 Row(
                     Modifier.fillMaxWidth().background(cardColor, RoundedCornerShape(14.dp)).clickable { onCategory(c.id) }.padding(14.dp),

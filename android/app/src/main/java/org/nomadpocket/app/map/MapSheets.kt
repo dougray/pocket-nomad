@@ -2,6 +2,8 @@
 
 package org.nomadpocket.app.map
 
+import org.nomadpocket.i18n.tr
+
 import android.text.format.DateUtils
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -84,7 +86,7 @@ private fun Sheet(onDismiss: () -> Unit, content: @Composable () -> Unit) {
 private fun SheetTitle(title: String, onDone: (() -> Unit)? = null) {
     Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        if (onDone != null) TextButton(onClick = onDone) { Text("Done") }
+        if (onDone != null) TextButton(onClick = onDone) { Text(tr("Done")) }
     }
 }
 
@@ -100,13 +102,13 @@ fun PinEditorSheet(point: LatLng, onDismiss: () -> Unit, onSave: (String, MapPin
     var kind by remember { mutableStateOf(MapPin.Kind.RALLY) }
     Sheet(onDismiss) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-            Text("Drop a pin", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+            TextButton(onClick = onDismiss) { Text(tr("Cancel")) }
+            Text(tr("Drop a pin"), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            TextButton(onClick = { onSave(name.trim(), kind) }) { Text("Save", fontWeight = FontWeight.Bold) }
+            TextButton(onClick = { onSave(name.trim(), kind) }) { Text(tr("Save"), fontWeight = FontWeight.Bold) }
         }
-        OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Name") }, singleLine = true)
-        Header("Type")
+        OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(tr("Name")) }, singleLine = true)
+        Header(tr("Type"))
         MapPin.Kind.entries.chunked(3).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { k ->
@@ -131,10 +133,10 @@ fun PlacesSheet(
     onWorld: () -> Unit,
 ) {
     Sheet(onDismiss) {
-        SheetTitle("Places", onDismiss)
-        Header("Saved places")
+        SheetTitle(tr("Places"), onDismiss)
+        Header(tr("Saved places"))
         if (pins.isEmpty()) {
-            Text("Press and hold on the map to drop a pin for water, shelter or a rally point.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(tr("Press and hold on the map to drop a pin for water, shelter or a rally point."), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         pins.forEach { pin ->
             Row(Modifier.fillMaxWidth().clickable { onPin(pin) }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -147,14 +149,14 @@ fun PlacesSheet(
                 IconButton(onClick = { onDelete(pin) }) { Icon(Icons.Filled.Delete, contentDescription = "Delete ${pin.name}") }
             }
         }
-        Header("Map regions")
+        Header(tr("Map regions"))
         regions.forEach { r ->
             Row(Modifier.fillMaxWidth().clickable { onRegion(r) }.padding(vertical = 10.dp)) {
                 Text(r.name, Modifier.weight(1f))
                 Text(TileMath.formatBytes(r.bytes), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        Text("World", Modifier.fillMaxWidth().clickable(onClick = onWorld).padding(vertical = 10.dp), color = MaterialTheme.colorScheme.primary)
+        Text(tr("World"), Modifier.fillMaxWidth().clickable(onClick = onWorld).padding(vertical = 10.dp), color = MaterialTheme.colorScheme.primary)
     }
 }
 
@@ -172,22 +174,22 @@ fun KnownRadiosSheet(mapCenter: LatLng?, onDismiss: () -> Unit) {
     val nf = NumberFormat.getIntegerInstance()
 
     Sheet(onDismiss) {
-        SheetTitle("Known radios", onDismiss)
-        Header("On this phone")
+        SheetTitle(tr("Known radios"), onDismiss)
+        Header(tr("On this phone"))
         val updated = store.updated
         if (updated != null) {
-            LabeledRow("Meshtastic", nf.format(store.meshtasticCount))
-            LabeledRow("MeshCore", nf.format(store.meshcoreCount))
-            LabeledRow("Repeaters and routers", nf.format(store.radios.count { it.role == KnownRadio.Role.REPEATER }))
-            LabeledRow("Downloaded", DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date.from(updated)))
+            LabeledRow(tr("Meshtastic"), nf.format(store.meshtasticCount))
+            LabeledRow(tr("MeshCore"), nf.format(store.meshcoreCount))
+            LabeledRow(tr("Repeaters and routers"), nf.format(store.radios.count { it.role == KnownRadio.Role.REPEATER }))
+            LabeledRow(tr("Downloaded"), DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date.from(updated)))
         } else {
-            Text("None downloaded yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(tr("None downloaded yet."), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Footnote("Shown on the map under Layers › Known radios. They stay on this phone and work offline. Positions are what each radio last reported, often rounded for privacy, and may be out of date.",
+        Footnote(tr("Shown on the map under Layers › Known radios. They stay on this phone and work offline. Positions are what each radio last reported, often rounded for privacy, and may be out of date."),
             Modifier.padding(top = 6.dp))
 
-        Header("Download")
-        Text("Keep radios within", style = MaterialTheme.typography.bodyMedium)
+        Header(tr("Download"))
+        Text(tr("Keep radios within"), style = MaterialTheme.typography.bodyMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             KnownRadioStore.radiusChoices.forEach { km ->
                 FilterChip(selected = radiusKm == km, onClick = { radiusKm = km }, label = { Text("$km km") })
@@ -204,7 +206,7 @@ fun KnownRadiosSheet(mapCenter: LatLng?, onDismiss: () -> Unit) {
             if (store.downloading) {
                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 Spacer(Modifier.width(8.dp))
-                Text("Downloading…")
+                Text(tr("Downloading…"))
             } else {
                 Icon(Icons.Filled.Download, null)
                 Spacer(Modifier.width(8.dp))
@@ -228,7 +230,7 @@ fun KnownRadiosSheet(mapCenter: LatLng?, onDismiss: () -> Unit) {
         )
         if (store.updated != null) {
             TextButton(onClick = { confirmDelete = true }, modifier = Modifier.padding(top = 12.dp)) {
-                Text("Delete known radios", color = Brand.danger)
+                Text(tr("Delete known radios"), color = Brand.danger)
             }
         }
     }
@@ -236,8 +238,8 @@ fun KnownRadiosSheet(mapCenter: LatLng?, onDismiss: () -> Unit) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("Delete ${store.radios.size} known radios from this phone?") },
-            confirmButton = { TextButton(onClick = { KnownRadioStore.deleteAll(); confirmDelete = false }) { Text("Delete", color = Brand.danger) } },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+            confirmButton = { TextButton(onClick = { KnownRadioStore.deleteAll(); confirmDelete = false }) { Text(tr("Delete"), color = Brand.danger) } },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(tr("Cancel")) } },
         )
     }
 }
@@ -263,28 +265,28 @@ fun StreetsAroundMeSheet(mapCenter: LatLng?, onDismiss: () -> Unit) {
     val nf = NumberFormat.getIntegerInstance()
 
     Sheet(onDismiss) {
-        SheetTitle("Streets around me", onDismiss)
-        Text("Saves the map around you for use with no signal, in two parts.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Header("Highways, main roads, cities and towns")
+        SheetTitle(tr("Streets around me"), onDismiss)
+        Text(tr("Saves the map around you for use with no signal, in two parts."), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Header(tr("Highways, main roads, cities and towns"))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             StreetsArea.wideChoicesKm.forEach { km ->
                 FilterChip(selected = wideKm == km, onClick = { wideKm = km }, label = { Text("$km km") })
             }
         }
-        Header("Every street")
+        Header(tr("Every street"))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             StreetsArea.detailChoicesKm.forEach { km ->
                 FilterChip(selected = detailKm == km, onClick = { detailKm = km }, label = { Text("$km km") })
             }
         }
-        Header("Download")
+        Header(tr("Download"))
         if (plan == null) {
-            Text("Waiting for GPS or the map. Move the map to your area if there's no GPS fix.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(tr("Waiting for GPS or the map. Move the map to your area if there's no GPS fix."), color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
-            LabeledRow("Size", "About ${TileMath.formatBytes(plan.bytes)} (${nf.format(plan.tiles)} tiles)")
-            LabeledRow("Centred on", if (usingGPS) "Where you are" else "The middle of the map")
+            LabeledRow(tr("Size"), "About ${TileMath.formatBytes(plan.bytes)} (${nf.format(plan.tiles)} tiles)")
+            LabeledRow(tr("Centred on"), if (usingGPS) "Where you are" else "The middle of the map")
             if (plan.tooBig) {
-                Text("That's too much for one download. Pick a smaller distance.", color = Brand.danger, style = MaterialTheme.typography.bodySmall)
+                Text(tr("That's too much for one download. Pick a smaller distance."), color = Brand.danger, style = MaterialTheme.typography.bodySmall)
             }
             Button(
                 onClick = { OfflineRegions.downloadStreets(context, plan) },
@@ -293,7 +295,7 @@ fun StreetsAroundMeSheet(mapCenter: LatLng?, onDismiss: () -> Unit) {
             ) {
                 Icon(Icons.Filled.Download, null)
                 Spacer(Modifier.width(8.dp))
-                Text("Download streets around me")
+                Text(tr("Download streets around me"))
             }
         }
         error?.let { Text(it, Modifier.padding(top = 6.dp), color = Brand.danger, style = MaterialTheme.typography.bodySmall) }
@@ -308,7 +310,7 @@ fun StreetsAroundMeSheet(mapCenter: LatLng?, onDismiss: () -> Unit) {
             }
         }
         if (active.isNotEmpty()) {
-            TextButton(onClick = { OfflineRegions.cancelStreets() }) { Text("Cancel download", color = Brand.danger) }
+            TextButton(onClick = { OfflineRegions.cancelStreets() }) { Text(tr("Cancel download"), color = Brand.danger) }
         }
         Footnote(
             (if (center != null && !usingGPS) "No GPS fix yet, so this saves around the middle of the map: move the map to your area first. " else "") +
@@ -316,7 +318,7 @@ fun StreetsAroundMeSheet(mapCenter: LatLng?, onDismiss: () -> Unit) {
                 "Delete saved parts in Layers › Offline maps. Size is an estimate.",
             Modifier.padding(top = 6.dp),
         )
-        Footnote("Map data © OpenStreetMap contributors · OpenFreeMap", Modifier.padding(top = 4.dp))
+        Footnote(tr("Map data © OpenStreetMap contributors · OpenFreeMap"), Modifier.padding(top = 4.dp))
     }
 }
 
@@ -334,38 +336,38 @@ fun OfflineMapsSheet(visibleBounds: () -> LatLngBounds?, onDismiss: () -> Unit, 
     }
 
     Sheet(onDismiss) {
-        SheetTitle("Offline maps", onDismiss)
+        SheetTitle(tr("Offline maps"), onDismiss)
         TextButton(onClick = onStreets) {
             Icon(Icons.Filled.Download, null)
             Spacer(Modifier.width(8.dp))
-            Text("Download streets around me…")
+            Text(tr("Download streets around me…"))
         }
-        Header("Save this area")
+        Header(tr("Save this area"))
         if (bounds == null || tiles == null) {
-            Text("Wait for the map to load, then try again.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(tr("Wait for the map to load, then try again."), color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
             val tooBig = tiles > OfflineRegions.MAX_TILES
-            LabeledRow("Area", String.format(java.util.Locale.US, "%.2f°, %.2f° to %.2f°, %.2f°",
+            LabeledRow(tr("Area"), String.format(java.util.Locale.US, "%.2f°, %.2f° to %.2f°, %.2f°",
                 max(bounds.latitudeSouth, -90.0), max(bounds.longitudeWest, -180.0), min(bounds.latitudeNorth, 90.0), min(bounds.longitudeEast, 180.0)))
-            LabeledRow("Detail", "Up to street level (zoom ${OfflineRegions.MAX_ZOOM})")
-            LabeledRow("Size", "About ${TileMath.formatBytes(TileMath.estimateBytes(tiles))} (${NumberFormat.getIntegerInstance().format(tiles)} tiles)")
+            LabeledRow(tr("Detail"), "Up to street level (zoom ${OfflineRegions.MAX_ZOOM})")
+            LabeledRow(tr("Size"), "About ${TileMath.formatBytes(TileMath.estimateBytes(tiles))} (${NumberFormat.getIntegerInstance().format(tiles)} tiles)")
             if (tooBig) {
-                Text("This area is too big. Zoom in, then try again.", color = Brand.danger, style = MaterialTheme.typography.bodySmall)
+                Text(tr("This area is too big. Zoom in, then try again."), color = Brand.danger, style = MaterialTheme.typography.bodySmall)
             } else {
-                OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth().padding(top = 6.dp), label = { Text("Name") }, singleLine = true)
+                OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth().padding(top = 6.dp), label = { Text(tr("Name")) }, singleLine = true)
                 Button(onClick = { OfflineRegions.download(context, name.ifBlank { "Map region" }, bounds) }, modifier = Modifier.padding(top = 6.dp)) {
                     Icon(Icons.Filled.Download, null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Download this area")
+                    Text(tr("Download this area"))
                 }
             }
-            Footnote("Saves the map you see now, from the whole world down to street level, from OpenFreeMap (OpenStreetMap data). Needs internet once. Size is an estimate.",
+            Footnote(tr("Saves the map you see now, from the whole world down to street level, from OpenFreeMap (OpenStreetMap data). Needs internet once. Size is an estimate."),
                 Modifier.padding(top = 6.dp))
         }
         error?.let { Text(it, Modifier.padding(top = 6.dp), color = Brand.danger, style = MaterialTheme.typography.bodySmall) }
 
-        Header("On this phone")
-        if (regions.isEmpty()) Text("None yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Header(tr("On this phone"))
+        if (regions.isEmpty()) Text(tr("None yet."), color = MaterialTheme.colorScheme.onSurfaceVariant)
         regions.forEach { r ->
             Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -388,8 +390,8 @@ fun OfflineMapsSheet(visibleBounds: () -> LatLngBounds?, onDismiss: () -> Unit, 
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
             title = { Text("Delete ${r.name} from this phone?") },
-            confirmButton = { TextButton(onClick = { OfflineRegions.delete(r.id); confirmDelete = null }) { Text("Delete", color = Brand.danger) } },
-            dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text("Cancel") } },
+            confirmButton = { TextButton(onClick = { OfflineRegions.delete(r.id); confirmDelete = null }) { Text(tr("Delete"), color = Brand.danger) } },
+            dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text(tr("Cancel")) } },
         )
     }
 }
@@ -449,7 +451,7 @@ private fun HideMineButton(enabled: Boolean, onHide: () -> Unit) {
     TextButton(onClick = onHide, enabled = enabled, modifier = Modifier.padding(top = 8.dp)) {
         Icon(Icons.Filled.VisibilityOff, null)
         Spacer(Modifier.width(6.dp))
-        Text("This is mine: hide it from the map")
+        Text(tr("This is mine: hide it from the map"))
     }
 }
 
@@ -460,10 +462,10 @@ private fun KnownRadioDetail(radio: KnownRadio) {
             Box(Modifier.size(14.dp).background(RadioColors.color(radio.firmware), CircleShape))
             Text(radio.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2)
         }
-        LabeledRow("System", if (radio.firmware == Firmware.MESHCORE) "MeshCore" else "Meshtastic")
-        LabeledRow("Type", radio.roleLabel)
-        radio.lastSeen?.let { LabeledRow("Last reported", DateUtils.getRelativeTimeSpanString(it.toEpochMilli()).toString()) }
-        LabeledRow("Position", CoordinateFormat.decimal(radio.latitude, radio.longitude))
+        LabeledRow(tr("System"), if (radio.firmware == Firmware.MESHCORE) "MeshCore" else "Meshtastic")
+        LabeledRow(tr("Type"), radio.roleLabel)
+        radio.lastSeen?.let { LabeledRow(tr("Last reported"), DateUtils.getRelativeTimeSpanString(it.toEpochMilli()).toString()) }
+        LabeledRow(tr("Position"), CoordinateFormat.decimal(radio.latitude, radio.longitude))
         Footnote("From ${if (radio.firmware == Firmware.MESHCORE) "map.meshcore.io" else "meshmap.net"}. Your radio may not hear it.")
     }
 }

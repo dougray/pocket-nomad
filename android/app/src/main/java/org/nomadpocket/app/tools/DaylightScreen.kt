@@ -1,5 +1,7 @@
 package org.nomadpocket.app.tools
 
+import org.nomadpocket.i18n.tr
+
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -56,23 +58,23 @@ fun DaylightScreen(modifier: Modifier) {
                     else -> Big("After dark", "Plan for night")
                 }
             }
-            FormSection("Today") {
-                LabeledRow("First light", fmt(day.civilDawn))
-                LabeledRow("Sunrise", fmt(day.sunrise))
-                LabeledRow("Sunset", fmt(day.sunset))
-                LabeledRow("Last light", fmt(day.civilDusk))
+            FormSection(tr("Today")) {
+                LabeledRow(tr("First light"), fmt(day.civilDawn))
+                LabeledRow(tr("Sunrise"), fmt(day.sunrise))
+                LabeledRow(tr("Sunset"), fmt(day.sunset))
+                LabeledRow(tr("Last light"), fmt(day.civilDusk))
             }
-            FormSection("Moon") {
+            FormSection(tr("Moon")) {
                 IconLine(Icons.Filled.Brightness2, SolarCalculator.moonName(SolarCalculator.moonPhase(now)))
-                Footnote("A bright moon (near full) gives enough light to move at night.")
+                Footnote(tr("A bright moon (near full) gives enough light to move at night."))
             }
         } else {
             FormSection {
-                Text("Waiting for a GPS fix to work out sunrise and sunset where you are.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(tr("Waiting for a GPS fix to work out sunrise and sunset where you are."), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         FormSection {
-            Footnote("Quick check: hold your hand at arm's length with fingers flat under the sun. Each finger between the sun and the horizon is about 15 minutes of daylight.")
+            Footnote(tr("Quick check: hold your hand at arm's length with fingers flat under the sun. Each finger between the sun and the horizon is about 15 minutes of daylight."))
         }
     }
 }

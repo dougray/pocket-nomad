@@ -1,5 +1,7 @@
 package org.nomadpocket.app.ask
 
+import org.nomadpocket.i18n.tr
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -118,9 +120,9 @@ fun AskScreen(
 
     Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Ask", Modifier.weight(1f), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+            Text(tr("Ask"), Modifier.weight(1f), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
             ModelMenu(preferred, models, choice, vm::setPreferred, onModels)
-            if (exchanges.isNotEmpty()) TextButton(onClick = vm::clear) { Text("Clear") }
+            if (exchanges.isNotEmpty()) TextButton(onClick = vm::clear) { Text(tr("Clear")) }
         }
         LazyColumn(
             Modifier.weight(1f).fillMaxWidth(),
@@ -147,10 +149,10 @@ fun AskScreen(
                 keyboardActions = KeyboardActions(onSend = { send(question) }),
             )
             if (busy) {
-                FilledIconButton(onClick = vm::stop, modifier = Modifier.size(48.dp)) { Icon(Icons.Filled.Stop, contentDescription = "Stop") }
+                FilledIconButton(onClick = vm::stop, modifier = Modifier.size(48.dp)) { Icon(Icons.Filled.Stop, contentDescription = tr("Stop")) }
             } else {
                 FilledIconButton(onClick = { send(question) }, enabled = question.isNotBlank(), modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Filled.ArrowUpward, contentDescription = "Ask")
+                    Icon(Icons.Filled.ArrowUpward, contentDescription = tr("Ask"))
                 }
             }
         }
@@ -208,7 +210,7 @@ private fun Intro(choice: ModelChoice, send: (String) -> Unit, onModels: () -> U
                 else "No AI model is available, so you'll get the best matching passages instead.",
                 Modifier.padding(top = 8.dp),
             )
-            if (Llama.isAvailable) TextButton(onClick = onModels) { Text("AI models") }
+            if (Llama.isAvailable) TextButton(onClick = onModels) { Text(tr("AI models")) }
         }
     }
 }
@@ -349,7 +351,7 @@ fun answerText(answer: String, linkColor: Color, onCite: (Int) -> Unit): Annotat
 fun PassageDialog(passage: AskPassage, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(tr("Done")) } },
         title = { Text(passage.title) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {

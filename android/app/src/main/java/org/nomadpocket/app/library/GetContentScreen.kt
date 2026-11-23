@@ -1,5 +1,7 @@
 package org.nomadpocket.app.library
 
+import org.nomadpocket.i18n.tr
+
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -97,7 +99,7 @@ fun GetContentScreen(modifier: Modifier) {
         LibrarySearchField(query, { query = it }, "Search the Kiwix library")
         FormSection {
             LabeledRow("Free space on phone", byteString(Downloads.freeSpace(context)))
-            LabeledRow("Books", "${books.size} · ${byteString(books.sumOf { it.size })}")
+            LabeledRow(tr("Books"), "${books.size} · ${byteString(books.sumOf { it.size })}")
             (downloadError ?: shelfError)?.let {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(it, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = Brand.danger)
@@ -177,7 +179,7 @@ fun GetContentScreen(modifier: Modifier) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.Filled.Folder, contentDescription = null, tint = accent)
-                TextButton(onClick = { picker.launch(arrayOf("*/*")) }) { Text("Import from Files…") }
+                TextButton(onClick = { picker.launch(arrayOf("*/*")) }) { Text(tr("Import from Files…")) }
             }
         }
         Spacer(Modifier.height(24.dp))
@@ -189,7 +191,7 @@ fun GetContentScreen(modifier: Modifier) {
             title = { Text("Download ${byteString(bulk.sumOf { it.size })} of survival references?") },
             text = { Text("Use Wi-Fi if you can. Make sure the phone has room to spare.") },
             confirmButton = { TextButton(onClick = { confirmBulk = false; bulk.forEach { Downloads.start(context, it) } }) { Text("Download all") } },
-            dismissButton = { TextButton(onClick = { confirmBulk = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { confirmBulk = false }) { Text(tr("Cancel")) } },
         )
     }
 }

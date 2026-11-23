@@ -65,6 +65,11 @@
 	<string>public.app-category.reference</string>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<false/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Pocket Nomad connects to your Meshtastic or MeshCore radios, and to ham radio KISS TNCs, over Bluetooth so you can send and receive messages without cell service.</string>
 	<key>NSCameraUsageDescription</key>
@@ -75,6 +80,8 @@
 	<string>Pocket Nomad connects to an SDR box (a small Raspberry Pi receiver) on your network to show aircraft, APRS packets and weather alerts it hears.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Pocket Nomad shows where you are on the offline map and compass, can add your coordinates to an SOS message, and (if you turn it on) records where your radio hears others for the coverage map. In drive mode, which you turn on, this keeps working while the phone is locked. Your location never leaves the phone unless you send or export it.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Pocket Nomad listens to a ham radio's speaker through the headset input, only when you turn on Listen to radio audio, to decode packet radio (APRS). It never records or keeps sound and never transmits.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
