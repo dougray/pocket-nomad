@@ -25,10 +25,11 @@ Copy for App Store Connect. Every field is within Apple's limits. Screenshots ar
 **Promotional text** (170 max):
 > First aid, water, maps, an offline medical library and mesh radio texting, all on your phone before you need them. Works with no signal. Free and open source.
 
-**Keywords** (100 max):
-> offline,survival,first aid,emergency,prepper,meshtastic,meshcore,lora,mesh,sos,compass,hiking,water
+**Keywords** (100 max; this line is 98). Neither firmware's name goes here: App Review
+treats another project's trademark in the keywords as a 5.2.1 / 2.3.7 problem.
+> offline,survival,first aid,emergency,prepper,lora,mesh radio,off-grid,sos,compass,hiking,water,map
 
-**Description** (4000 max):
+**Description** (4000 max; this is 2,501):
 > Pocket Nomad is a survival kit that works with no signal. Everything is on your phone before you need it: no account, no internet, no tracking.
 >
 > SURVIVE
@@ -47,11 +48,11 @@ Copy for App Store Connect. Every field is within Apple's limits. Screenshots ar
 > • Save pins for water, shelter and rally points
 >
 > MESH
-> • Text people nearby with no cell network through a Meshtastic or MeshCore LoRa radio (sold separately) paired over Bluetooth
+> • Text people nearby with no cell network through a LoRa mesh radio (sold separately) running Meshtastic® or MeshCore firmware, paired over Bluetooth
 > • Send an SOS with your coordinates, see nearby radios on the map
 > • Optional coverage scanner shows where your mesh reaches, using your phone's GPS. Off by default; nothing is shared unless you export it, and private zones are always removed first
 > • Drive mode keeps mapping with the phone locked in a car mount, and its ping test marks where your messages actually get through
-> • Download the known Meshtastic and MeshCore radios near you from the community maps, and see repeaters on your offline map
+> • Download the known mesh radios near you from the community maps, and see repeaters on your offline map
 >
 > APPLE WATCH
 > • SOS light, compass and position, the urgent first-aid steps and quick mesh replies on your wrist
@@ -63,6 +64,8 @@ Copy for App Store Connect. Every field is within Apple's limits. Screenshots ar
 > Apache 2.0. The full source is at github.com/dougray/pocket-nomad.
 >
 > Pocket Nomad is not a medical device and doesn't replace professional care or first-aid training. In an emergency, call your local emergency number first if you can.
+>
+> Meshtastic® is a registered trademark of Meshtastic LLC. MeshCore is a trademark of its owners. Pocket Nomad is an independent app and is not affiliated with or endorsed by either project.
 
 **What's New** (version 1.0): leave blank for the first release.
 

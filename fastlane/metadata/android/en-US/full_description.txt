@@ -16,11 +16,11 @@ MAP
 • Save pins for water, shelter and rally points
 
 MESH
-• Text people nearby with no cell network through a Meshtastic or MeshCore LoRa radio (sold separately) paired over Bluetooth
+• Text people nearby with no cell network through a LoRa mesh radio (sold separately) running Meshtastic® or MeshCore firmware, paired over Bluetooth
 • Send an SOS with your coordinates, see nearby radios on the map
 • Optional coverage scanner shows where your mesh reaches, using your phone's GPS. Off by default; nothing is shared unless you export it, and private zones are always removed first
 • Drive mode keeps mapping with the phone in a car mount, and its ping test marks where your messages actually get through
-• Download the known Meshtastic and MeshCore radios near you from the community maps, and see repeaters on your map
+• Download the known mesh radios near you from the community maps, and see repeaters on your map
 
 WEAR OS
 • SOS light, compass and position, and the urgent first-aid steps on your watch, even with your phone left behind
@@ -32,3 +32,5 @@ FREE AND OPEN SOURCE
 Apache 2.0. The full source is at github.com/dougray/pocket-nomad.
 
 Pocket Nomad is not a medical device and doesn't replace professional care or first-aid training. In an emergency, call your local emergency number first if you can.
+
+Meshtastic® is a registered trademark of Meshtastic LLC. MeshCore is a trademark of its owners. Pocket Nomad is an independent app and is not affiliated with or endorsed by either project.
